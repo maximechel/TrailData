@@ -1,12 +1,3 @@
-<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Loadscope — suivi de la charge d'entraînement (TRIMP, charge aiguë/chronique, ACWR) pour coachs et athlètes.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <title>Loadscope</title>
 <style>
   :root{
@@ -154,9 +145,25 @@
   .ls-footer{margin-top:28px;text-align:center;font-size:11.5px;color:var(--text-muted);}
   .ls-footer a{color:var(--text-secondary);}
   [hidden]{display:none!important;}
-</style>
 
-<body>
+  /* ---------- toast / banner ---------- */
+  .ls-toast{display:flex;align-items:flex-start;gap:10px;border-radius:12px;padding:11px 14px;margin-bottom:16px;
+    border:1px solid var(--border);background:var(--surface);border-left:4px solid var(--accent);font-size:13px;color:var(--text-secondary);}
+  .ls-toast button{margin-left:auto;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 2px;flex:none;}
+
+  /* ---------- strava ---------- */
+  .ls-btn.strava{background:#fc4c02;color:#fff;border-color:transparent;}
+  .ls-btn.strava:hover{filter:brightness(1.06);}
+  .ls-strava-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:700;
+    background:var(--good);color:var(--good-ink);font-family:var(--font-mono);}
+  .ls-source-tag{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:999px;font-family:var(--font-mono);}
+  .ls-source-tag.manual{background:var(--surface-2);color:var(--text-muted);}
+  .ls-source-tag.strava{background:#fc4c0222;color:#fc4c02;}
+
+  /* ---------- key gate ---------- */
+  .ls-gate-note{font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5;}
+  .ls-gate-error{font-size:12px;color:var(--critical);margin-top:8px;}
+</style>
 
 <div class="ls-app">
   <header class="ls-header">
@@ -167,11 +174,11 @@
     <div class="ls-header-actions">
       <button class="ls-btn ghost small" id="btn-theme" type="button">Thème : Automatique</button>
       <button class="ls-btn" id="btn-export" type="button">Exporter (JSON)</button>
-      <label class="ls-btn" for="input-import">Importer (JSON)</label>
-      <input class="ls-hidden" type="file" id="input-import" accept="application/json">
       <button class="ls-btn primary" id="btn-add-athlete" type="button">+ Athlète</button>
     </div>
   </header>
+
+  <div id="toast-root"></div>
 
   <div class="ls-layout">
     <aside class="ls-panel">
@@ -188,7 +195,7 @@
     <main id="main-panel"></main>
   </div>
 
-  <div class="ls-footer">Données stockées localement dans ce navigateur (aucun serveur). Pensez à exporter régulièrement une sauvegarde JSON.</div>
+  <div class="ls-footer">Données synchronisées sur le serveur Loadscope (Supabase) — partagées entre vos appareils. Pensez tout de même à exporter une sauvegarde JSON de temps en temps.</div>
 </div>
 
 <div id="modal-root"></div>
@@ -201,115 +208,126 @@
    Application autonome, sans backend. Données persistées en localStorage.
    ========================================================================= */
 
-const STORAGE_KEY = "loadscope.v1";
 const CAT_HUES = ["--cat-1","--cat-2","--cat-3","--cat-4","--cat-5","--cat-6","--cat-7","--cat-8"];
 const SPORTS = ["Course à pied","Trail","Cyclisme","Triathlon","Natation","Ski de fond","Autre"];
 const ZONE_LABELS = ["Z1 · Récup.","Z2 · Endurance","Z3 · Tempo","Z4 · Seuil","Z5 · VMA/Max"];
+
+const API_BASE = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/app-api";
+const STRAVA_CLIENT_ID = "277368";
+const STRAVA_REDIRECT_URI = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-callback";
+const COACH_KEY_STORAGE = "loadscope.coachkey";
+const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
 let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null };
 
-/* ---------------------------- persistence ---------------------------- */
-
-function loadState(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){ console.warn("Lecture localStorage impossible", e); }
-  return null;
-}
-
-function saveState(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  catch(e){ console.warn("Écriture localStorage impossible", e); }
-}
-
-function uid(prefix){ return prefix + "_" + Math.random().toString(36).slice(2,10); }
-
-/* ---------------------------- seed / demo data ---------------------------- */
-
-function mulberry32(seed){
-  return function(){
-    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 
-function buildSeedSessions(athleteId, rng, opts){
-  const sessions = [];
-  const today = new Date();
-  const days = opts.days;
-  for(let i = days; i >= 0; i--){
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    const dow = d.getDay(); // 0 sun .. 6 sat
-    const inSpike = opts.spikeFromDaysAgo != null && i <= opts.spikeFromDaysAgo;
-    if(!inSpike && opts.restDays.includes(dow)) continue;
-    if(inSpike){ if(rng() < opts.spikeSkipChance) continue; }
-    else if(rng() < opts.skipChance) continue;
+/* ---------------------------- API layer ---------------------------- */
 
-    const isHard = (dow === opts.hardDay1 || dow === opts.hardDay2) || (inSpike && rng() < 0.85);
-    const durationBase = opts.type === "Cyclisme" ? 70 : 45;
-    let duration = Math.round(durationBase + rng()*30 + (isHard? 20:0) + (inSpike? opts.spikeExtraMin:0));
-    let distance, dPlus, dMinus;
-    if(opts.type === "Cyclisme"){
-      distance = +(duration/60 * (26 + rng()*8)).toFixed(1);
-      dPlus = Math.round(distance * (8 + rng()*10));
-    } else if(opts.type === "Trail"){
-      distance = +(duration/60 * (8 + rng()*3)).toFixed(1);
-      dPlus = Math.round(distance * (25 + rng()*35));
-    } else {
-      distance = +(duration/60 * (10 + rng()*2.5)).toFixed(1);
-      dPlus = Math.round(distance * (2 + rng()*6));
-    }
-    dMinus = Math.round(dPlus * (0.85 + rng()*0.2));
-
-    // Répartition du temps en zones (minutes), somme = duration
-    let shares;
-    if(isHard) shares = [0.10,0.20,0.25,0.30,0.15];
-    else shares = [0.35,0.45,0.13,0.05,0.02];
-    shares = shares.map(s => s * (0.85 + rng()*0.3));
-    const sum = shares.reduce((a,b)=>a+b,0);
-    shares = shares.map(s => s/sum);
-    let mins = shares.map(s => Math.round(s*duration));
-    const diff = duration - mins.reduce((a,b)=>a+b,0);
-    mins[1] += diff;
-
-    sessions.push({
-      id: uid("s"),
-      athleteId,
-      date: fmtDate(d),
-      type: opts.type,
-      duration,
-      distance,
-      dPlus, dMinus,
-      zones: mins,
-      rpe: isHard ? Math.round(6+rng()*3) : Math.round(3+rng()*3),
-      note: ""
-    });
+async function apiFetch(path, options){
+  options = options || {};
+  const key = localStorage.getItem(COACH_KEY_STORAGE) || "";
+  const headers = Object.assign({ "Content-Type":"application/json", "x-coach-key": key }, options.headers||{});
+  let res;
+  try{
+    res = await fetch(API_BASE + path, Object.assign({}, options, { headers }));
+  }catch(e){
+    throw new Error("Connexion au serveur impossible. Vérifiez votre connexion internet.");
   }
-  return sessions;
+  if(res.status === 401){
+    localStorage.removeItem(COACH_KEY_STORAGE);
+    const err = new Error("unauthorized");
+    err.unauthorized = true;
+    throw err;
+  }
+  if(!res.ok){
+    let msg = "Erreur serveur (" + res.status + ")";
+    try{ const j = await res.json(); if(j.error) msg = j.error; }catch(e){}
+    throw new Error(msg);
+  }
+  return res.json();
 }
 
-function seedData(){
-  const rng = mulberry32(42);
-  const athletes = [
-    { id: uid("a"), name: "Camille Dubois", sport: "Trail", maxHR: 190, colorIndex: 0 },
-    { id: uid("a"), name: "Lucas Nguyen", sport: "Cyclisme", maxHR: 185, colorIndex: 1 }
-  ];
-  const s1 = buildSeedSessions(athletes[0].id, rng, {
-    type:"Trail", days: 70, restDays:[1], skipChance:0.08, spikeSkipChance:0,
-    hardDay1:3, hardDay2:6, spikeFromDaysAgo: 9, spikeExtraMin: 40
+function fetchData(){ return apiFetch("/data"); }
+
+function apiSaveAthlete(athlete){
+  return apiFetch("/athletes", { method:"POST", body: JSON.stringify(athleteToApi(athlete)) });
+}
+function apiDeleteAthlete(id){
+  return apiFetch("/athletes?id=" + encodeURIComponent(id), { method:"DELETE" });
+}
+function apiSaveSession(session){
+  return apiFetch("/sessions", { method:"POST", body: JSON.stringify(sessionToApi(session)) });
+}
+function apiDeleteSession(id){
+  return apiFetch("/sessions?id=" + encodeURIComponent(id), { method:"DELETE" });
+}
+
+/* ---------------------------- snake_case <-> camelCase transform ---------------------------- */
+
+function athleteFromApi(a){
+  return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
+    stravaAthleteId: a.strava_athlete_id };
+}
+function athleteToApi(a){
+  const row = { name:a.name, sport:a.sport, max_hr: a.maxHR!=null? a.maxHR : null, color_index: a.colorIndex||0 };
+  if(a.id) row.id = a.id;
+  return row;
+}
+function sessionFromApi(s){
+  return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
+    distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
+    rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
+}
+function sessionToApi(s){
+  const row = { athlete_id:s.athleteId, date:s.date, type:s.type, duration:s.duration,
+    distance:s.distance, d_plus:s.dPlus, d_minus:s.dMinus, zones:s.zones, rpe:s.rpe, note:s.note||"" };
+  if(s.id) row.id = s.id;
+  return row;
+}
+
+/* ---------------------------- Strava connect ---------------------------- */
+
+function connectStrava(athleteId){
+  localStorage.setItem(ACTIVE_ATHLETE_STORAGE, athleteId);
+  const params = new URLSearchParams({
+    client_id: STRAVA_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: STRAVA_REDIRECT_URI,
+    approval_prompt: "auto",
+    scope: "activity:read_all",
+    state: athleteId
   });
-  const s2 = buildSeedSessions(athletes[1].id, rng, {
-    type:"Cyclisme", days: 70, restDays:[1,4], skipChance:0.35, spikeSkipChance:0,
-    hardDay1:2, hardDay2:6, spikeFromDaysAgo: null, spikeExtraMin: 0
-  });
-  return { athletes, sessions: [...s1, ...s2], demo: true };
+  window.location.href = "https://www.strava.com/oauth/authorize?" + params.toString();
+}
+
+function handleStravaRedirectParam(){
+  const url = new URL(window.location.href);
+  const flag = url.searchParams.get("strava");
+  if(!flag) return;
+  url.searchParams.delete("strava");
+  history.replaceState({}, "", url.pathname + (url.search? url.search : "") + url.hash);
+  const messages = {
+    connected: { css:"--good", text:"Compte Strava connecté. Les dernières séances (30 jours) sont en cours d'import — actualisez dans quelques instants si elles n'apparaissent pas encore." },
+    denied: { css:"--warning", text:"Connexion Strava annulée : l'autorisation n'a pas été accordée." },
+    unknown_athlete: { css:"--critical", text:"Connexion Strava impossible : athlète introuvable côté serveur." },
+    error: { css:"--critical", text:"Une erreur est survenue lors de la connexion à Strava. Réessayez." }
+  };
+  const m = messages[flag];
+  if(m) showToast(m.text, m.css);
+}
+
+function showToast(text, cssVarName){
+  const root = document.getElementById("toast-root");
+  if(!root) return;
+  root.innerHTML = `<div class="ls-toast" style="border-left-color:var(${cssVarName||"--accent"})">
+    <span>${escapeHtml(text)}</span>
+    <button type="button" id="toast-close" aria-label="Fermer">✕</button>
+  </div>`;
+  const close = document.getElementById("toast-close");
+  if(close) close.addEventListener("click", ()=>{ root.innerHTML = ""; });
 }
 
 /* ---------------------------- domain calculations ---------------------------- */
@@ -497,6 +515,9 @@ function renderMain(){
         </div>
       </div>
       <div class="ls-title-actions">
+        ${athlete.stravaAthleteId
+          ? `<span class="ls-strava-pill" title="Séances importées automatiquement depuis Strava">● Strava connecté</span>`
+          : `<button class="ls-btn small strava" id="btn-connect-strava">Connecter Strava</button>`}
         <button class="ls-btn small" id="btn-edit-athlete">Modifier</button>
         <button class="ls-btn small" id="btn-add-session">+ Séance</button>
         <button class="ls-btn small ghost" id="btn-delete-athlete">Supprimer</button>
@@ -549,7 +570,7 @@ function renderMain(){
       </div>
       <div class="ls-table-scroll">
         <table class="ls-log">
-          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th>Charge</th><th>RPE</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th>Charge</th><th>RPE</th><th>Source</th><th></th></tr></thead>
           <tbody>${sessions.map(rowHtml).join("")}</tbody>
         </table>
       </div>
@@ -559,6 +580,8 @@ function renderMain(){
   document.getElementById("btn-add-session").addEventListener("click", ()=>openSessionModal(athlete.id));
   document.getElementById("btn-edit-athlete").addEventListener("click", ()=>openAthleteModal(athlete));
   document.getElementById("btn-delete-athlete").addEventListener("click", ()=>deleteAthlete(athlete.id));
+  const stravaBtn = document.getElementById("btn-connect-strava");
+  if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
@@ -566,6 +589,7 @@ function renderMain(){
 }
 
 function rowHtml(s){
+  const isStrava = s.source === "strava";
   return `<tr>
     <td>${s.date}</td>
     <td>${escapeHtml(s.type)}</td>
@@ -575,6 +599,7 @@ function rowHtml(s){
     <td class="ls-num">${s.dMinus} m</td>
     <td class="ls-num">${trimp(s).toFixed(0)}</td>
     <td class="ls-num">${s.rpe ?? "—"}</td>
+    <td><span class="ls-source-tag ${isStrava?"strava":"manual"}">${isStrava?"Strava":"Manuel"}</span></td>
     <td><span class="ls-row-actions">
       <button class="ls-icon-btn" data-edit-session="${s.id}" title="Modifier">✎</button>
       <button class="ls-icon-btn" data-del-session="${s.id}" title="Supprimer">✕</button>
@@ -625,6 +650,7 @@ function baseChartOptions(extra){
 function destroyCharts(){ Object.keys(charts).forEach(k=>{ if(charts[k]){ charts[k].destroy(); charts[k]=null; } }); }
 
 function renderCharts(){
+  if(!state) return;
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
   if(!athlete || !document.getElementById("chart-load")) { return; }
   destroyCharts();
@@ -747,11 +773,11 @@ function openSessionModal(athleteId, sessionId){
 
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
-  form.addEventListener("submit", e=>{
+  form.addEventListener("submit", async e=>{
     e.preventDefault();
     const fd = new FormData(form);
     const session = {
-      id: existing? existing.id : uid("s"),
+      id: existing? existing.id : undefined,
       athleteId,
       date: fd.get("date"),
       type: fd.get("type"),
@@ -763,15 +789,29 @@ function openSessionModal(athleteId, sessionId){
       rpe: fd.get("rpe")? +fd.get("rpe") : null,
       note:""
     };
-    if(existing){ state.sessions = state.sessions.map(s=> s.id===existing.id? session : s); }
-    else{ state.sessions.push(session); }
-    saveState(); closeModal(); renderAll();
+    const submitBtn = form.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    try{
+      await apiSaveSession(session);
+      closeModal();
+      await refreshData();
+    }catch(err){
+      if(err.unauthorized){ closeModal(); showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      alert("Impossible d'enregistrer la séance : " + err.message);
+      submitBtn.disabled = false;
+    }
   });
 }
 
-function deleteSession(id){
-  state.sessions = state.sessions.filter(s=>s.id!==id);
-  saveState(); renderAll();
+async function deleteSession(id){
+  if(!confirm("Supprimer cette séance ?")) return;
+  try{
+    await apiDeleteSession(id);
+    await refreshData();
+  }catch(err){
+    if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+    alert("Suppression impossible : " + err.message);
+  }
 }
 
 function closeModal(){ document.getElementById("modal-root").innerHTML = ""; }
@@ -800,27 +840,37 @@ function openAthleteModal(existing){
   </div>`;
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
-  document.getElementById("athlete-form").addEventListener("submit", e=>{
+  document.getElementById("athlete-form").addEventListener("submit", async e=>{
     e.preventDefault();
     const fd = new FormData(e.target);
-    if(existing){
-      existing.name = fd.get("name"); existing.sport = fd.get("sport");
-      existing.maxHR = fd.get("maxHR")? +fd.get("maxHR") : null;
-    } else {
-      const a = { id: uid("a"), name: fd.get("name"), sport: fd.get("sport"),
-        maxHR: fd.get("maxHR")? +fd.get("maxHR") : null, colorIndex: state.athletes.length % CAT_HUES.length };
-      state.athletes.push(a); activeAthleteId = a.id;
+    const athlete = existing
+      ? { id: existing.id, name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null, colorIndex: existing.colorIndex }
+      : { name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null, colorIndex: state.athletes.length % CAT_HUES.length };
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    try{
+      const res = await apiSaveAthlete(athlete);
+      if(!existing) activeAthleteId = res.athlete.id;
+      closeModal();
+      await refreshData();
+    }catch(err){
+      if(err.unauthorized){ closeModal(); showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      alert("Impossible d'enregistrer l'athlète : " + err.message);
+      submitBtn.disabled = false;
     }
-    saveState(); closeModal(); renderAll();
   });
 }
 
-function deleteAthlete(id){
+async function deleteAthlete(id){
   if(!confirm("Supprimer cet athlète et toutes ses séances ?")) return;
-  state.athletes = state.athletes.filter(a=>a.id!==id);
-  state.sessions = state.sessions.filter(s=>s.athleteId!==id);
-  if(activeAthleteId === id) activeAthleteId = state.athletes.length? state.athletes[0].id : null;
-  saveState(); renderAll();
+  try{
+    await apiDeleteAthlete(id);
+    if(activeAthleteId === id) activeAthleteId = null;
+    await refreshData();
+  }catch(err){
+    if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+    alert("Suppression impossible : " + err.message);
+  }
 }
 
 /* ---------------------------- import / export ---------------------------- */
@@ -831,19 +881,6 @@ function exportJSON(){
   a.href = URL.createObjectURL(blob);
   a.download = "loadscope-export-" + fmtDate(new Date()) + ".json";
   a.click();
-}
-
-function importJSON(file){
-  const reader = new FileReader();
-  reader.onload = () => {
-    try{
-      const data = JSON.parse(reader.result);
-      if(!data.athletes || !data.sessions) throw new Error("format invalide");
-      state = data; activeAthleteId = state.athletes.length? state.athletes[0].id : null;
-      saveState(); renderAll();
-    }catch(e){ alert("Import impossible : fichier JSON invalide."); }
-  };
-  reader.readAsText(file);
 }
 
 const CSV_TEMPLATE = "date,type,duration,distance,dPlus,dMinus,z0,z1,z2,z3,z4,rpe\n2026-01-15,Course à pied,55,10.2,120,110,10,30,10,4,1,5\n";
@@ -869,43 +906,117 @@ function parseCSV(text){
 
 function importCSV(file, athleteId){
   const reader = new FileReader();
-  reader.onload = () => {
-    try{
-      const rows = parseCSV(reader.result);
-      let count = 0;
-      rows.forEach(r=>{
-        if(!r.date) return;
-        state.sessions.push({
-          id: uid("s"), athleteId,
-          date: r.date, type: r.type || "Autre",
-          duration: +r.duration||0, distance: +r.distance||0,
-          dPlus: +r.dPlus||0, dMinus: +r.dMinus||0,
-          zones: [0,1,2,3,4].map(i=>+r["z"+i]||0),
-          rpe: r.rpe? +r.rpe : null, note:""
-        });
-        count++;
-      });
-      saveState(); renderAll();
-      alert(count + " séance(s) importée(s).");
-    }catch(e){ alert("Import CSV impossible : vérifiez le format (voir le modèle à télécharger)."); }
+  reader.onload = async () => {
+    let rows;
+    try{ rows = parseCSV(reader.result); }
+    catch(e){ alert("Import CSV impossible : vérifiez le format (voir le modèle à télécharger)."); return; }
+    const toImport = rows.filter(r=>r.date);
+    let count = 0, failed = 0;
+    for(const r of toImport){
+      const session = {
+        athleteId,
+        date: r.date, type: r.type || "Autre",
+        duration: +r.duration||0, distance: +r.distance||0,
+        dPlus: +r.dPlus||0, dMinus: +r.dMinus||0,
+        zones: [0,1,2,3,4].map(i=>+r["z"+i]||0),
+        rpe: r.rpe? +r.rpe : null, note:""
+      };
+      try{ await apiSaveSession(session); count++; }
+      catch(err){
+        failed++;
+        if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      }
+    }
+    await refreshData();
+    alert(count + " séance(s) importée(s)." + (failed? " " + failed + " échec(s).":""));
   };
   reader.readAsText(file);
 }
 
-/* ---------------------------- boot ---------------------------- */
+/* ---------------------------- boot & coach-key gate ---------------------------- */
 
 function renderAll(){ renderAthleteList(); renderMain(); }
 
+async function refreshData(){
+  const keepAthlete = activeAthleteId;
+  const data = await fetchData();
+  state = { athletes: data.athletes.map(athleteFromApi), sessions: data.sessions.map(sessionFromApi) };
+  if(keepAthlete && state.athletes.some(a=>a.id===keepAthlete)) activeAthleteId = keepAthlete;
+  else {
+    const stored = localStorage.getItem(ACTIVE_ATHLETE_STORAGE);
+    activeAthleteId = (stored && state.athletes.some(a=>a.id===stored)) ? stored : (state.athletes.length? state.athletes[0].id : null);
+  }
+  if(activeAthleteId) localStorage.setItem(ACTIVE_ATHLETE_STORAGE, activeAthleteId);
+  renderAll();
+}
+
+async function boot(){
+  const main = document.getElementById("main-panel");
+  main.innerHTML = '<div class="ls-panel"><div class="ls-empty">Chargement des données…</div></div>';
+  await refreshData();
+}
+
+function showKeyGate(errorText){
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="gate-overlay">
+    <div class="ls-modal">
+      <h3>Clé d'accès coach</h3>
+      <div class="ls-modal-sub">Loadscope est relié à votre base de données. Entrez la clé d'accès coach pour continuer.</div>
+      <form id="gate-form">
+        <div class="ls-field"><label>Clé d'accès</label><input type="password" name="key" required autofocus autocomplete="off"></div>
+        ${errorText? `<div class="ls-gate-error">${escapeHtml(errorText)}</div>` : ""}
+        <div class="ls-gate-note">La clé n'est stockée que dans ce navigateur (jamais dans le dépôt GitHub). Elle vous a été communiquée séparément.</div>
+        <div class="ls-modal-actions">
+          <button type="submit" class="ls-btn primary">Continuer</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+  document.getElementById("gate-form").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const key = (fd.get("key")||"").trim();
+    if(!key) return;
+    localStorage.setItem(COACH_KEY_STORAGE, key);
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true; submitBtn.textContent = "Vérification…";
+    try{
+      await boot();
+      hideKeyGate();
+    }catch(err){
+      if(err.unauthorized) showKeyGate("Clé invalide, réessayez.");
+      else showKeyGate(err.message || "Erreur de connexion au serveur.");
+    }
+  });
+}
+
+function hideKeyGate(){
+  const root = document.getElementById("modal-root");
+  if(root.querySelector("#gate-overlay")) root.innerHTML = "";
+}
+
+async function ensureCoachKey(){
+  const key = localStorage.getItem(COACH_KEY_STORAGE);
+  if(key){
+    try{ await boot(); return; }
+    catch(err){
+      if(err.unauthorized){ showKeyGate("Clé invalide, réessayez."); return; }
+      // pas d'accès réseau ou erreur serveur : on affiche quand même la porte,
+      // avec le message d'erreur, plutôt qu'un écran bloqué sans explication.
+      showKeyGate(err.message || "Erreur de connexion au serveur.");
+      return;
+    }
+  }
+  showKeyGate();
+}
+
 function init(){
-  state = loadState();
-  if(!state){ state = seedData(); saveState(); }
-  activeAthleteId = state.athletes.length? state.athletes[0].id : null;
   applyTheme(currentThemeMode());
 
   document.getElementById("btn-theme").addEventListener("click", cycleTheme);
   document.getElementById("btn-add-athlete").addEventListener("click", ()=>openAthleteModal(null));
   document.getElementById("btn-export").addEventListener("click", exportJSON);
-  document.getElementById("input-import").addEventListener("change", e=>{ if(e.target.files[0]) importJSON(e.target.files[0]); e.target.value=""; });
   document.getElementById("btn-download-template").addEventListener("click", downloadCsvTemplate);
   document.getElementById("input-csv").addEventListener("change", e=>{
     if(e.target.files[0] && activeAthleteId) importCSV(e.target.files[0], activeAthleteId);
@@ -915,11 +1026,9 @@ function init(){
 
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", ()=>{ if(currentThemeMode()==="system") renderCharts(); });
 
-  renderAll();
+  handleStravaRedirectParam();
+  ensureCoachKey();
 }
 
 init();
 </script>
-
-</body>
-</html>
