@@ -200,7 +200,7 @@
 
 <div id="modal-root"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="chart.umd.min.js"></script>
 <script>
 "use strict";
 /* =========================================================================
@@ -654,6 +654,23 @@ function renderCharts(){
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
   if(!athlete || !document.getElementById("chart-load")) { return; }
   destroyCharts();
+  if(typeof Chart === "undefined"){
+    document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphiques indisponibles (bibliothèque non chargée). Rechargez la page.</div>';
+    });
+    return;
+  }
+  try{
+    renderChartsInner(athlete);
+  }catch(e){
+    console.error("Erreur lors de l'affichage des graphiques", e);
+    document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Impossible d\'afficher ce graphique.</div>';
+    });
+  }
+}
+
+function renderChartsInner(athlete){
   const sessions = state.sessions.filter(s=>s.athleteId===athlete.id);
   const { dates, acute, chronic, acwr } = acwrSeries(sessions);
   const daily = dailySeries(sessions);
