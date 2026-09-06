@@ -10,7 +10,7 @@
     --good-ink:#ffffff; --warning-ink:#2b1c00; --serious-ink:#341000; --critical-ink:#ffffff;
     --cat-1:#2a78d6; --cat-2:#eb6834; --cat-3:#1baf7a; --cat-4:#eda100;
     --cat-5:#e87ba4; --cat-6:#008300; --cat-7:#4a3aa7; --cat-8:#e34948;
-    --z1:#5598e7; --z2:#1baf7a; --z3:#eda100; --z4:#eb6834; --z5:#d03b3b;
+    --z1:#5598e7; --z2:#1baf7a; --z3:#eda100; --z4:#eb6834; --z5:#d03b3b; --z6:#4a3aa7; --z7:#e87ba4;
     --font-ui:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;
     --font-mono:'IBM Plex Mono',ui-monospace,"SFMono-Regular",Menlo,monospace;
   }
@@ -23,6 +23,7 @@
       --accent:#3987e5;
       --cat-1:#3987e5; --cat-2:#d95926; --cat-3:#199e70; --cat-4:#c98500;
       --cat-5:#d55181; --cat-6:#008300; --cat-7:#9085e9; --cat-8:#e66767;
+      --z6:#9085e9; --z7:#d55181;
     }
   }
   :root[data-theme="dark"]{
@@ -33,6 +34,7 @@
     --accent:#3987e5;
     --cat-1:#3987e5; --cat-2:#d95926; --cat-3:#199e70; --cat-4:#c98500;
     --cat-5:#d55181; --cat-6:#008300; --cat-7:#9085e9; --cat-8:#e66767;
+    --z6:#9085e9; --z7:#d55181;
   }
 
   *{box-sizing:border-box;}
@@ -163,6 +165,21 @@
   /* ---------- key gate ---------- */
   .ls-gate-note{font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5;}
   .ls-gate-error{font-size:12px;color:var(--critical);margin-top:8px;}
+
+  /* ---------- intensity table ---------- */
+  .ls-modal.wide{max-width:760px;}
+  table.ls-intensity{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.ls-intensity th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);
+    padding:6px 8px;font-weight:700;}
+  table.ls-intensity td{padding:4px 6px;}
+  table.ls-intensity tr.ls-intensity-row td{padding-top:6px;padding-bottom:6px;}
+  table.ls-intensity .ls-intensity-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;flex:none;}
+  table.ls-intensity .ls-intensity-name{display:flex;align-items:center;}
+  table.ls-intensity input{width:100%;font-family:var(--font-mono);font-size:12.5px;padding:6px 7px;border-radius:7px;
+    border:1px solid var(--border);background:var(--surface);color:var(--text-primary);}
+  table.ls-intensity input[type=text]{font-family:var(--font-ui);}
+  table.ls-intensity input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .ls-intensity-note{font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;}
 </style>
 
 <div class="ls-app">
@@ -211,6 +228,31 @@
 const CAT_HUES = ["--cat-1","--cat-2","--cat-3","--cat-4","--cat-5","--cat-6","--cat-7","--cat-8"];
 const SPORTS = ["Course à pied","Trail","Cyclisme","Triathlon","Natation","Ski de fond","Autre"];
 const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
+const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
+// Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
+// km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
+// (efforts anaérobies courts) n'ont pas de bornes FC : la fréquence cardiaque
+// n'a pas le temps de représenter l'effort réel sur ces intensités.
+function defaultIntensityZones(){
+  return [
+    { name:"Échauffement", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Endurance fondamentale (Seuil 1)", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Tempo", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Seuil 2", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"VO2max", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Capacité anaérobie", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Puissance anaérobie", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null }
+  ];
+}
+function intensityZonesOf(athlete){
+  const zones = Array.isArray(athlete && athlete.intensityZones) ? athlete.intensityZones : null;
+  if(!zones || zones.length !== 7) return defaultIntensityZones();
+  return zones;
+}
+function paceZoneLabel(athlete, i){
+  const zones = intensityZonesOf(athlete);
+  return (zones[i] && zones[i].name) || defaultIntensityZones()[i].name;
+}
 
 const API_BASE = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/app-api";
 const STRAVA_CLIENT_ID = "277368";
@@ -220,7 +262,7 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null };
+let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null };
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 
@@ -270,12 +312,12 @@ function apiDeleteSession(id){
 function athleteFromApi(a){
   return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
     stravaAthleteId: a.strava_athlete_id, heightCm: a.height_cm, weightKg: a.weight_kg!=null? Number(a.weight_kg): null,
-    birthDate: a.birth_date };
+    birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null };
 }
 function athleteToApi(a){
   const row = { name:a.name, sport:a.sport, max_hr: a.maxHR!=null? a.maxHR : null, color_index: a.colorIndex||0,
     height_cm: a.heightCm!=null? a.heightCm : null, weight_kg: a.weightKg!=null? a.weightKg : null,
-    birth_date: a.birthDate || null };
+    birth_date: a.birthDate || null, intensity_zones: a.intensityZones || null };
   if(a.id) row.id = a.id;
   return row;
 }
@@ -293,6 +335,7 @@ function ageFromBirthDate(dateStr){
 function sessionFromApi(s){
   return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
+    paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function sessionToApi(s){
@@ -434,10 +477,11 @@ function weeklyAggregates(sessions, weeksBack){
   const byWeek = {};
   sessions.forEach(s => {
     const wk = isoMonday(s.date);
-    if(!byWeek[wk]) byWeek[wk] = { week: wk, km:0, dPlus:0, dMinus:0, zones:[0,0,0,0,0], count:0 };
+    if(!byWeek[wk]) byWeek[wk] = { week: wk, km:0, dPlus:0, dMinus:0, zones:[0,0,0,0,0], paceZones:[0,0,0,0,0,0,0], hasPaceData:false, count:0 };
     const b = byWeek[wk];
     b.km += s.distance; b.dPlus += s.dPlus; b.dMinus += s.dMinus; b.count++;
     s.zones.forEach((m,i)=> b.zones[i]+=m);
+    if(Array.isArray(s.paceZones)){ b.hasPaceData = true; s.paceZones.forEach((m,i)=> b.paceZones[i]+=m); }
   });
   const weeks = Object.values(byWeek).sort((a,b)=> a.week < b.week ? -1 : 1);
   return weeks.slice(-weeksBack);
@@ -566,6 +610,7 @@ function renderMain(){
           ? `<span class="ls-strava-pill" title="Séances importées automatiquement depuis Strava">● Strava connecté</span>`
           : `<button class="ls-btn small ghost" id="btn-copy-strava-link" title="À envoyer à l'athlète : il l'ouvre sur son propre appareil, connecté à son propre compte Strava">Copier le lien Strava</button>
              <button class="ls-btn small strava" id="btn-connect-strava" title="À utiliser seulement si c'est ${escapeHtml(athlete.name)} qui est devant cet écran">Connecter ici</button>`}
+        <button class="ls-btn small ghost" id="btn-intensity-table">Table d'intensité</button>
         <button class="ls-btn small" id="btn-edit-athlete">Modifier</button>
         <button class="ls-btn small" id="btn-add-session">+ Séance</button>
         <button class="ls-btn small ghost" id="btn-delete-athlete">Supprimer</button>
@@ -610,6 +655,11 @@ function renderMain(){
         <div class="ls-chart-sub">Minutes cumulées par semaine et par zone</div>
         <div class="ls-chart-wrap"><canvas id="chart-zones"></canvas></div>
       </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones d'allure</h3>
+        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — indicateur de contrainte mécanique, calculé depuis les séances Strava (nécessite la table d'intensité complète)</div>
+        <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
+      </div>
     </div>
 
     <div class="ls-table-card">
@@ -632,6 +682,7 @@ function renderMain(){
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
   if(stravaCopyBtn) stravaCopyBtn.addEventListener("click", ()=>copyStravaLink(athlete.id));
+  document.getElementById("btn-intensity-table").addEventListener("click", ()=>openIntensityModal(athlete));
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
@@ -783,6 +834,21 @@ function renderChartsInner(athlete){
     }))},
     options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
+
+  const hasPaceData = weeks.some(w=>w.hasPaceData);
+  const paceWrap = document.getElementById("pace-chart-wrap");
+  if(hasPaceData && paceWrap){
+    const paceColors = PACE_ZONE_VARS.map(v=>cssVar(v));
+    charts.pace = new Chart(document.getElementById("chart-pace-zones"), {
+      type:"bar",
+      data:{ labels: wkLabels, datasets: [0,1,2,3,4,5,6].map(i=>({
+        label: paceZoneLabel(athlete, i), data: weeks.map(w=>w.paceZones[i]), backgroundColor: paceColors[i], stack:"p", borderRadius:2, maxBarThickness:28
+      }))},
+      options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+    });
+  } else if(paceWrap){
+    paceWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava et une table d\'intensité complète (bouton « Table d\'intensité » ci-dessus).</div>';
+  }
 }
 
 /* ---------------------------- modals: session ---------------------------- */
@@ -948,6 +1014,66 @@ async function deleteAthlete(id){
     if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
     alert("Suppression impossible : " + err.message);
   }
+}
+
+/* ---------------------------- modal: table d'intensité ---------------------------- */
+
+function openIntensityModal(athlete){
+  const zones = intensityZonesOf(athlete).map(z=>Object.assign({}, z)); // copie modifiable
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal wide">
+      <h3>Table d'intensité — ${escapeHtml(athlete.name)}</h3>
+      <div class="ls-modal-sub">Bornes d'allure (km/h) et de fréquence cardiaque (bpm) par zone, saisies à la main. Les zones Z6/Z7 (efforts anaérobies courts) n'ont pas de borne FC : la fréquence cardiaque n'a pas le temps de refléter l'effort réel. Une fois les 7 lignes complétées, les séances Strava affichent automatiquement leur répartition en zones d'allure.</div>
+      <form id="intensity-form">
+        <table class="ls-intensity">
+          <thead><tr><th>Zone</th><th>km/h min</th><th>km/h max</th><th>FC min</th><th>FC max</th></tr></thead>
+          <tbody>
+            ${zones.map((z,i)=>`<tr class="ls-intensity-row">
+              <td class="ls-intensity-name">
+                <span class="ls-intensity-dot" style="background:${cssVar(PACE_ZONE_VARS[i])}"></span>
+                <input type="text" name="name${i}" value="${escapeHtml(z.name)}">
+              </td>
+              <td><input type="number" min="0" step="0.1" name="kmhMin${i}" value="${z.kmh_min!=null? z.kmh_min:""}"></td>
+              <td><input type="number" min="0" step="0.1" name="kmhMax${i}" value="${z.kmh_max!=null? z.kmh_max:""}"></td>
+              <td><input type="number" min="0" name="hrMin${i}" ${i>=5?"disabled":""} value="${z.hr_min!=null? z.hr_min:""}"></td>
+              <td><input type="number" min="0" name="hrMax${i}" ${i>=5?"disabled":""} value="${z.hr_max!=null? z.hr_max:""}"></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+        <div class="ls-intensity-note">Astuce : les zones Z1 à Z5 correspondent aux mêmes zones que le journal de séances (Échauffement → VO2max) — gardez les mêmes bornes FC pour rester cohérent.</div>
+        <div class="ls-modal-actions">
+          <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
+          <button type="submit" class="ls-btn primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
+  document.getElementById("intensity-form").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const num = v => (v===null || v==="") ? null : +v;
+    const newZones = zones.map((z,i)=>({
+      name: (fd.get("name"+i) || z.name || "").toString().trim() || z.name,
+      kmh_min: num(fd.get("kmhMin"+i)), kmh_max: num(fd.get("kmhMax"+i)),
+      hr_min: i>=5? null : num(fd.get("hrMin"+i)), hr_max: i>=5? null : num(fd.get("hrMax"+i))
+    }));
+    const updated = Object.assign({}, athlete, { intensityZones: newZones });
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    try{
+      await apiSaveAthlete(updated);
+      closeModal();
+      await refreshData();
+    }catch(err){
+      if(err.unauthorized){ closeModal(); showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      alert("Impossible d'enregistrer la table d'intensité : " + err.message);
+      submitBtn.disabled = false;
+    }
+  });
 }
 
 /* ---------------------------- import / export ---------------------------- */
