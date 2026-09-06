@@ -290,8 +290,7 @@ function sessionToApi(s){
 
 /* ---------------------------- Strava connect ---------------------------- */
 
-function connectStrava(athleteId){
-  localStorage.setItem(ACTIVE_ATHLETE_STORAGE, athleteId);
+function buildStravaAuthUrl(athleteId){
   const params = new URLSearchParams({
     client_id: STRAVA_CLIENT_ID,
     response_type: "code",
@@ -300,7 +299,31 @@ function connectStrava(athleteId){
     scope: "activity:read_all",
     state: athleteId
   });
-  window.location.href = "https://www.strava.com/oauth/authorize?" + params.toString();
+  return "https://www.strava.com/oauth/authorize?" + params.toString();
+}
+
+// À utiliser uniquement quand c'est l'athlète lui-même qui est devant cet écran
+// (ex. sur son propre téléphone) : ça l'envoie directement vers Strava pour
+// autoriser SON compte. Le coach ne doit jamais cliquer ceci pour un autre
+// athlète depuis son propre navigateur, sinon c'est le compte Strava du coach
+// qui serait connecté à la fiche de cet athlète.
+function connectStrava(athleteId){
+  localStorage.setItem(ACTIVE_ATHLETE_STORAGE, athleteId);
+  window.location.href = buildStravaAuthUrl(athleteId);
+}
+
+// À utiliser par le coach pour connecter un athlète qui n'est pas devant cet
+// écran : copie un lien personnel à lui envoyer (SMS, WhatsApp, email...).
+// L'athlète l'ouvre sur son propre appareil, se connecte avec SON compte
+// Strava, et revient automatiquement sur Loadscope une fois autorisé.
+async function copyStravaLink(athleteId){
+  const link = buildStravaAuthUrl(athleteId);
+  try{
+    await navigator.clipboard.writeText(link);
+    showToast("Lien copié — envoyez-le à l'athlète pour qu'il l'ouvre sur son propre appareil, connecté à son compte Strava.", "--good");
+  }catch(e){
+    prompt("Copie impossible automatiquement. Copiez ce lien et envoyez-le à l'athlète :", link);
+  }
 }
 
 function handleStravaRedirectParam(){
@@ -517,7 +540,8 @@ function renderMain(){
       <div class="ls-title-actions">
         ${athlete.stravaAthleteId
           ? `<span class="ls-strava-pill" title="Séances importées automatiquement depuis Strava">● Strava connecté</span>`
-          : `<button class="ls-btn small strava" id="btn-connect-strava">Connecter Strava</button>`}
+          : `<button class="ls-btn small ghost" id="btn-copy-strava-link" title="À envoyer à l'athlète : il l'ouvre sur son propre appareil, connecté à son propre compte Strava">Copier le lien Strava</button>
+             <button class="ls-btn small strava" id="btn-connect-strava" title="À utiliser seulement si c'est ${escapeHtml(athlete.name)} qui est devant cet écran">Connecter ici</button>`}
         <button class="ls-btn small" id="btn-edit-athlete">Modifier</button>
         <button class="ls-btn small" id="btn-add-session">+ Séance</button>
         <button class="ls-btn small ghost" id="btn-delete-athlete">Supprimer</button>
@@ -582,6 +606,8 @@ function renderMain(){
   document.getElementById("btn-delete-athlete").addEventListener("click", ()=>deleteAthlete(athlete.id));
   const stravaBtn = document.getElementById("btn-connect-strava");
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
+  const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
+  if(stravaCopyBtn) stravaCopyBtn.addEventListener("click", ()=>copyStravaLink(athlete.id));
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
