@@ -269,12 +269,26 @@ function apiDeleteSession(id){
 
 function athleteFromApi(a){
   return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
-    stravaAthleteId: a.strava_athlete_id };
+    stravaAthleteId: a.strava_athlete_id, heightCm: a.height_cm, weightKg: a.weight_kg!=null? Number(a.weight_kg): null,
+    birthDate: a.birth_date };
 }
 function athleteToApi(a){
-  const row = { name:a.name, sport:a.sport, max_hr: a.maxHR!=null? a.maxHR : null, color_index: a.colorIndex||0 };
+  const row = { name:a.name, sport:a.sport, max_hr: a.maxHR!=null? a.maxHR : null, color_index: a.colorIndex||0,
+    height_cm: a.heightCm!=null? a.heightCm : null, weight_kg: a.weightKg!=null? a.weightKg : null,
+    birth_date: a.birthDate || null };
   if(a.id) row.id = a.id;
   return row;
+}
+
+function ageFromBirthDate(dateStr){
+  if(!dateStr) return null;
+  const b = new Date(dateStr + "T00:00:00");
+  if(isNaN(b)) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if(m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
+  return age;
 }
 function sessionFromApi(s){
   return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
@@ -510,6 +524,16 @@ function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
+function athleteMetaLine(athlete){
+  const bits = [escapeHtml(athlete.sport)];
+  const age = ageFromBirthDate(athlete.birthDate);
+  if(age != null) bits.push(age + " ans");
+  if(athlete.maxHR) bits.push("FC max " + athlete.maxHR + " bpm");
+  if(athlete.heightCm) bits.push(athlete.heightCm + " cm");
+  if(athlete.weightKg) bits.push(athlete.weightKg + " kg");
+  return bits.join(" · ");
+}
+
 /* ---------------------------- rendering: main panel ---------------------------- */
 
 function renderMain(){
@@ -534,7 +558,7 @@ function renderMain(){
         <div class="ls-avatar" style="background:${color}">${initials(athlete.name)}</div>
         <div>
           <h2>${escapeHtml(athlete.name)}</h2>
-          <div class="ls-athlete-sub">${escapeHtml(athlete.sport)}${athlete.maxHR? " · FC max "+athlete.maxHR+" bpm":""}</div>
+          <div class="ls-athlete-sub">${athleteMetaLine(athlete)}</div>
         </div>
       </div>
       <div class="ls-title-actions">
@@ -874,6 +898,11 @@ function openAthleteModal(existing){
           <div class="ls-field"><label>Sport principal</label><select name="sport">${SPORTS.map(sp=>`<option ${existing&&existing.sport===sp?"selected":""}>${sp}</option>`).join("")}</select></div>
           <div class="ls-field"><label>FC max (bpm, optionnel)</label><input type="number" min="0" name="maxHR" value="${existing&&existing.maxHR? existing.maxHR:""}"></div>
         </div>
+        <div class="ls-field-row3">
+          <div class="ls-field"><label>Date de naissance</label><input type="date" name="birthDate" value="${existing&&existing.birthDate? existing.birthDate:""}"></div>
+          <div class="ls-field"><label>Taille (cm)</label><input type="number" min="0" name="heightCm" value="${existing&&existing.heightCm? existing.heightCm:""}"></div>
+          <div class="ls-field"><label>Poids (kg)</label><input type="number" min="0" step="0.1" name="weightKg" value="${existing&&existing.weightKg? existing.weightKg:""}"></div>
+        </div>
         <div class="ls-modal-actions">
           <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
           <button type="submit" class="ls-btn primary">${existing? "Enregistrer":"Créer"}</button>
@@ -886,9 +915,14 @@ function openAthleteModal(existing){
   document.getElementById("athlete-form").addEventListener("submit", async e=>{
     e.preventDefault();
     const fd = new FormData(e.target);
+    const common = {
+      name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null,
+      birthDate: fd.get("birthDate") || null, heightCm: fd.get("heightCm")? +fd.get("heightCm") : null,
+      weightKg: fd.get("weightKg")? +fd.get("weightKg") : null
+    };
     const athlete = existing
-      ? { id: existing.id, name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null, colorIndex: existing.colorIndex }
-      : { name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null, colorIndex: state.athletes.length % CAT_HUES.length };
+      ? Object.assign({ id: existing.id, colorIndex: existing.colorIndex }, common)
+      : Object.assign({ colorIndex: state.athletes.length % CAT_HUES.length }, common);
     const submitBtn = e.target.querySelector('button[type=submit]');
     submitBtn.disabled = true;
     try{
