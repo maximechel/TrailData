@@ -167,8 +167,9 @@
   .ls-gate-error{font-size:12px;color:var(--critical);margin-top:8px;}
 
   /* ---------- intensity table ---------- */
-  .ls-modal.wide{max-width:760px;}
-  table.ls-intensity{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .ls-modal.wide{max-width:920px;}
+  table.ls-intensity{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed;}
+  table.ls-intensity col.ls-intensity-col-name{width:34%;}
   table.ls-intensity th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);
     padding:6px 8px;font-weight:700;}
   table.ls-intensity td{padding:4px 6px;}
@@ -176,10 +177,15 @@
   table.ls-intensity .ls-intensity-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;flex:none;}
   table.ls-intensity .ls-intensity-name{display:flex;align-items:center;}
   table.ls-intensity input{width:100%;font-family:var(--font-mono);font-size:12.5px;padding:6px 7px;border-radius:7px;
-    border:1px solid var(--border);background:var(--surface);color:var(--text-primary);}
-  table.ls-intensity input[type=text]{font-family:var(--font-ui);}
+    border:1px solid var(--border);background:var(--surface);color:var(--text-primary);box-sizing:border-box;}
+  table.ls-intensity input[type=text]{font-family:var(--font-ui);font-size:12px;min-width:0;}
   table.ls-intensity input:focus{outline:2px solid var(--accent);outline-offset:1px;}
   .ls-intensity-note{font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;}
+  @media (max-width:640px){
+    .ls-modal.wide{max-width:96vw;}
+    table.ls-intensity{table-layout:auto;}
+    .ls-modal .ls-modal-body-scroll{overflow-x:auto;}
+  }
 </style>
 
 <div class="ls-app">
@@ -1028,6 +1034,10 @@ function openIntensityModal(athlete){
       <div class="ls-modal-sub">Bornes d'allure (km/h) et de fréquence cardiaque (bpm) par zone, saisies à la main. Les zones Z6/Z7 (efforts anaérobies courts) n'ont pas de borne FC : la fréquence cardiaque n'a pas le temps de refléter l'effort réel. Une fois les 7 lignes complétées, les séances Strava affichent automatiquement leur répartition en zones d'allure.</div>
       <form id="intensity-form">
         <table class="ls-intensity">
+          <colgroup>
+            <col class="ls-intensity-col-name">
+            <col><col><col><col>
+          </colgroup>
           <thead><tr><th>Zone</th><th>km/h min</th><th>km/h max</th><th>FC min</th><th>FC max</th></tr></thead>
           <tbody>
             ${zones.map((z,i)=>`<tr class="ls-intensity-row">
