@@ -234,6 +234,7 @@
 const CAT_HUES = ["--cat-1","--cat-2","--cat-3","--cat-4","--cat-5","--cat-6","--cat-7","--cat-8"];
 const SPORTS = ["Course à pied","Trail","Cyclisme","Triathlon","Natation","Ski de fond","Autre"];
 const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
+const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)","Plat / roulant (±4%)","Montée modérée (4-10%)","Montée soutenue (10-18%)","Montée forte (>18%)"];
 const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
 // Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
 // km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
@@ -268,7 +269,7 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null };
+let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null, terrain: null };
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 
@@ -343,6 +344,7 @@ function sessionFromApi(s){
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
     paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
     gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
+    gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function sessionToApi(s){
@@ -505,6 +507,20 @@ function gapZoneAverage(sessions, endDate, weeks){
     const d = new Date(s.date+"T00:00:00");
     if(isNaN(d) || d < start || d > endDate) return;
     s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+
+// Même principe que gapZoneAverage, mais par tranche de pente (6 tranches)
+// plutôt que par zone de FC — sert au graphe "Profil terrain".
+function gapGradeAverage(sessions, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  const sums = [0,0,0,0,0,0], counts = [0,0,0,0,0,0];
+  sessions.forEach(s=>{
+    if(!Array.isArray(s.gapByGrade)) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    s.gapByGrade.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
   });
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
@@ -686,6 +702,11 @@ function renderMain(){
         <h3>Efficacité physiologique</h3>
         <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC — 6 dernières semaines vs il y a ~6 mois. Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
         <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Profil terrain</h3>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — 6 dernières semaines vs il y a ~6 mois. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
 
@@ -895,6 +916,24 @@ function renderChartsInner(athlete){
     });
   } else if(physioWrap){
     physioWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava avec un historique de fréquence cardiaque.</div>';
+  }
+
+  const terrainWrap = document.getElementById("terrain-chart-wrap");
+  const gradeNow = gapGradeAverage(sessions, today, GAP_WINDOW_WEEKS);
+  const gradePast = gapGradeAverage(sessions, sixMonthsAgo, GAP_WINDOW_WEEKS);
+  const hasGradeData = gradeNow.some(v=>v!=null) || gradePast.some(v=>v!=null);
+  if(hasGradeData && terrainWrap){
+    charts.terrain = new Chart(document.getElementById("chart-terrain"), {
+      type:"bar",
+      data:{ labels: GRADE_BUCKET_LABELS, datasets:[
+        { label:"Il y a ~6 mois", data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label:"6 dernières semaines", data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+      ]},
+      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} },
+        x:{ ticks:{ color:cssVar("--text-muted"), font:{size:10.5} } } } })
+    });
+  } else if(terrainWrap){
+    terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava.</div>';
   }
 }
 
