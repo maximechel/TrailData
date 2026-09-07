@@ -268,7 +268,7 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null };
+let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null };
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 
@@ -342,6 +342,7 @@ function sessionFromApi(s){
   return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
     paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
+    gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function sessionToApi(s){
@@ -491,6 +492,21 @@ function weeklyAggregates(sessions, weeksBack){
   });
   const weeks = Object.values(byWeek).sort((a,b)=> a.week < b.week ? -1 : 1);
   return weeks.slice(-weeksBack);
+}
+
+// Vitesse ajustée à la pente (GAP) moyenne par zone de FC, sur une fenêtre de
+// `weeks` semaines se terminant à `endDate` — moyenne des séances Strava ayant
+// une valeur pour cette zone (null si aucune séance de la fenêtre n'en a).
+function gapZoneAverage(sessions, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
+  sessions.forEach(s=>{
+    if(!Array.isArray(s.gapByHrZone)) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
 
 function sum7(sessions){
@@ -665,6 +681,11 @@ function renderMain(){
         <h3>Répartition du temps en zones d'allure</h3>
         <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — indicateur de contrainte mécanique, calculé depuis les séances Strava (nécessite la table d'intensité complète)</div>
         <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Efficacité physiologique</h3>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC — 6 dernières semaines vs il y a ~6 mois. Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
     </div>
 
@@ -854,6 +875,26 @@ function renderChartsInner(athlete){
     });
   } else if(paceWrap){
     paceWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava et une table d\'intensité complète (bouton « Table d\'intensité » ci-dessus).</div>';
+  }
+
+  const physioWrap = document.getElementById("physio-chart-wrap");
+  const today = new Date();
+  const sixMonthsAgo = new Date(today); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth()-6);
+  const GAP_WINDOW_WEEKS = 6;
+  const gapNow = gapZoneAverage(sessions, today, GAP_WINDOW_WEEKS);
+  const gapPast = gapZoneAverage(sessions, sixMonthsAgo, GAP_WINDOW_WEEKS);
+  const hasGapData = gapNow.some(v=>v!=null) || gapPast.some(v=>v!=null);
+  if(hasGapData && physioWrap){
+    charts.physio = new Chart(document.getElementById("chart-physio"), {
+      type:"bar",
+      data:{ labels: ZONE_LABELS, datasets:[
+        { label:"Il y a ~6 mois", data: gapPast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label:"6 dernières semaines", data: gapNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+      ]},
+      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+    });
+  } else if(physioWrap){
+    physioWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava avec un historique de fréquence cardiaque.</div>';
   }
 }
 
