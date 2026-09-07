@@ -109,6 +109,8 @@
   .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
+  .ls-chart-wrap.radar{height:340px;max-width:440px;margin:0 auto;}
+  .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:center;}
 
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
   .ls-table-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
@@ -235,6 +237,8 @@ const CAT_HUES = ["--cat-1","--cat-2","--cat-3","--cat-4","--cat-5","--cat-6","-
 const SPORTS = ["Course à pied","Trail","Cyclisme","Triathlon","Natation","Ski de fond","Autre"];
 const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
 const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)","Plat / roulant (±4%)","Montée modérée (4-10%)","Montée soutenue (10-18%)","Montée forte (>18%)"];
+const MATRIX_BRANCHES = ["Endurance","Montée","Descente","Vitesse","Résilience","Physiologie"];
+const MATRIX_WINDOW_WEEKS = 6;
 const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
 // Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
 // km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
@@ -269,7 +273,7 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null, terrain: null };
+let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null, terrain: null, matrix: null };
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 
@@ -525,6 +529,96 @@ function gapGradeAverage(sessions, endDate, weeks){
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
 
+/* ---------------------------- Runner Matrix : scores 0-100 ---------------------------- */
+//
+// Chaque branche est une métrique déjà calculée ailleurs dans l'app (charge
+// chronique, GAP par zone de FC, GAP par tranche de pente, stabilité de
+// l'ACWR), ramenée à une note 0-100 par rapport au propre historique de
+// l'athlète : 0 = la valeur la plus basse jamais observée sur une fenêtre
+// glissante de 6 semaines, 100 = la plus haute. Pas de barème absolu, pas de
+// comparaison à d'autres coureurs — uniquement la progression de l'athlète
+// face à lui-même.
+//
+//  Endurance   → charge chronique (28j) : capacité aérobie accumulée.
+//  Montée      → GAP moyen sur les tranches de pente ascendantes (4-10 / 10-18 / >18%).
+//  Descente    → GAP moyen sur les tranches de pente descendantes (>12% / 4-12%).
+//  Vitesse     → GAP moyen en zone de FC 90-100% (vitesse au seuil du maximal).
+//  Résilience  → % du temps passé en zone ACWR "optimale"/"prudence" (0.8-1.5) sur 12 semaines,
+//                plutôt qu'en sous-charge ou en risque élevé.
+//  Physiologie → GAP moyen toutes zones de FC confondues : efficacité aérobie globale.
+
+function seriesValueAt(dates, arr, endDate){
+  const endStr = fmtDate(endDate);
+  let idx = -1;
+  for(let i=0;i<dates.length;i++){ if(dates[i] <= endStr) idx = i; else break; }
+  return idx >= 0 ? arr[idx] : null;
+}
+
+function avgIgnoreNull(arr){
+  const v = arr.filter(x=>x!=null);
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
+}
+
+// % des jours de la fenêtre passés avec un ACWR en zone "optimale" ou "prudence"
+// (0.8-1.5) plutôt qu'en sous-charge ou en risque élevé — un entraînement stable,
+// sans à-coups dangereux, plutôt qu'une charge qui alterne excès et sous-régime.
+function resilienceRatioAt(dates, acwr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  let total = 0, safe = 0;
+  dates.forEach((dStr, i) => {
+    const d = new Date(dStr+"T00:00:00");
+    if(d < start || d > endDate) return;
+    const v = acwr[i];
+    if(v == null) return;
+    total++;
+    if(v >= 0.8 && v < 1.5) safe++;
+  });
+  return total > 0 ? Math.round((safe/total)*1000)/10 : null;
+}
+
+// Valeur brute de chacune des 6 branches à une date donnée (fenêtre de
+// MATRIX_WINDOW_WEEKS semaines se terminant à endDate), dans l'ordre MATRIX_BRANCHES.
+function matrixRawValuesAt(sessions, dates, chronic, acwr, endDate){
+  const gapZ = gapZoneAverage(sessions, endDate, MATRIX_WINDOW_WEEKS);
+  const gapG = gapGradeAverage(sessions, endDate, MATRIX_WINDOW_WEEKS);
+  return [
+    seriesValueAt(dates, chronic, endDate),          // Endurance
+    avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),       // Montée
+    avgIgnoreNull([gapG[0], gapG[1]]),                // Descente
+    gapZ[4],                                          // Vitesse
+    resilienceRatioAt(dates, acwr, endDate, 12),      // Résilience
+    avgIgnoreNull(gapZ),                              // Physiologie
+  ];
+}
+
+// Historique hebdomadaire (une valeur par semaine sur toute l'histoire de
+// l'athlète) de chacune des 6 branches — sert de référentiel min/max pour
+// noter 0-100. Coûteux (une passe par semaine d'historique) mais l'échelle
+// reste petite pour un coach individuel.
+function buildMatrixHistories(sessions, dates, chronic, acwr){
+  if(!sessions.length) return MATRIX_BRANCHES.map(()=>[]);
+  const firstDate = new Date(sessions.map(s=>s.date).sort()[0]+"T00:00:00");
+  const today = new Date();
+  const histories = MATRIX_BRANCHES.map(()=>[]);
+  for(let d = new Date(firstDate); d <= today; d.setDate(d.getDate()+7)){
+    const values = matrixRawValuesAt(sessions, dates, chronic, acwr, new Date(d));
+    values.forEach((v,i)=>{ if(v!=null) histories[i].push(v); });
+  }
+  return histories;
+}
+
+function scoreFromHistory(history, value){
+  if(value == null || history.length < 6) return null;
+  const min = Math.min(...history), max = Math.max(...history);
+  if(max - min < 1e-9) return 50;
+  return Math.round(Math.max(0, Math.min(100, (value-min)/(max-min)*100)));
+}
+
+function matrixScoresAt(sessions, dates, chronic, acwr, endDate, histories){
+  const raw = matrixRawValuesAt(sessions, dates, chronic, acwr, endDate);
+  return raw.map((v,i)=> scoreFromHistory(histories[i], v));
+}
+
 function sum7(sessions){
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6);
   const cutoffStr = fmtDate(cutoff);
@@ -668,6 +762,12 @@ function renderMain(){
     </div>
 
     <div class="ls-charts">
+      <div class="ls-chart-card full">
+        <h3>Profil du coureur — Runner Matrix</h3>
+        <div class="ls-chart-sub">6 branches notées 0-100 par rapport au propre historique de l'athlète (0 = son plus bas niveau observé, 100 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Fenêtre récente (6 dernières semaines) vs il y a ~6 mois.</div>
+        <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
+        <div class="ls-matrix-note" id="matrix-note"></div>
+      </div>
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
         <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j)</div>
@@ -828,6 +928,39 @@ function renderChartsInner(athlete){
   const sl = arr => arr.slice(-N);
   const labels = sl(dates).map(d=> d.slice(5));
   const color = athleteColor(athlete);
+
+  const matrixWrap = document.getElementById("matrix-chart-wrap");
+  const matrixNote = document.getElementById("matrix-note");
+  const matrixToday = new Date();
+  const matrixSixMonthsAgo = new Date(matrixToday); matrixSixMonthsAgo.setMonth(matrixSixMonthsAgo.getMonth()-6);
+  const histories = buildMatrixHistories(sessions, dates, chronic, acwr);
+  const scoresNow = matrixScoresAt(sessions, dates, chronic, acwr, matrixToday, histories);
+  const scoresPast = matrixScoresAt(sessions, dates, chronic, acwr, matrixSixMonthsAgo, histories);
+  const hasAnyScore = scoresNow.some(v=>v!=null);
+  if(hasAnyScore && matrixWrap){
+    const missing = MATRIX_BRANCHES.filter((_,i)=>scoresNow[i]==null);
+    matrixNote.textContent = missing.length
+      ? `Historique encore insuffisant pour : ${missing.join(", ")} — ces branches s'affichent à 0 en attendant plus de séances Strava.`
+      : "";
+    charts.matrix = new Chart(document.getElementById("chart-matrix"), {
+      type:"radar",
+      data:{ labels: MATRIX_BRANCHES, datasets:[
+        { label:"Il y a ~6 mois", data: scoresPast.map(v=>v??0), borderColor: cssVar("--text-muted"), backgroundColor: cssVar("--text-muted")+"22", borderWidth:2, borderDash:[4,3], pointRadius:2, pointBackgroundColor: cssVar("--text-muted") },
+        { label:"Aujourd'hui", data: scoresNow.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+          tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+            borderColor: cssVar("--border"), borderWidth:1, padding:10 } },
+        scales:{ r:{ min:0, max:100, ticks:{ display:false, stepSize:25 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
+          pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Manrope", size:11.5, weight:600} } } }
+      }
+    });
+  } else if(matrixWrap){
+    matrixWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite un historique de séances (idéalement importées depuis Strava) pour calculer les 6 branches.</div>';
+    if(matrixNote) matrixNote.textContent = "";
+  }
 
   charts.load = new Chart(document.getElementById("chart-load"), {
     type:"bar",
