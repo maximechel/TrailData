@@ -101,6 +101,13 @@
   .ls-insight b{font-weight:700;}
   .ls-insight p{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary);}
 
+  .ls-period-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;border-radius:12px;padding:12px 14px;margin-bottom:18px;
+    background:var(--surface);border:1px solid var(--border);}
+  .ls-period-bar .ls-field{margin:0;width:150px;}
+  .ls-period-bar .ls-field label{font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.02em;}
+  .ls-period-bar .ls-period-arrow{color:var(--text-muted);font-size:14px;padding-bottom:9px;}
+  .ls-period-note{flex:1 1 240px;font-size:11.5px;color:var(--text-muted);line-height:1.5;padding-bottom:2px;}
+
   .ls-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;}
   @media (max-width: 980px){ .ls-charts{grid-template-columns:1fr;} }
   .ls-chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px 8px;}
@@ -274,8 +281,18 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 let state = null;
 let activeAthleteId = null;
 let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null, terrain: null, matrix: null };
+let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
+function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
+
+// Période par défaut affichée/comparée sur les graphes : les 6 derniers mois.
+function defaultChartPeriod(){
+  const end = new Date();
+  const start = new Date(end); start.setMonth(start.getMonth()-6);
+  return { start: fmtDate(start), end: fmtDate(end) };
+}
+function ensureChartPeriod(){ if(!chartPeriod) chartPeriod = defaultChartPeriod(); return chartPeriod; }
 
 /* ---------------------------- API layer ---------------------------- */
 
@@ -486,9 +503,12 @@ function isoMonday(dateStr){
   return fmtDate(d);
 }
 
-function weeklyAggregates(sessions, weeksBack){
+// Agrège les séances par semaine (lundi au dimanche) sur la période
+// [startISO, endISO] (bornes incluses).
+function weeklyAggregates(sessions, startISO, endISO){
   const byWeek = {};
   sessions.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
     const wk = isoMonday(s.date);
     if(!byWeek[wk]) byWeek[wk] = { week: wk, km:0, dPlus:0, dMinus:0, zones:[0,0,0,0,0], paceZones:[0,0,0,0,0,0,0], hasPaceData:false, count:0 };
     const b = byWeek[wk];
@@ -496,8 +516,7 @@ function weeklyAggregates(sessions, weeksBack){
     s.zones.forEach((m,i)=> b.zones[i]+=m);
     if(Array.isArray(s.paceZones)){ b.hasPaceData = true; s.paceZones.forEach((m,i)=> b.paceZones[i]+=m); }
   });
-  const weeks = Object.values(byWeek).sort((a,b)=> a.week < b.week ? -1 : 1);
-  return weeks.slice(-weeksBack);
+  return Object.values(byWeek).sort((a,b)=> a.week < b.week ? -1 : 1);
 }
 
 // Vitesse ajustée à la pente (GAP) moyenne par zone de FC, sur une fenêtre de
@@ -576,18 +595,31 @@ function resilienceRatioAt(dates, acwr, endDate, weeks){
   return total > 0 ? Math.round((safe/total)*1000)/10 : null;
 }
 
+// Fenêtre (en semaines) utilisée pour moyenner les métriques autour de
+// chaque date comparée, dérivée de la longueur de la période choisie par le
+// coach : jusqu'à MATRIX_WINDOW_WEEKS (6), mais jamais plus de la moitié de
+// la période (pour que les deux fenêtres — début et fin de période — ne se
+// chevauchent pas sur une période courte).
+function periodWeeksBetween(startDate, endDate){
+  return Math.max(1, Math.round((endDate - startDate) / (7*86400000)));
+}
+function comparisonWindowWeeksFor(startDate, endDate){
+  return Math.max(1, Math.min(MATRIX_WINDOW_WEEKS, Math.floor(periodWeeksBetween(startDate, endDate)/2)));
+}
+
 // Valeur brute de chacune des 6 branches à une date donnée (fenêtre de
-// MATRIX_WINDOW_WEEKS semaines se terminant à endDate), dans l'ordre MATRIX_BRANCHES.
-function matrixRawValuesAt(sessions, dates, chronic, acwr, endDate){
-  const gapZ = gapZoneAverage(sessions, endDate, MATRIX_WINDOW_WEEKS);
-  const gapG = gapGradeAverage(sessions, endDate, MATRIX_WINDOW_WEEKS);
+// `windowWeeks` semaines se terminant à endDate), dans l'ordre MATRIX_BRANCHES.
+function matrixRawValuesAt(sessions, dates, chronic, acwr, endDate, windowWeeks){
+  windowWeeks = windowWeeks || MATRIX_WINDOW_WEEKS;
+  const gapZ = gapZoneAverage(sessions, endDate, windowWeeks);
+  const gapG = gapGradeAverage(sessions, endDate, windowWeeks);
   return [
-    seriesValueAt(dates, chronic, endDate),          // Endurance
-    avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),       // Montée
-    avgIgnoreNull([gapG[0], gapG[1]]),                // Descente
-    gapZ[4],                                          // Vitesse
-    resilienceRatioAt(dates, acwr, endDate, 12),      // Résilience
-    avgIgnoreNull(gapZ),                              // Physiologie
+    seriesValueAt(dates, chronic, endDate),                    // Endurance
+    avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),                 // Montée
+    avgIgnoreNull([gapG[0], gapG[1]]),                          // Descente
+    gapZ[4],                                                    // Vitesse
+    resilienceRatioAt(dates, acwr, endDate, windowWeeks*2),     // Résilience
+    avgIgnoreNull(gapZ),                                        // Physiologie
   ];
 }
 
@@ -595,13 +627,13 @@ function matrixRawValuesAt(sessions, dates, chronic, acwr, endDate){
 // l'athlète) de chacune des 6 branches — sert de référentiel min/max pour
 // noter 0-100. Coûteux (une passe par semaine d'historique) mais l'échelle
 // reste petite pour un coach individuel.
-function buildMatrixHistories(sessions, dates, chronic, acwr){
+function buildMatrixHistories(sessions, dates, chronic, acwr, windowWeeks){
   if(!sessions.length) return MATRIX_BRANCHES.map(()=>[]);
   const firstDate = new Date(sessions.map(s=>s.date).sort()[0]+"T00:00:00");
   const today = new Date();
   const histories = MATRIX_BRANCHES.map(()=>[]);
   for(let d = new Date(firstDate); d <= today; d.setDate(d.getDate()+7)){
-    const values = matrixRawValuesAt(sessions, dates, chronic, acwr, new Date(d));
+    const values = matrixRawValuesAt(sessions, dates, chronic, acwr, new Date(d), windowWeeks);
     values.forEach((v,i)=>{ if(v!=null) histories[i].push(v); });
   }
   return histories;
@@ -614,8 +646,8 @@ function scoreFromHistory(history, value){
   return Math.round(Math.max(0, Math.min(100, (value-min)/(max-min)*100)));
 }
 
-function matrixScoresAt(sessions, dates, chronic, acwr, endDate, histories){
-  const raw = matrixRawValuesAt(sessions, dates, chronic, acwr, endDate);
+function matrixScoresAt(sessions, dates, chronic, acwr, endDate, histories, windowWeeks){
+  const raw = matrixRawValuesAt(sessions, dates, chronic, acwr, endDate, windowWeeks);
   return raw.map((v,i)=> scoreFromHistory(histories[i], v));
 }
 
@@ -727,6 +759,8 @@ function renderMain(){
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sessions);
   const color = athleteColor(athlete);
+  ensureChartPeriod();
+  const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
 
   main.innerHTML = `
     <div class="ls-athlete-header">
@@ -761,16 +795,30 @@ function renderMain(){
       <p>${buildInsight(sessions, lastACWR, cls)}</p>
     </div>
 
+    <div class="ls-period-bar">
+      <div class="ls-field">
+        <label>Période — début</label>
+        <input type="date" id="period-start" value="${chartPeriod.start}" max="${chartPeriod.end}">
+      </div>
+      <div class="ls-period-arrow">→</div>
+      <div class="ls-field">
+        <label>Période — fin</label>
+        <input type="date" id="period-end" value="${chartPeriod.end}" min="${chartPeriod.start}">
+      </div>
+      <button class="ls-btn small ghost" type="button" id="btn-period-reset">Réinitialiser (6 mois)</button>
+      <div class="ls-period-note">Filtre les graphes ci-dessous sur cette période, et sert de comparaison pour le Runner Matrix, l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).</div>
+    </div>
+
     <div class="ls-charts">
       <div class="ls-chart-card full">
         <h3>Profil du coureur — Runner Matrix</h3>
-        <div class="ls-chart-sub">6 branches notées 0-100 par rapport au propre historique de l'athlète (0 = son plus bas niveau observé, 100 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Fenêtre récente (6 dernières semaines) vs il y a ~6 mois.</div>
+        <div class="ls-chart-sub">6 branches notées 0-100 par rapport au propre historique de l'athlète (0 = son plus bas niveau observé, 100 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}.</div>
         <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
         <div class="ls-matrix-note" id="matrix-note"></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
-        <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j)</div>
+        <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card full">
@@ -800,12 +848,12 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Efficacité physiologique</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC — 6 dernières semaines vs il y a ~6 mois. Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC — ${fmtDateFr(chartPeriod.start)} vs ${fmtDateFr(chartPeriod.end)}. Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
         <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Profil terrain</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — 6 dernières semaines vs il y a ~6 mois. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(chartPeriod.start)} vs ${fmtDateFr(chartPeriod.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava.</div>
         <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
@@ -826,6 +874,20 @@ function renderMain(){
   document.getElementById("btn-add-session").addEventListener("click", ()=>openSessionModal(athlete.id));
   document.getElementById("btn-edit-athlete").addEventListener("click", ()=>openAthleteModal(athlete));
   document.getElementById("btn-delete-athlete").addEventListener("click", ()=>deleteAthlete(athlete.id));
+  document.getElementById("period-start").addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
+    renderMain();
+  });
+  document.getElementById("period-end").addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    chartPeriod = { start: v < chartPeriod.start ? v : chartPeriod.start, end: v };
+    renderMain();
+  });
+  document.getElementById("btn-period-reset").addEventListener("click", ()=>{
+    chartPeriod = defaultChartPeriod();
+    renderMain();
+  });
   const stravaBtn = document.getElementById("btn-connect-strava");
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
@@ -924,18 +986,29 @@ function renderChartsInner(athlete){
   const { dates, acute, chronic, acwr } = acwrSeries(sessions);
   const daily = dailySeries(sessions);
   const dailyVals = dates.map(d=>daily[d]||0);
-  const N = 84; // affiche ~12 dernières semaines
-  const sl = arr => arr.slice(-N);
-  const labels = sl(dates).map(d=> d.slice(5));
   const color = athleteColor(athlete);
+
+  ensureChartPeriod();
+  const periodStartStr = chartPeriod.start, periodEndStr = chartPeriod.end;
+  const periodStart = new Date(periodStartStr+"T00:00:00");
+  const periodEnd = new Date(periodEndStr+"T00:00:00");
+  const oldLabel = fmtDateFr(periodStart), newLabel = fmtDateFr(periodEnd);
+
+  // Slice les séries journalières (Charge / ACWR) sur la période choisie
+  // plutôt que sur une fenêtre glissante fixe.
+  let si = dates.findIndex(d=> d >= periodStartStr);
+  if(si === -1) si = dates.length;
+  let ei = dates.length - 1;
+  while(ei >= 0 && dates[ei] > periodEndStr) ei--;
+  const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
+  const labels = sl(dates).map(d=> d.slice(5));
 
   const matrixWrap = document.getElementById("matrix-chart-wrap");
   const matrixNote = document.getElementById("matrix-note");
-  const matrixToday = new Date();
-  const matrixSixMonthsAgo = new Date(matrixToday); matrixSixMonthsAgo.setMonth(matrixSixMonthsAgo.getMonth()-6);
-  const histories = buildMatrixHistories(sessions, dates, chronic, acwr);
-  const scoresNow = matrixScoresAt(sessions, dates, chronic, acwr, matrixToday, histories);
-  const scoresPast = matrixScoresAt(sessions, dates, chronic, acwr, matrixSixMonthsAgo, histories);
+  const cmpWindowWeeks = comparisonWindowWeeksFor(periodStart, periodEnd);
+  const histories = buildMatrixHistories(sessions, dates, chronic, acwr, cmpWindowWeeks);
+  const scoresNow = matrixScoresAt(sessions, dates, chronic, acwr, periodEnd, histories, cmpWindowWeeks);
+  const scoresPast = matrixScoresAt(sessions, dates, chronic, acwr, periodStart, histories, cmpWindowWeeks);
   const hasAnyScore = scoresNow.some(v=>v!=null);
   if(hasAnyScore && matrixWrap){
     const missing = MATRIX_BRANCHES.filter((_,i)=>scoresNow[i]==null);
@@ -945,8 +1018,8 @@ function renderChartsInner(athlete){
     charts.matrix = new Chart(document.getElementById("chart-matrix"), {
       type:"radar",
       data:{ labels: MATRIX_BRANCHES, datasets:[
-        { label:"Il y a ~6 mois", data: scoresPast.map(v=>v??0), borderColor: cssVar("--text-muted"), backgroundColor: cssVar("--text-muted")+"22", borderWidth:2, borderDash:[4,3], pointRadius:2, pointBackgroundColor: cssVar("--text-muted") },
-        { label:"Aujourd'hui", data: scoresNow.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
+        { label: oldLabel, data: scoresPast.map(v=>v??0), borderColor: cssVar("--text-muted"), backgroundColor: cssVar("--text-muted")+"22", borderWidth:2, borderDash:[4,3], pointRadius:2, pointBackgroundColor: cssVar("--text-muted") },
+        { label: newLabel, data: scoresNow.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
@@ -990,7 +1063,7 @@ function renderChartsInner(athlete){
     })
   });
 
-  const weeks = weeklyAggregates(sessions, 12);
+  const weeks = weeklyAggregates(sessions, periodStartStr, periodEndStr);
   const wkLabels = weeks.map(w=> w.week.slice(5));
   charts.volume = new Chart(document.getElementById("chart-volume"), {
     type:"bar",
@@ -1032,18 +1105,15 @@ function renderChartsInner(athlete){
   }
 
   const physioWrap = document.getElementById("physio-chart-wrap");
-  const today = new Date();
-  const sixMonthsAgo = new Date(today); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth()-6);
-  const GAP_WINDOW_WEEKS = 6;
-  const gapNow = gapZoneAverage(sessions, today, GAP_WINDOW_WEEKS);
-  const gapPast = gapZoneAverage(sessions, sixMonthsAgo, GAP_WINDOW_WEEKS);
+  const gapNow = gapZoneAverage(sessions, periodEnd, cmpWindowWeeks);
+  const gapPast = gapZoneAverage(sessions, periodStart, cmpWindowWeeks);
   const hasGapData = gapNow.some(v=>v!=null) || gapPast.some(v=>v!=null);
   if(hasGapData && physioWrap){
     charts.physio = new Chart(document.getElementById("chart-physio"), {
       type:"bar",
       data:{ labels: ZONE_LABELS, datasets:[
-        { label:"Il y a ~6 mois", data: gapPast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
-        { label:"6 dernières semaines", data: gapNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+        { label: oldLabel, data: gapPast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label: newLabel, data: gapNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
       ]},
       options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
     });
@@ -1052,15 +1122,15 @@ function renderChartsInner(athlete){
   }
 
   const terrainWrap = document.getElementById("terrain-chart-wrap");
-  const gradeNow = gapGradeAverage(sessions, today, GAP_WINDOW_WEEKS);
-  const gradePast = gapGradeAverage(sessions, sixMonthsAgo, GAP_WINDOW_WEEKS);
+  const gradeNow = gapGradeAverage(sessions, periodEnd, cmpWindowWeeks);
+  const gradePast = gapGradeAverage(sessions, periodStart, cmpWindowWeeks);
   const hasGradeData = gradeNow.some(v=>v!=null) || gradePast.some(v=>v!=null);
   if(hasGradeData && terrainWrap){
     charts.terrain = new Chart(document.getElementById("chart-terrain"), {
       type:"bar",
       data:{ labels: GRADE_BUCKET_LABELS, datasets:[
-        { label:"Il y a ~6 mois", data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
-        { label:"6 dernières semaines", data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+        { label: oldLabel, data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label: newLabel, data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
       ]},
       options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} },
         x:{ ticks:{ color:cssVar("--text-muted"), font:{size:10.5} } } } })
