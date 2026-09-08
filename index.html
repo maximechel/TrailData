@@ -247,6 +247,25 @@ const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)
 const MATRIX_BRANCHES = ["Endurance","Montée","Descente","Vitesse","Résilience","Physiologie"];
 const MATRIX_WINDOW_WEEKS = 6;
 const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
+
+// Technicité du terrain, saisie manuellement par le coach pour chaque séance
+// (montée / descente / plat), utilisée pour corriger le GAP par tranche de
+// pente : un coefficient qui « crédite » le coureur de la difficulté
+// supplémentaire d'un terrain technique, en plus de la pente elle-même.
+// Coefficients calibrés dans la fourchette validée par la littérature sur le
+// coût énergétique selon le type de terrain (Soule & Goldman 1972, facteur de
+// terrain η de 1,0 à 2,1 ; Voloshina et al., jusqu'à +27% de coût sur terrain
+// irrégulier à plat) — resserrée ici car un sentier de trail reste en général
+// plus roulant qu'un marécage ou du sable. Ajustables si l'usage le suggère.
+const TECHNICITY_LEVELS = [
+  { value:"roulant", label:"Roulant" },
+  { value:"normal", label:"Normal" },
+  { value:"technique", label:"Technique" },
+  { value:"tres_technique", label:"Très technique" },
+];
+const TECHNICITY_COEFFICIENTS = { roulant:1.00, normal:1.10, technique:1.25, tres_technique:1.50 };
+function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
+function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
 // Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
 // km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
 // (efforts anaérobies courts) n'ont pas de bornes FC : la fréquence cardiaque
@@ -366,11 +385,17 @@ function sessionFromApi(s){
     paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
     gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
     gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
+    technicityClimb: s.technicity_climb || "roulant",
+    technicityDescent: s.technicity_descent || "roulant",
+    technicityFlat: s.technicity_flat || "roulant",
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function sessionToApi(s){
   const row = { athlete_id:s.athleteId, date:s.date, type:s.type, duration:s.duration,
-    distance:s.distance, d_plus:s.dPlus, d_minus:s.dMinus, zones:s.zones, rpe:s.rpe, note:s.note||"" };
+    distance:s.distance, d_plus:s.dPlus, d_minus:s.dMinus, zones:s.zones, rpe:s.rpe, note:s.note||"",
+    technicity_climb: s.technicityClimb || "roulant",
+    technicity_descent: s.technicityDescent || "roulant",
+    technicity_flat: s.technicityFlat || "roulant" };
   if(s.id) row.id = s.id;
   return row;
 }
@@ -536,6 +561,13 @@ function gapZoneAverage(sessions, endDate, weeks){
 
 // Même principe que gapZoneAverage, mais par tranche de pente (6 tranches)
 // plutôt que par zone de FC — sert au graphe "Profil terrain".
+// Les 6 tranches de gapByGrade sont, dans l'ordre : descente forte, descente
+// modérée, plat, montée modérée, montée soutenue, montée forte (voir
+// GRADE_BUCKET_LABELS). On corrige chaque tranche par le coefficient de
+// technicité que le coach a saisi pour cette séance (montée / descente / plat
+// séparément) avant de moyenner entre séances — un terrain technique fait
+// naturellement baisser le GAP brut à effort égal, ce coefficient « rend » au
+// coureur la difficulté supplémentaire du terrain, en plus de la pente.
 function gapGradeAverage(sessions, endDate, weeks){
   const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
   const sums = [0,0,0,0,0,0], counts = [0,0,0,0,0,0];
@@ -543,7 +575,11 @@ function gapGradeAverage(sessions, endDate, weeks){
     if(!Array.isArray(s.gapByGrade)) return;
     const d = new Date(s.date+"T00:00:00");
     if(isNaN(d) || d < start || d > endDate) return;
-    s.gapByGrade.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+    const cDescent = technicityCoef(s.technicityDescent);
+    const cFlat = technicityCoef(s.technicityFlat);
+    const cClimb = technicityCoef(s.technicityClimb);
+    const bucketCoef = [cDescent, cDescent, cFlat, cClimb, cClimb, cClimb];
+    s.gapByGrade.forEach((v,i)=>{ if(v!=null){ sums[i]+=v*bucketCoef[i]; counts[i]++; } });
   });
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
@@ -812,7 +848,7 @@ function renderMain(){
     <div class="ls-charts">
       <div class="ls-chart-card full">
         <h3>Profil du coureur — Runner Matrix</h3>
-        <div class="ls-chart-sub">6 branches notées 0-100 par rapport au propre historique de l'athlète (0 = son plus bas niveau observé, 100 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}.</div>
+        <div class="ls-chart-sub">6 branches notées 0-100 par rapport au propre historique de l'athlète (0 = son plus bas niveau observé, 100 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}. Montée et Descente sont corrigées de la technicité du terrain saisie par séance.</div>
         <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
         <div class="ls-matrix-note" id="matrix-note"></div>
       </div>
@@ -853,7 +889,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Profil terrain</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(chartPeriod.start)} vs ${fmtDateFr(chartPeriod.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(chartPeriod.start)} vs ${fmtDateFr(chartPeriod.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance (bouton « Modifier » sur chaque ligne du journal).</div>
         <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
@@ -1172,6 +1208,15 @@ function openSessionModal(athleteId, sessionId){
           </div>
           <div class="ls-zone-check" id="zone-check"></div>
         </div>
+        <div class="ls-field">
+          <label>Technicité du terrain</label>
+          <div class="ls-modal-sub" style="margin:-2px 0 8px;">Corrige le GAP par tranche de pente (Profil terrain, branches Montée/Descente du Runner Matrix) — un terrain technique ralentit à effort égal.</div>
+          <div class="ls-field-row3">
+            <div class="ls-field"><label>Montée</label><select name="technicityClimb">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicityClimb:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select></div>
+            <div class="ls-field"><label>Descente</label><select name="technicityDescent">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicityDescent:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select></div>
+            <div class="ls-field"><label>Plat</label><select name="technicityFlat">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicityFlat:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select></div>
+          </div>
+        </div>
         <div class="ls-modal-actions">
           <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
           <button type="submit" class="ls-btn primary">${existing? "Enregistrer":"Ajouter"}</button>
@@ -1208,6 +1253,9 @@ function openSessionModal(athleteId, sessionId){
       dPlus: +fd.get("dPlus")||0,
       dMinus: +fd.get("dMinus")||0,
       zones: [0,1,2,3,4].map(i=>+fd.get("z"+i)||0),
+      technicityClimb: fd.get("technicityClimb") || "roulant",
+      technicityDescent: fd.get("technicityDescent") || "roulant",
+      technicityFlat: fd.get("technicityFlat") || "roulant",
       rpe: fd.get("rpe")? +fd.get("rpe") : null,
       note:""
     };
