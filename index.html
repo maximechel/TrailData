@@ -428,14 +428,55 @@ function connectStrava(athleteId){
 // écran : copie un lien personnel à lui envoyer (SMS, WhatsApp, email...).
 // L'athlète l'ouvre sur son propre appareil, se connecte avec SON compte
 // Strava, et revient automatiquement sur Loadscope une fois autorisé.
+// Tente une copie presse-papiers directe (fonctionne souvent, surtout sur
+// mobile) ; mais affiche toujours le lien dans une fenêtre avec un champ
+// sélectionnable, quoi qu'il arrive — jamais de dépendance à window.prompt()
+// (bloqué dans certains contextes, notamment webviews/PWA) qui laisserait le
+// clic ne rien faire de visible en cas d'échec silencieux de la copie auto.
 async function copyStravaLink(athleteId){
+  const athlete = state.athletes.find(a=>a.id===athleteId);
   const link = buildStravaAuthUrl(athleteId);
-  try{
-    await navigator.clipboard.writeText(link);
-    showToast("Lien copié — envoyez-le à l'athlète pour qu'il l'ouvre sur son propre appareil, connecté à son compte Strava.", "--good");
-  }catch(e){
-    prompt("Copie impossible automatiquement. Copiez ce lien et envoyez-le à l'athlète :", link);
-  }
+  let autoCopied = false;
+  try{ await navigator.clipboard.writeText(link); autoCopied = true; }catch(e){ /* on retente depuis la fenêtre */ }
+  showStravaLinkModal(athlete, link, autoCopied);
+}
+
+function showStravaLinkModal(athlete, link, autoCopied){
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="strava-link-overlay">
+    <div class="ls-modal">
+      <h3>Lien Strava pour ${escapeHtml(athlete.name)}</h3>
+      <div class="ls-modal-sub">${autoCopied? "Lien copié dans le presse-papiers — envoyez-le par SMS, WhatsApp ou email." : "Copie automatique indisponible sur ce navigateur : cliquez sur « Copier », ou sélectionnez le texte ci-dessous et copiez-le manuellement (Ctrl/Cmd+C)."} L'athlète l'ouvre sur son propre appareil, se connecte avec son compte Strava, et revient automatiquement connecté.</div>
+      <div class="ls-field">
+        <label>Lien personnel (usage unique par athlète)</label>
+        <input type="text" id="strava-link-input" readonly value="${escapeHtml(link)}">
+      </div>
+      <div class="ls-modal-actions">
+        <button type="button" class="ls-btn ghost" id="strava-link-close">Fermer</button>
+        <button type="button" class="ls-btn primary" id="strava-link-copy">Copier le lien</button>
+      </div>
+    </div>
+  </div>`;
+  const input = document.getElementById("strava-link-input");
+  input.addEventListener("click", ()=> input.select());
+  input.focus(); input.select();
+  document.getElementById("strava-link-close").addEventListener("click", closeModal);
+  document.getElementById("strava-link-overlay").addEventListener("click", e=>{ if(e.target.id==="strava-link-overlay") closeModal(); });
+  document.getElementById("strava-link-copy").addEventListener("click", async ()=>{
+    input.select();
+    try{
+      await navigator.clipboard.writeText(link);
+      showToast("Lien copié.", "--good");
+    }catch(e){
+      try{
+        if(document.execCommand("copy")) showToast("Lien copié.", "--good");
+        else throw new Error("execCommand a échoué");
+      }catch(e2){
+        showToast("Copie automatique indisponible — le texte est sélectionné, copiez-le avec Ctrl/Cmd+C.", "--warning");
+      }
+    }
+  });
 }
 
 function handleStravaRedirectParam(){
