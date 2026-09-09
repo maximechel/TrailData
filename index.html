@@ -1140,9 +1140,21 @@ const zoneDonutCenterTextPlugin = {
 };
 const zoneDonutLegendGapPlugin = {
   id: "zoneDonutLegendGap",
-  afterFit(legend){
-    if(legend.chart.config.type !== "doughnut") return;
-    legend.height += 26;
+  // afterFit(legend) n'existe pas comme hook de plugin global dans Chart.js v4
+  // (les hooks de plugin reçoivent (chart, args, options), jamais l'objet
+  // legend directement) — donc ce hook n'était jamais appelé, d'où l'absence
+  // totale d'effet. La technique fiable : surcharger legend.fit() elle-même,
+  // depuis afterInit (chart.legend est déjà créé à ce stade).
+  afterInit(chart){
+    if(chart.config.type !== "doughnut") return;
+    const legend = chart.legend;
+    if(!legend || legend.__zoneDonutGapPatched) return;
+    legend.__zoneDonutGapPatched = true;
+    const originalFit = legend.fit;
+    legend.fit = function(){
+      originalFit.call(this);
+      this.height += 26;
+    };
   }
 };
 const zoneDonutLeaderLabelsPlugin = {
