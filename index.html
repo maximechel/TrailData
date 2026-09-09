@@ -161,6 +161,16 @@
   .ls-footer a{color:var(--text-secondary);}
   [hidden]{display:none!important;}
 
+  /* ---------- export PDF ---------- */
+  /* Pendant la capture html2canvas, on masque les contrôles interactifs du
+     tableau de bord (boutons d'action, barre de période, sélecteur de filtre)
+     : ces éléments n'ont pas leur place dans un rapport figé, et la période
+     est de toute façon réaffichée en texte dans l'en-tête du PDF. */
+  .pdf-exporting .ls-title-actions,
+  .pdf-exporting .ls-period-bar,
+  .pdf-exporting .pdf-hide{ display:none!important; }
+  .ls-btn[disabled]{opacity:.6;cursor:default;pointer-events:none;}
+
   /* ---------- toast / banner ---------- */
   .ls-toast{display:flex;align-items:flex-start;gap:10px;border-radius:12px;padding:11px 14px;margin-bottom:16px;
     border:1px solid var(--border);background:var(--surface);border-left:4px solid var(--accent);font-size:13px;color:var(--text-secondary);}
@@ -210,6 +220,7 @@
     <div class="ls-header-actions">
       <button class="ls-btn ghost small" id="btn-theme" type="button">Thème : Automatique</button>
       <button class="ls-btn" id="btn-export" type="button">Exporter (JSON)</button>
+      <button class="ls-btn" id="btn-export-pdf" type="button">Exporter en PDF</button>
       <button class="ls-btn primary" id="btn-add-athlete" type="button">+ Athlète</button>
     </div>
   </header>
@@ -988,7 +999,7 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC — historique complet</h3>
         <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues (indépendant de la période choisie plus haut)</div>
-        <div class="ls-field" style="max-width:280px;">
+        <div class="ls-field pdf-hide" style="max-width:280px;">
           <label>Activité</label>
           <select id="zones-total-activity">
             <option value="all" ${zonesTotalActivityFilter==="all"?"selected":""}>Toutes les activités</option>
@@ -1696,6 +1707,147 @@ function exportJSON(){
   a.click();
 }
 
+/* ---------------------------- export PDF ---------------------------- */
+// Génère un PDF "DATAS" du tableau de bord affiché : capture le contenu
+// (#main-panel, sans les contrôles interactifs) en image via html2canvas,
+// la découpe en pages A4, et dessine en vrai texte vectoriel (jsPDF, donc
+// net à l'impression) un en-tête (logo + titre + athlète/période) et un
+// bas de page signature (grand logo + coordonnées + numéro de page) sur
+// chaque page — comme le bandeau de signature du cabinet.
+
+const COACH_SIGNATURE = {
+  name: "Maxime Chelda",
+  role: "Préparateur physique",
+  phone: "06 32 19 57 79",
+  email: "maxime@ruthene-coachin.fr"
+};
+const LOGO_URL = "logo-ruthene-coachin.png";
+const PDF_TITLE = "DATAS — Bilan d'entraînement";
+
+let _pdfLibsPromise = null;
+function loadScript(src){
+  return new Promise((resolve, reject)=>{
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = ()=>reject(new Error("Échec de chargement : " + src));
+    document.head.appendChild(s);
+  });
+}
+function ensurePdfLibs(){
+  if(_pdfLibsPromise) return _pdfLibsPromise;
+  _pdfLibsPromise = (async ()=>{
+    if(!window.html2canvas) await loadScript("https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js");
+    if(!window.jspdf) await loadScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js");
+  })();
+  return _pdfLibsPromise;
+}
+function loadImage(url){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>resolve(img);
+    img.onerror = ()=>reject(new Error("Logo introuvable : " + url));
+    img.src = url;
+  });
+}
+
+const PDF_PAGE_W = 210, PDF_PAGE_H = 297, PDF_MARGIN_X = 15, PDF_HEADER_H = 26, PDF_FOOTER_H = 32;
+
+function drawPdfHeader(pdf, logoImg, athleteName, periodLabel){
+  const logoW = 32, logoH = logoW * (logoImg.height / logoImg.width);
+  pdf.addImage(logoImg, "PNG", PDF_MARGIN_X, 7, logoW, logoH);
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(14); pdf.setTextColor(25, 25, 35);
+  pdf.text(PDF_TITLE, PDF_PAGE_W - PDF_MARGIN_X, 13, { align: "right" });
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(115, 115, 125);
+  pdf.text(athleteName + " — " + periodLabel, PDF_PAGE_W - PDF_MARGIN_X, 19, { align: "right" });
+  pdf.setDrawColor(222, 222, 228); pdf.setLineWidth(0.3);
+  pdf.line(PDF_MARGIN_X, PDF_HEADER_H, PDF_PAGE_W - PDF_MARGIN_X, PDF_HEADER_H);
+}
+
+function drawPdfFooter(pdf, logoImg, pageNum, totalPages){
+  const footTop = PDF_PAGE_H - PDF_FOOTER_H;
+  pdf.setDrawColor(222, 222, 228); pdf.setLineWidth(0.3);
+  pdf.line(PDF_MARGIN_X, footTop, PDF_PAGE_W - PDF_MARGIN_X, footTop);
+
+  const logoW = 46, logoH = logoW * (logoImg.height / logoImg.width);
+  const logoY = footTop + (PDF_FOOTER_H - logoH) / 2;
+  pdf.addImage(logoImg, "PNG", PDF_MARGIN_X, logoY, logoW, logoH);
+
+  const dividerX = PDF_MARGIN_X + logoW + 8;
+  pdf.setDrawColor(215, 215, 220);
+  pdf.line(dividerX, footTop + 6, dividerX, PDF_PAGE_H - 8);
+
+  const textX = dividerX + 8;
+  let ty = footTop + 11;
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(25, 25, 35);
+  pdf.text(COACH_SIGNATURE.name, textX, ty); ty += 5;
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(115, 115, 125);
+  pdf.text(COACH_SIGNATURE.role, textX, ty); ty += 6;
+  pdf.setFontSize(9.5); pdf.setTextColor(90, 90, 100);
+  pdf.text(COACH_SIGNATURE.phone, textX, ty); ty += 5;
+  pdf.text(COACH_SIGNATURE.email, textX, ty);
+
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(150, 150, 158);
+  pdf.text(pageNum + " / " + totalPages, PDF_PAGE_W - PDF_MARGIN_X, PDF_PAGE_H - 8, { align: "right" });
+}
+
+async function exportPDF(){
+  const athlete = state.athletes.find(a=>a.id===activeAthleteId);
+  if(!athlete){ showToast("Sélectionnez un athlète avant d'exporter un PDF.", "--serious"); return; }
+  const main = document.getElementById("main-panel");
+  if(!main) return;
+
+  const btn = document.getElementById("btn-export-pdf");
+  const originalLabel = btn.textContent;
+  btn.disabled = true; btn.textContent = "Génération…";
+
+  try{
+    await ensurePdfLibs();
+    const logoImg = await loadImage(LOGO_URL);
+
+    document.documentElement.classList.add("pdf-exporting");
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); // laisse le temps au reflow
+
+    const canvas = await window.html2canvas(main, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+    document.documentElement.classList.remove("pdf-exporting");
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: "mm", format: "a4" });
+
+    const contentTop = PDF_HEADER_H + 6;
+    const contentBottom = PDF_PAGE_H - PDF_FOOTER_H - 4;
+    const contentW = PDF_PAGE_W - PDF_MARGIN_X * 2;
+    const contentH = contentBottom - contentTop;
+    const pxPerMm = canvas.width / contentW;
+    const pagePx = Math.floor(contentH * pxPerMm);
+    const totalPages = Math.max(1, Math.ceil(canvas.height / pagePx));
+
+    // "→" n'est pas dans l'encodage des polices standard de jsPDF (WinAnsi) —
+    // il s'affichait comme un caractère cassé dans le PDF généré.
+    const periodLabel = fmtDateFr(chartPeriod.start) + " au " + fmtDateFr(chartPeriod.end);
+
+    for(let i=0; i<totalPages; i++){
+      const sliceH = Math.min(pagePx, canvas.height - i*pagePx);
+      const slice = document.createElement("canvas");
+      slice.width = canvas.width; slice.height = sliceH;
+      const sctx = slice.getContext("2d");
+      sctx.fillStyle = "#ffffff"; sctx.fillRect(0, 0, slice.width, slice.height);
+      sctx.drawImage(canvas, 0, i*pagePx, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+
+      if(i>0) pdf.addPage();
+      drawPdfHeader(pdf, logoImg, athlete.name, periodLabel);
+      pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", PDF_MARGIN_X, contentTop, contentW, sliceH / pxPerMm);
+      drawPdfFooter(pdf, logoImg, i+1, totalPages);
+    }
+
+    pdf.save("DATAS-" + athlete.name.replace(/[^a-z0-9]+/gi,"-") + "-" + fmtDate(new Date()) + ".pdf");
+  }catch(err){
+    document.documentElement.classList.remove("pdf-exporting");
+    console.error("Export PDF échoué", err);
+    showToast("Échec de l'export PDF : " + (err.message || "erreur inconnue") + " (vérifiez la connexion internet pour le premier export, les librairies sont chargées depuis un CDN).", "--serious");
+  }finally{
+    btn.disabled = false; btn.textContent = originalLabel;
+  }
+}
+
 const CSV_TEMPLATE = "date,type,duration,distance,dPlus,dMinus,z0,z1,z2,z3,z4,rpe\n2026-01-15,Course à pied,55,10.2,120,110,10,30,10,4,1,5\n";
 
 function downloadCsvTemplate(){
@@ -1830,6 +1982,7 @@ function init(){
   document.getElementById("btn-theme").addEventListener("click", cycleTheme);
   document.getElementById("btn-add-athlete").addEventListener("click", ()=>openAthleteModal(null));
   document.getElementById("btn-export").addEventListener("click", exportJSON);
+  document.getElementById("btn-export-pdf").addEventListener("click", exportPDF);
   document.getElementById("btn-download-template").addEventListener("click", downloadCsvTemplate);
   document.getElementById("input-csv").addEventListener("change", e=>{
     if(e.target.files[0] && activeAthleteId) importCSV(e.target.files[0], activeAthleteId);
