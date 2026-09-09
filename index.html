@@ -1138,6 +1138,13 @@ const zoneDonutCenterTextPlugin = {
     ctx.restore();
   }
 };
+const zoneDonutLegendGapPlugin = {
+  id: "zoneDonutLegendGap",
+  afterFit(legend){
+    if(legend.chart.config.type !== "doughnut") return;
+    legend.height += 26;
+  }
+};
 const zoneDonutLeaderLabelsPlugin = {
   id: "zoneDonutLeaderLabels",
   afterDraw(chart){
@@ -1347,7 +1354,7 @@ function renderChartsInner(athlete){
         data:{ labels: ZONE_LABELS, datasets:[{ data: zonesTotalMinutes, backgroundColor: zoneColors, borderColor: cssVar("--surface"), borderWidth:2 }] },
         options:{
           responsive:true, maintainAspectRatio:false, cutout:"62%",
-          layout:{ padding:{ top:38, bottom:34, left:100, right:100 } },
+          layout:{ padding:{ top:18, bottom:34, left:100, right:100 } },
           plugins:{
             legend:{ position:"top", labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
             tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
@@ -1356,7 +1363,7 @@ function renderChartsInner(athlete){
             centerText:{ text: fmtHoursMinutes(zonesTotalSum) }
           }
         },
-        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin]
+        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin, zoneDonutLegendGapPlugin]
       });
     } else {
       zonesTotalWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec zones de FC renseignées pour cette activité.</div>';
