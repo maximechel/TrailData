@@ -1,4 +1,4 @@
-<title>Loadscope</title>
+<title>DATAS Trail running</title>
 <style>
   :root{
     color-scheme: light;
@@ -214,7 +214,7 @@
 <div class="ls-app">
   <header class="ls-header">
     <div class="ls-brand">
-      <h1>Loadscope</h1>
+      <h1>DATAS Trail running</h1>
       <span>Charge d'entraînement, lisible.</span>
     </div>
     <div class="ls-header-actions">
@@ -242,7 +242,7 @@
     <main id="main-panel"></main>
   </div>
 
-  <div class="ls-footer">Données synchronisées sur le serveur Loadscope (Supabase) — partagées entre vos appareils. Pensez tout de même à exporter une sauvegarde JSON de temps en temps.</div>
+  <div class="ls-footer">Données synchronisées sur le serveur DATAS Trail running (Supabase) — partagées entre vos appareils. Pensez tout de même à exporter une sauvegarde JSON de temps en temps.</div>
 </div>
 
 <div id="modal-root"></div>
@@ -251,7 +251,7 @@
 <script>
 "use strict";
 /* =========================================================================
-   Loadscope — suivi de charge d'entraînement (TRIMP / charge aiguë-chronique / ACWR)
+   DATAS Trail running — suivi de charge d'entraînement (TRIMP / charge aiguë-chronique / ACWR)
    Application autonome, sans backend. Données persistées en localStorage.
    ========================================================================= */
 
@@ -489,7 +489,7 @@ function connectStrava(athleteId){
 // À utiliser par le coach pour connecter un athlète qui n'est pas devant cet
 // écran : copie un lien personnel à lui envoyer (SMS, WhatsApp, email...).
 // L'athlète l'ouvre sur son propre appareil, se connecte avec SON compte
-// Strava, et revient automatiquement sur Loadscope une fois autorisé.
+// Strava, et revient automatiquement sur DATAS Trail running une fois autorisé.
 // Tente une copie presse-papiers directe (fonctionne souvent, surtout sur
 // mobile) ; mais affiche toujours le lien dans une fenêtre avec un champ
 // sélectionnable, quoi qu'il arrive — jamais de dépendance à window.prompt()
@@ -2143,7 +2143,7 @@ function showKeyGate(errorText){
   <div class="ls-modal-overlay" id="gate-overlay">
     <div class="ls-modal">
       <h3>Clé d'accès coach</h3>
-      <div class="ls-modal-sub">Loadscope est relié à votre base de données. Entrez la clé d'accès coach pour continuer.</div>
+      <div class="ls-modal-sub">DATAS Trail running est relié à votre base de données. Entrez la clé d'accès coach pour continuer.</div>
       <form id="gate-form">
         <div class="ls-field"><label>Clé d'accès</label><input type="password" name="key" required autofocus autocomplete="off"></div>
         ${errorText? `<div class="ls-gate-error">${escapeHtml(errorText)}</div>` : ""}
