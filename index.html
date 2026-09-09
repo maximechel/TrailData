@@ -1298,8 +1298,11 @@ function renderChartsInner(athlete){
     options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
 
+  // Le dénivelé n'a de sens que pour la course à pied et le vélo — musculation,
+  // ski et le reste sont écartés du graphique (demande du coach).
+  const ELEVATION_CATEGORIES = VOLUME_CATEGORIES.filter(c => c.key==="course" || c.key==="velo");
   const elevByWeek = weeklyElevationByCategory(sessions, periodStartStr, periodEndStr);
-  const elevDatasets = (metric) => VOLUME_CATEGORIES.map(c => ({
+  const elevDatasets = (metric) => ELEVATION_CATEGORIES.map(c => ({
     label: c.label,
     data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.[metric] || 0)),
     backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26
