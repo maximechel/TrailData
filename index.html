@@ -114,9 +114,6 @@
   .ls-chart-card.full{grid-column:1 / -1;}
   .ls-chart-card h3{font-size:13px;font-weight:700;margin:0 0 2px;}
   .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
-  .ls-volume-filter{display:flex;flex-wrap:wrap;gap:8px 12px;margin-bottom:10px;}
-  .ls-volume-filter-item{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);cursor:pointer;user-select:none;}
-  .ls-volume-filter-item input{margin:0;cursor:pointer;}
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
   .ls-chart-wrap.radar{height:340px;max-width:440px;margin:0 auto;}
@@ -246,38 +243,22 @@
 const CAT_HUES = ["--cat-1","--cat-2","--cat-3","--cat-4","--cat-5","--cat-6","--cat-7","--cat-8"];
 const SPORTS = ["Course à pied","Trail","Cyclisme","Musculation","Triathlon","Natation","Ski de fond","Autre"];
 
-// Catégories du filtre du graphique "Volume hebdomadaire" — regroupe les types
-// de séance en 5 familles ; tout ce qui n'est pas Vélo/Course/Musculation/Ski
-// tombe dans "Autres" (Triathlon, Natation, Autre...).
+// Catégories affichées empilées sur le graphique "Volume hebdomadaire" —
+// regroupe les types de séance en 5 familles ; tout ce qui n'est pas
+// Vélo/Course/Musculation/Ski tombe dans "Autres" (Triathlon, Natation, Autre...).
 const VOLUME_CATEGORIES = [
-  { key:"velo", label:"Vélo" },
-  { key:"course", label:"Course à pied" },
-  { key:"muscu", label:"Musculation" },
-  { key:"ski", label:"Ski" },
-  { key:"autres", label:"Autres" }
+  { key:"velo", label:"Vélo", colorVar:"--cat-1" },
+  { key:"course", label:"Course à pied", colorVar:"--cat-2" },
+  { key:"muscu", label:"Musculation", colorVar:"--cat-3" },
+  { key:"ski", label:"Ski", colorVar:"--cat-4" },
+  { key:"autres", label:"Autres", colorVar:"--text-muted" }
 ];
-const VOLUME_FILTER_STORAGE = "loadscope.volumeFilter";
 function volumeCategoryOf(type){
   if(type === "Cyclisme") return "velo";
   if(type === "Course à pied" || type === "Trail") return "course";
   if(type === "Musculation") return "muscu";
   if(type === "Ski de fond") return "ski";
   return "autres";
-}
-function loadVolumeFilter(){
-  const out = {};
-  try{
-    const raw = JSON.parse(localStorage.getItem(VOLUME_FILTER_STORAGE) || "null");
-    VOLUME_CATEGORIES.forEach(c => out[c.key] = raw && typeof raw === "object" ? raw[c.key] !== false : true);
-    return out;
-  }catch(e){
-    VOLUME_CATEGORIES.forEach(c => out[c.key] = true);
-    return out;
-  }
-}
-let volumeCategoryFilter = loadVolumeFilter();
-function saveVolumeFilter(){
-  try{ localStorage.setItem(VOLUME_FILTER_STORAGE, JSON.stringify(volumeCategoryFilter)); }catch(e){}
 }
 const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
 const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)","Plat / roulant (±4%)","Montée modérée (4-10%)","Montée soutenue (10-18%)","Montée forte (>18%)"];
@@ -622,6 +603,20 @@ function weeklyAggregates(sessions, startISO, endISO){
   return Object.values(byWeek).sort((a,b)=> a.week < b.week ? -1 : 1);
 }
 
+// Comme weeklyAggregates, mais retourne le kilométrage par semaine ET par
+// catégorie (VOLUME_CATEGORIES) — sert au graphique Volume empilé.
+function weeklyKmByCategory(sessions, startISO, endISO){
+  const byWeek = {};
+  sessions.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const wk = isoMonday(s.date);
+    if(!byWeek[wk]) byWeek[wk] = {};
+    const cat = volumeCategoryOf(s.type);
+    byWeek[wk][cat] = (byWeek[wk][cat]||0) + s.distance;
+  });
+  return byWeek;
+}
+
 // Vitesse ajustée à la pente (GAP) moyenne par zone de FC, sur une fenêtre de
 // `weeks` semaines se terminant à `endDate` — moyenne des séances Strava ayant
 // une valeur pour cette zone (null si aucune séance de la fenêtre n'en a).
@@ -942,12 +937,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card">
         <h3>Volume hebdomadaire</h3>
-        <div class="ls-chart-sub">Kilomètres par semaine</div>
-        <div class="ls-volume-filter" id="volume-filter">${VOLUME_CATEGORIES.map(c=>`
-          <label class="ls-volume-filter-item">
-            <input type="checkbox" data-volume-cat="${c.key}" ${volumeCategoryFilter[c.key]!==false?"checked":""}>
-            ${escapeHtml(c.label)}
-          </label>`).join("")}</div>
+        <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité — survolez une semaine pour le détail</div>
         <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
       </div>
       <div class="ls-chart-card">
@@ -1012,13 +1002,6 @@ function renderMain(){
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
   if(stravaCopyBtn) stravaCopyBtn.addEventListener("click", ()=>copyStravaLink(athlete.id));
   document.getElementById("btn-intensity-table").addEventListener("click", ()=>openIntensityModal(athlete));
-  main.querySelectorAll("[data-volume-cat]").forEach(cb=>{
-    cb.addEventListener("change", ()=>{
-      volumeCategoryFilter[cb.getAttribute("data-volume-cat")] = cb.checked;
-      saveVolumeFilter();
-      renderCharts();
-    });
-  });
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
@@ -1193,19 +1176,18 @@ function renderChartsInner(athlete){
   const weeks = weeklyAggregates(sessions, periodStartStr, periodEndStr);
   const wkLabels = weeks.map(w=> w.week.slice(5));
 
-  // Séances retenues par le filtre du graphique Volume, agrégées sur le même
-  // découpage hebdomadaire que les autres graphes (semaines sans séance
-  // filtrée = 0, plutôt que de décaler l'axe des semaines).
-  const activeVolumeCats = VOLUME_CATEGORIES.filter(c=>volumeCategoryFilter[c.key]!==false).map(c=>c.key);
-  const volSessions = sessions.filter(s=> activeVolumeCats.includes(volumeCategoryOf(s.type)));
-  const volKmByWeek = {};
-  weeklyAggregates(volSessions, periodStartStr, periodEndStr).forEach(w=> volKmByWeek[w.week] = w.km);
-  const volData = weeks.map(w=> +((volKmByWeek[w.week]||0).toFixed(1)));
-
+  // Kilométrage hebdomadaire empilé par type d'activité — une barre par
+  // semaine, un segment de couleur par catégorie ; la légende (cliquable)
+  // permet de masquer une catégorie, et le survol détaille chaque segment.
+  const volByWeek = weeklyKmByCategory(sessions, periodStartStr, periodEndStr);
   charts.volume = new Chart(document.getElementById("chart-volume"), {
     type:"bar",
-    data:{ labels: wkLabels, datasets:[ { label:"Km", data: volData, backgroundColor: color, borderRadius:4, maxBarThickness:26 } ]},
-    options: baseChartOptions({ plugins:{legend:{display:false}} })
+    data:{ labels: wkLabels, datasets: VOLUME_CATEGORIES.map(c=>({
+      label: c.label,
+      data: weeks.map(w=> +((volByWeek[w.week]?.[c.key]||0).toFixed(1))),
+      backgroundColor: cssVar(c.colorVar), stack:"vol", borderRadius:2, maxBarThickness:26
+    }))},
+    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
 
   charts.elevation = new Chart(document.getElementById("chart-elevation"), {
