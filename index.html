@@ -1721,7 +1721,10 @@ const COACH_SIGNATURE = {
   phone: "06 32 19 57 79",
   email: "maxime@ruthene-coachin.fr"
 };
-const LOGO_URL = "logo-ruthene-coachin.png";
+// Logo complet (bandeau signature, en bas de page — grand format) et
+// pictogramme seul (en-tête — petit format, plus lisible en compact).
+const LOGO_FULL_URL = "logo-ruthene-coachin.png";
+const LOGO_ICON_URL = "logo-ruthene-icon.png";
 const PDF_TITLE = "DATAS — Bilan d'entraînement";
 
 let _pdfLibsPromise = null;
@@ -1750,10 +1753,11 @@ function loadImage(url){
 }
 
 const PDF_PAGE_W = 210, PDF_PAGE_H = 297, PDF_MARGIN_X = 15, PDF_HEADER_H = 26, PDF_FOOTER_H = 32;
+const PDF_CAPTURE_SCALE = 2; // doit rester cohérent avec le `scale` passé à html2canvas
 
-function drawPdfHeader(pdf, logoImg, athleteName, periodLabel){
-  const logoW = 32, logoH = logoW * (logoImg.height / logoImg.width);
-  pdf.addImage(logoImg, "PNG", PDF_MARGIN_X, 7, logoW, logoH);
+function drawPdfHeader(pdf, iconImg, athleteName, periodLabel){
+  const logoH = 15, logoW = logoH * (iconImg.width / iconImg.height);
+  pdf.addImage(iconImg, "PNG", PDF_MARGIN_X, 6, logoW, logoH);
   pdf.setFont("helvetica", "bold"); pdf.setFontSize(14); pdf.setTextColor(25, 25, 35);
   pdf.text(PDF_TITLE, PDF_PAGE_W - PDF_MARGIN_X, 13, { align: "right" });
   pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(115, 115, 125);
@@ -1789,6 +1793,63 @@ function drawPdfFooter(pdf, logoImg, pageNum, totalPages){
   pdf.text(pageNum + " / " + totalPages, PDF_PAGE_W - PDF_MARGIN_X, PDF_PAGE_H - 8, { align: "right" });
 }
 
+// Mesure, dans le DOM en cours (donc APRES le masquage .pdf-exporting), les
+// blocs "insécables" du tableau de bord : chaque enfant direct de #main-panel
+// (en-tête athlète, stats, insight...) et, séparément, chaque carte de
+// #main-panel .ls-charts — pour ne jamais couper une carte au milieu lors
+// de la pagination. Les blocs qui se chevauchent verticalement (deux cartes
+// côte à côte sur la même ligne de la grille) sont fusionnés en un seul
+// groupe, puisqu'on ne peut de toute façon pas les séparer dans une image
+// déjà aplatie par html2canvas.
+function measurePdfBreakUnits(main){
+  const mainTop = main.getBoundingClientRect().top;
+  const units = [];
+  const pushIfVisible = (el)=>{
+    if(!el || el.offsetParent === null) return; // display:none (masqué par .pdf-exporting)
+    const r = el.getBoundingClientRect();
+    if(r.height <= 0) return;
+    units.push({ top: r.top - mainTop, bottom: r.bottom - mainTop });
+  };
+  Array.from(main.children).forEach(child=>{
+    if(child.classList && child.classList.contains("ls-charts")){
+      Array.from(child.children).forEach(pushIfVisible);
+    } else {
+      pushIfVisible(child);
+    }
+  });
+  units.sort((a,b)=> a.top - b.top);
+  const rows = [];
+  units.forEach(u=>{
+    const last = rows[rows.length - 1];
+    if(last && u.top < last.bottom - 0.5) last.bottom = Math.max(last.bottom, u.bottom);
+    else rows.push({ top: u.top, bottom: u.bottom });
+  });
+  return rows;
+}
+
+// Découpe la hauteur totale du canvas en pages, en ne coupant jamais à
+// l'intérieur d'un des blocs mesurés par measurePdfBreakUnits (sauf, en
+// tout dernier recours, un bloc à lui seul plus haut qu'une page entière).
+function paginateCanvas(canvasHeightPx, rowsPx, pageCapacityPx){
+  const pages = [];
+  let pageStart = 0, i = 0;
+  while(i < rowsPx.length){
+    let pageEnd = pageStart, usedAny = false;
+    while(i < rowsPx.length){
+      const row = rowsPx[i];
+      const fits = (row.bottom - pageStart) <= pageCapacityPx;
+      if(!fits && usedAny) break;
+      pageEnd = Math.min(row.bottom, pageStart + pageCapacityPx);
+      usedAny = true; i++;
+      if(!fits) break; // bloc plus haut qu'une page : on le tronque, cas limite
+    }
+    pages.push({ start: pageStart, end: Math.min(pageEnd, canvasHeightPx) });
+    pageStart = pageEnd;
+  }
+  if(pageStart < canvasHeightPx - 1) pages.push({ start: pageStart, end: canvasHeightPx });
+  return pages;
+}
+
 async function exportPDF(){
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
   if(!athlete){ showToast("Sélectionnez un athlète avant d'exporter un PDF.", "--serious"); return; }
@@ -1801,12 +1862,13 @@ async function exportPDF(){
 
   try{
     await ensurePdfLibs();
-    const logoImg = await loadImage(LOGO_URL);
+    const [iconImg, logoImg] = await Promise.all([loadImage(LOGO_ICON_URL), loadImage(LOGO_FULL_URL)]);
 
     document.documentElement.classList.add("pdf-exporting");
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); // laisse le temps au reflow
 
-    const canvas = await window.html2canvas(main, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+    const breakRows = measurePdfBreakUnits(main); // mesuré avant capture, mêmes coordonnées CSS px que le DOM affiché
+    const canvas = await window.html2canvas(main, { scale: PDF_CAPTURE_SCALE, backgroundColor: "#ffffff", useCORS: true });
     document.documentElement.classList.remove("pdf-exporting");
 
     const { jsPDF } = window.jspdf;
@@ -1817,26 +1879,29 @@ async function exportPDF(){
     const contentW = PDF_PAGE_W - PDF_MARGIN_X * 2;
     const contentH = contentBottom - contentTop;
     const pxPerMm = canvas.width / contentW;
-    const pagePx = Math.floor(contentH * pxPerMm);
-    const totalPages = Math.max(1, Math.ceil(canvas.height / pagePx));
+    const pageCapacityPx = contentH * pxPerMm;
+
+    const rowsPx = breakRows.map(r => ({ top: r.top * PDF_CAPTURE_SCALE, bottom: r.bottom * PDF_CAPTURE_SCALE }));
+    const pages = paginateCanvas(canvas.height, rowsPx, pageCapacityPx);
+    const totalPages = pages.length;
 
     // "→" n'est pas dans l'encodage des polices standard de jsPDF (WinAnsi) —
     // il s'affichait comme un caractère cassé dans le PDF généré.
     const periodLabel = fmtDateFr(chartPeriod.start) + " au " + fmtDateFr(chartPeriod.end);
 
-    for(let i=0; i<totalPages; i++){
-      const sliceH = Math.min(pagePx, canvas.height - i*pagePx);
+    pages.forEach((page, i)=>{
+      const sliceH = Math.max(1, Math.round(page.end - page.start));
       const slice = document.createElement("canvas");
       slice.width = canvas.width; slice.height = sliceH;
       const sctx = slice.getContext("2d");
       sctx.fillStyle = "#ffffff"; sctx.fillRect(0, 0, slice.width, slice.height);
-      sctx.drawImage(canvas, 0, i*pagePx, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      sctx.drawImage(canvas, 0, page.start, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
 
       if(i>0) pdf.addPage();
-      drawPdfHeader(pdf, logoImg, athlete.name, periodLabel);
+      drawPdfHeader(pdf, iconImg, athlete.name, periodLabel);
       pdf.addImage(slice.toDataURL("image/jpeg", 0.92), "JPEG", PDF_MARGIN_X, contentTop, contentW, sliceH / pxPerMm);
       drawPdfFooter(pdf, logoImg, i+1, totalPages);
-    }
+    });
 
     pdf.save("DATAS-" + athlete.name.replace(/[^a-z0-9]+/gi,"-") + "-" + fmtDate(new Date()) + ".pdf");
   }catch(err){
