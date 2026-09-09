@@ -1002,6 +1002,7 @@ function acuteChronicLatest(sessions){
 
 function buildInsight(sessions, lastACWR, cls){
   if(sessions.length < 5) return "Historique encore limité : ajoutez des séances pour obtenir une lecture fiable de la charge (l'ACWR se stabilise après environ 4 semaines de données).";
+  if(cls.key === "none" || lastACWR == null) return "Pas encore assez d'historique pour calculer un ACWR fiable.";
   const { acute } = acwrSeries(sessions);
   const trend = acute.length >= 8 ? acute[acute.length-1] - acute[acute.length-8] : 0;
   const trendPct = acute[acute.length-8] > 0 ? (trend/acute[acute.length-8]*100) : 0;
