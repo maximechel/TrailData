@@ -999,7 +999,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones d'allure</h3>
-        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — indicateur de contrainte mécanique, calculé depuis les séances Strava (nécessite la table d'intensité complète)</div>
+        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — course à pied et trail uniquement, indicateur de contrainte mécanique, calculé depuis les séances Strava (nécessite la table d'intensité complète)</div>
         <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
       </div>
       <div class="ls-chart-card full">
@@ -1382,14 +1382,26 @@ function renderChartsInner(athlete){
     }
   }
 
-  const hasPaceData = weeks.some(w=>w.hasPaceData);
+  // Zones d'allure = contrainte liée à la vitesse de course. Les bornes (km/h)
+  // sont calibrées pour la course à pied : un vélo ou une autre activité plus
+  // rapide y atterrirait artificiellement dans les zones hautes (anaérobie)
+  // sans que l'effort réel le justifie. On ne garde donc que Course à pied et
+  // Trail, en réutilisant les mêmes semaines que les autres graphiques
+  // (weeklyAggregates sur le sous-ensemble filtré, réaligné sur `weeks` pour
+  // que les semaines sans course à pied affichent bien une barre à 0 plutôt
+  // que d'être absentes ou décalées).
+  const paceSessions = sessions.filter(s => s.type === "Course à pied" || s.type === "Trail");
+  const paceWeeksRaw = weeklyAggregates(paceSessions, periodStartStr, periodEndStr);
+  const paceByWeek = {};
+  paceWeeksRaw.forEach(w => { paceByWeek[w.week] = w; });
+  const hasPaceData = weeks.some(w => paceByWeek[w.week]?.hasPaceData);
   const paceWrap = document.getElementById("pace-chart-wrap");
   if(hasPaceData && paceWrap){
     const paceColors = PACE_ZONE_VARS.map(v=>cssVar(v));
     charts.pace = new Chart(document.getElementById("chart-pace-zones"), {
       type:"bar",
       data:{ labels: wkLabels, datasets: [0,1,2,3,4,5,6].map(i=>({
-        label: paceZoneLabel(athlete, i), data: weeks.map(w=>w.paceZones[i]), backgroundColor: paceColors[i], stack:"p", borderRadius:2, maxBarThickness:28
+        label: paceZoneLabel(athlete, i), data: weeks.map(w=>paceByWeek[w.week]?.paceZones[i] || 0), backgroundColor: paceColors[i], stack:"p", borderRadius:2, maxBarThickness:28
       }))},
       options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
     });
