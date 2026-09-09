@@ -118,6 +118,9 @@
   .ls-chart-wrap.tall{height:260px;}
   .ls-chart-wrap.radar{height:340px;max-width:440px;margin:0 auto;}
   .ls-chart-wrap.donut{height:380px;max-width:640px;margin:0 auto;}
+  .ls-subchart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width: 760px){ .ls-subchart-grid{grid-template-columns:1fr;} }
+  .ls-subchart-label{font-size:11.5px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;}
   .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:center;}
 
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
@@ -318,7 +321,7 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null };
+let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 
@@ -619,6 +622,22 @@ function weeklyKmByCategory(sessions, startISO, endISO){
     if(!byWeek[wk]) byWeek[wk] = {};
     const cat = volumeCategoryOf(s.type);
     byWeek[wk][cat] = (byWeek[wk][cat]||0) + s.distance;
+  });
+  return byWeek;
+}
+
+// Comme weeklyKmByCategory, mais pour le dénivelé positif/négatif — sert au
+// graphique Dénivelé empilé par activité.
+function weeklyElevationByCategory(sessions, startISO, endISO){
+  const byWeek = {};
+  sessions.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const wk = isoMonday(s.date);
+    if(!byWeek[wk]) byWeek[wk] = {};
+    const cat = volumeCategoryOf(s.type);
+    if(!byWeek[wk][cat]) byWeek[wk][cat] = { dPlus:0, dMinus:0 };
+    byWeek[wk][cat].dPlus += (s.dPlus||0);
+    byWeek[wk][cat].dMinus += (s.dMinus||0);
   });
   return byWeek;
 }
@@ -947,10 +966,19 @@ function renderMain(){
         <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité — survolez une semaine pour le détail</div>
         <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
       </div>
-      <div class="ls-chart-card">
-        <h3>Dénivelé hebdomadaire</h3>
-        <div class="ls-chart-sub">Dénivelé positif / négatif cumulé</div>
-        <div class="ls-chart-wrap"><canvas id="chart-elevation"></canvas></div>
+      <div class="ls-chart-card full">
+        <h3>Dénivelé hebdomadaire par activité</h3>
+        <div class="ls-chart-sub">Dénivelé positif et négatif, empilés par type d'activité</div>
+        <div class="ls-subchart-grid">
+          <div>
+            <div class="ls-subchart-label">D+ (m)</div>
+            <div class="ls-chart-wrap"><canvas id="chart-elevation-plus"></canvas></div>
+          </div>
+          <div>
+            <div class="ls-subchart-label">D- (m)</div>
+            <div class="ls-chart-wrap"><canvas id="chart-elevation-minus"></canvas></div>
+          </div>
+        </div>
       </div>
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC</h3>
@@ -1270,13 +1298,22 @@ function renderChartsInner(athlete){
     options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
 
-  charts.elevation = new Chart(document.getElementById("chart-elevation"), {
+  const elevByWeek = weeklyElevationByCategory(sessions, periodStartStr, periodEndStr);
+  const elevDatasets = (metric) => VOLUME_CATEGORIES.map(c => ({
+    label: c.label,
+    data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.[metric] || 0)),
+    backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26
+  }));
+  const elevOptions = baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } });
+  charts.elevationPlus = new Chart(document.getElementById("chart-elevation-plus"), {
     type:"bar",
-    data:{ labels: wkLabels, datasets:[
-      { label:"D+", data: weeks.map(w=>w.dPlus), backgroundColor: cssVar("--z2"), borderRadius:4, maxBarThickness:18 },
-      { label:"D-", data: weeks.map(w=>w.dMinus), backgroundColor: cssVar("--z4"), borderRadius:4, maxBarThickness:18 }
-    ]},
-    options: baseChartOptions({})
+    data:{ labels: wkLabels, datasets: elevDatasets("dPlus") },
+    options: elevOptions
+  });
+  charts.elevationMinus = new Chart(document.getElementById("chart-elevation-minus"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: elevDatasets("dMinus") },
+    options: elevOptions
   });
 
   const zoneColors = [cssVar("--z1"),cssVar("--z2"),cssVar("--z3"),cssVar("--z4"),cssVar("--z5")];
