@@ -668,6 +668,51 @@ function gapZoneAverage(sessions, endDate, weeks){
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
 
+// Même moyenne GAP par zone de FC que gapZoneAverage, mais sur un sous-
+// ensemble de séances déjà filtré (ex : un mois calendaire) plutôt que sur
+// une fenêtre glissante — sert au graphique "Efficacité physiologique", qui
+// trace une courbe par mois plutôt qu'un simple avant/après.
+function gapZoneAverageOf(sessionsSubset){
+  const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
+  sessionsSubset.forEach(s=>{
+    if(!Array.isArray(s.gapByHrZone)) return;
+    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+
+// Liste des mois calendaires (année + mois 0-indexé) couverts par
+// [periodStart, periodEnd], bornes incluses.
+function monthsBetween(periodStart, periodEnd){
+  const months = [];
+  const cur = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
+  const last = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), 1);
+  while(cur <= last){
+    months.push({ year: cur.getFullYear(), month: cur.getMonth() });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return months;
+}
+function monthLabelFr(year, month){
+  const label = new Date(year, month, 1).toLocaleDateString("fr-FR", { month:"long", year:"numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+// Interpole entre deux couleurs hexadécimales (t=0 -> hexA, t=1 -> hexB) —
+// sert au dégradé chronologique des courbes du graphique "Efficacité
+// physiologique" (mois ancien = terne, mois récent = couleur pleine).
+function hexToRgb(hex){
+  hex = hex.replace("#","");
+  if(hex.length === 3) hex = hex.split("").map(c=>c+c).join("");
+  const num = parseInt(hex, 16);
+  return [(num>>16)&255, (num>>8)&255, num&255];
+}
+function mixHexColors(hexA, hexB, t){
+  const a = hexToRgb(hexA), b = hexToRgb(hexB);
+  const mix = a.map((v,i)=> Math.round(v + (b[i]-v)*t));
+  return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
+}
+
 // Même principe que gapZoneAverage, mais par tranche de pente (6 tranches)
 // plutôt que par zone de FC — sert au graphe "Profil terrain".
 // Les 6 tranches de gapByGrade sont, dans l'ordre : descente forte, descente
@@ -1015,7 +1060,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Efficacité physiologique</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC — ${fmtDateFr(chartPeriod.start)} vs ${fmtDateFr(chartPeriod.end)}. Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)} (dégradé : mois ancien en terne → mois récent en couleur pleine). Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
         <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
       <div class="ls-chart-card full">
@@ -1421,16 +1466,34 @@ function renderChartsInner(athlete){
   }
 
   const physioWrap = document.getElementById("physio-chart-wrap");
-  const gapNow = gapZoneAverage(sessions, periodEnd, cmpWindowWeeks);
-  const gapPast = gapZoneAverage(sessions, periodStart, cmpWindowWeeks);
-  const hasGapData = gapNow.some(v=>v!=null) || gapPast.some(v=>v!=null);
+  // Une courbe par mois calendaire de la période choisie (plutôt qu'un simple
+  // avant/après) : dégradé du plus ancien (terne) au plus récent (couleur
+  // pleine de l'athlète), pour voir la progression aérobie se dessiner sur
+  // toute la période plutôt qu'entre deux clichés.
+  const physioMonths = monthsBetween(periodStart, periodEnd);
+  const physioMonthData = physioMonths.map(m=>{
+    const monthSessions = sessions.filter(s=>{
+      if(s.date < periodStartStr || s.date > periodEndStr) return false;
+      const d = new Date(s.date+"T00:00:00");
+      return d.getFullYear() === m.year && d.getMonth() === m.month;
+    });
+    return { label: monthLabelFr(m.year, m.month), gapZ: gapZoneAverageOf(monthSessions) };
+  }).filter(m => m.gapZ.some(v=>v!=null));
+  const hasGapData = physioMonthData.length > 0;
   if(hasGapData && physioWrap){
+    const mutedColor = cssVar("--text-muted");
+    const n = physioMonthData.length;
     charts.physio = new Chart(document.getElementById("chart-physio"), {
-      type:"bar",
-      data:{ labels: ZONE_LABELS, datasets:[
-        { label: oldLabel, data: gapPast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
-        { label: newLabel, data: gapNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
-      ]},
+      type:"line",
+      data:{ labels: ZONE_LABELS, datasets: physioMonthData.map((m,i)=>{
+        const t = n>1 ? i/(n-1) : 1;
+        const lineColor = mixHexColors(mutedColor, color, t);
+        return {
+          label: m.label, data: m.gapZ, borderColor: lineColor, backgroundColor: lineColor,
+          borderWidth: n>1 ? 1.5+1.5*t : 2, tension: 0.3, spanGaps: true,
+          pointRadius: 3, pointHoverRadius: 5, fill: false
+        };
+      })},
       options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
     });
   } else if(physioWrap){
