@@ -117,6 +117,7 @@
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
   .ls-chart-wrap.radar{height:340px;max-width:440px;margin:0 auto;}
+  .ls-chart-wrap.donut{height:380px;max-width:640px;margin:0 auto;}
   .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:center;}
 
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
@@ -317,11 +318,16 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, pace: null, physio: null, terrain: null, matrix: null };
+let charts = { load: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
+let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
+function fmtHoursMinutes(totalMinutes){
+  const m = Math.max(0, Math.round(totalMinutes||0));
+  return Math.floor(m/60) + "h" + String(m%60).padStart(2,"0") + "min";
+}
 
 // Période par défaut affichée/comparée sur les graphes : les 6 derniers mois.
 function defaultChartPeriod(){
@@ -861,6 +867,7 @@ function renderMain(){
     return;
   }
   const sessions = state.sessions.filter(s=>s.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
+  const zonesTotalTypes = Array.from(new Set(sessions.map(s=>s.type))).sort((a,b)=>a.localeCompare(b,"fr"));
   const { acwr } = acwrSeries(sessions);
   const acuteVal = acuteChronicLatest(sessions).acute;
   const chronicVal = acuteChronicLatest(sessions).chronic;
@@ -951,6 +958,18 @@ function renderMain(){
         <div class="ls-chart-wrap"><canvas id="chart-zones"></canvas></div>
       </div>
       <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones de FC — historique complet</h3>
+        <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues (indépendant de la période choisie plus haut)</div>
+        <div class="ls-field" style="max-width:280px;">
+          <label>Activité</label>
+          <select id="zones-total-activity">
+            <option value="all" ${zonesTotalActivityFilter==="all"?"selected":""}>Toutes les activités</option>
+            ${zonesTotalTypes.map(t=>`<option value="${escapeHtml(t)}" ${zonesTotalActivityFilter===t?"selected":""}>${escapeHtml(t)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="ls-chart-wrap donut" id="zones-total-chart-wrap"><canvas id="chart-zones-total"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
         <h3>Répartition du temps en zones d'allure</h3>
         <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — indicateur de contrainte mécanique, calculé depuis les séances Strava (nécessite la table d'intensité complète)</div>
         <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
@@ -1002,6 +1021,11 @@ function renderMain(){
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
   if(stravaCopyBtn) stravaCopyBtn.addEventListener("click", ()=>copyStravaLink(athlete.id));
   document.getElementById("btn-intensity-table").addEventListener("click", ()=>openIntensityModal(athlete));
+  const zonesTotalSelect = document.getElementById("zones-total-activity");
+  if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
+    zonesTotalActivityFilter = e.target.value;
+    renderCharts();
+  });
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
@@ -1067,6 +1091,62 @@ function baseChartOptions(extra){
     }
   }, extra||{});
 }
+
+// Plugins du donut "zones de FC — historique complet" : le temps total au
+// centre, et une étiquette par zone avec sa ligne de rappel à l'extérieur —
+// Chart.js ne fournit ni l'un ni l'autre nativement pour un doughnut.
+const zoneDonutCenterTextPlugin = {
+  id: "zoneDonutCenterText",
+  afterDraw(chart){
+    const text = chart.options.plugins?.centerText?.text;
+    if(!text || chart.config.type !== "doughnut") return;
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.font = "700 19px Manrope, sans-serif";
+    ctx.fillStyle = cssVar("--text-primary");
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, (chartArea.left+chartArea.right)/2, (chartArea.top+chartArea.bottom)/2);
+    ctx.restore();
+  }
+};
+const zoneDonutLeaderLabelsPlugin = {
+  id: "zoneDonutLeaderLabels",
+  afterDraw(chart){
+    if(chart.config.type !== "doughnut") return;
+    const meta = chart.getDatasetMeta(0);
+    if(!meta || !meta.data.length) return;
+    const values = chart.data.datasets[0].data;
+    const total = values.reduce((a,b)=>a+(b||0),0);
+    if(total <= 0) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = "600 11.5px 'IBM Plex Mono', ui-monospace, monospace";
+    ctx.strokeStyle = cssVar("--axis");
+    ctx.fillStyle = cssVar("--text-secondary");
+    ctx.lineWidth = 1;
+    meta.data.forEach((arc, i)=>{
+      const value = values[i];
+      if(!value) return;
+      const pct = value/total*100;
+      const angle = (arc.startAngle + arc.endAngle)/2;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      const cx = arc.x, cy = arc.y, rOuter = arc.outerRadius;
+      const x1 = cx + cos*rOuter, y1 = cy + sin*rOuter;
+      const x2 = cx + cos*(rOuter+14), y2 = cy + sin*(rOuter+14);
+      const side = cos >= -0.001 ? 1 : -1;
+      const x3 = x2 + side*10, y3 = y2;
+      ctx.beginPath();
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3);
+      ctx.stroke();
+      ctx.textAlign = side>0 ? "left" : "right";
+      ctx.textBaseline = "middle";
+      const pctTxt = pct.toFixed(2).replace(".",",");
+      ctx.fillText(`Zone ${i+1} (${pctTxt} %)`, x3 + side*4, y3);
+    });
+    ctx.restore();
+  }
+};
 
 function destroyCharts(){ Object.keys(charts).forEach(k=>{ if(charts[k]){ charts[k].destroy(); charts[k]=null; } }); }
 
@@ -1207,6 +1287,41 @@ function renderChartsInner(athlete){
     }))},
     options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
+
+  // Donut "zones de FC — historique complet" : indépendant de la période
+  // choisie plus haut, filtrable par activité (sélecteur dans renderMain).
+  const zonesTotalWrap = document.getElementById("zones-total-chart-wrap");
+  // Le sélecteur d'activité rappelle renderCharts() seul (sans renderMain()),
+  // donc si le tour précédent avait remplacé ce wrap par le message "aucune
+  // donnée", il faut réinsérer le <canvas> avant de retenter — sinon
+  // document.getElementById("chart-zones-total") renverrait null.
+  if(zonesTotalWrap){
+    zonesTotalWrap.innerHTML = '<canvas id="chart-zones-total"></canvas>';
+    const zonesTotalSessions = zonesTotalActivityFilter === "all" ? sessions : sessions.filter(s=>s.type===zonesTotalActivityFilter);
+    const zonesTotalMinutes = [0,0,0,0,0];
+    zonesTotalSessions.forEach(s=> s.zones.forEach((m,i)=> zonesTotalMinutes[i]+=(m||0)));
+    const zonesTotalSum = zonesTotalMinutes.reduce((a,b)=>a+b,0);
+    if(zonesTotalSum > 0){
+      charts.zonesTotal = new Chart(document.getElementById("chart-zones-total"), {
+        type:"doughnut",
+        data:{ labels: ZONE_LABELS, datasets:[{ data: zonesTotalMinutes, backgroundColor: zoneColors, borderColor: cssVar("--surface"), borderWidth:2 }] },
+        options:{
+          responsive:true, maintainAspectRatio:false, cutout:"62%",
+          layout:{ padding:{ top:34, bottom:34, left:100, right:100 } },
+          plugins:{
+            legend:{ position:"top", labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+            tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+              borderColor: cssVar("--border"), borderWidth:1, padding:10,
+              callbacks:{ label: ctx => ` ${fmtHoursMinutes(ctx.parsed)} (${(ctx.parsed/zonesTotalSum*100).toFixed(2).replace(".",",")} %)` } },
+            centerText:{ text: fmtHoursMinutes(zonesTotalSum) }
+          }
+        },
+        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin]
+      });
+    } else {
+      zonesTotalWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec zones de FC renseignées pour cette activité.</div>';
+    }
+  }
 
   const hasPaceData = weeks.some(w=>w.hasPaceData);
   const paceWrap = document.getElementById("pace-chart-wrap");
