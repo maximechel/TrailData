@@ -335,6 +335,11 @@ let activeAthleteId = null;
 let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
+// Périodes de comparaison du graphique "Profil terrain" — { start, end } au
+// format "YYYY-MM-DD", choisies librement par le coach (indépendantes de la
+// période affichée plus haut). null tant qu'elles n'ont pas été initialisées.
+let terrainCompareA = null;
+let terrainCompareB = null;
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
@@ -350,6 +355,25 @@ function defaultChartPeriod(){
   return { start: fmtDate(start), end: fmtDate(end) };
 }
 function ensureChartPeriod(){ if(!chartPeriod) chartPeriod = defaultChartPeriod(); return chartPeriod; }
+
+// Initialise (une seule fois — n'écrase jamais un choix déjà fait par le
+// coach) les deux périodes de comparaison du graphique "Profil terrain", en
+// reproduisant par défaut l'ancien calcul automatique (fenêtre de
+// `weeks` semaines se terminant à periodStart pour la référence, et à
+// periodEnd pour la période récente) pour que rien ne change visuellement
+// tant que le coach n'a pas touché aux nouveaux sélecteurs.
+function ensureTerrainComparePeriods(periodStartStr, periodEndStr, weeks){
+  if(!terrainCompareA){
+    const end = new Date(periodStartStr+"T00:00:00");
+    const start = new Date(end); start.setDate(start.getDate() - weeks*7);
+    terrainCompareA = { start: fmtDate(start), end: periodStartStr };
+  }
+  if(!terrainCompareB){
+    const end = new Date(periodEndStr+"T00:00:00");
+    const start = new Date(end); start.setDate(start.getDate() - weeks*7);
+    terrainCompareB = { start: fmtDate(start), end: periodEndStr };
+  }
+}
 
 /* ---------------------------- API layer ---------------------------- */
 
@@ -724,11 +748,20 @@ function mixHexColors(hexA, hexB, t){
 // coureur la difficulté supplémentaire du terrain, en plus de la pente.
 function gapGradeAverage(sessions, endDate, weeks){
   const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  return gapGradeAverageInRange(sessions, start, endDate);
+}
+
+// Même calcul que gapGradeAverage, mais sur un intervalle [startDate,endDate]
+// explicite plutôt qu'une fenêtre glissante de N semaines — sert au
+// graphique "Profil terrain", dont les deux périodes de comparaison sont
+// choisies librement par le coach plutôt que dérivées automatiquement de la
+// période affichée plus haut.
+function gapGradeAverageInRange(sessions, startDate, endDate){
   const sums = [0,0,0,0,0,0], counts = [0,0,0,0,0,0];
   sessions.forEach(s=>{
     if(!Array.isArray(s.gapByGrade)) return;
     const d = new Date(s.date+"T00:00:00");
-    if(isNaN(d) || d < start || d > endDate) return;
+    if(isNaN(d) || d < startDate || d > endDate) return;
     const cDescent = technicityCoef(s.technicityDescent);
     const cFlat = technicityCoef(s.technicityFlat);
     const cClimb = technicityCoef(s.technicityClimb);
@@ -952,6 +985,7 @@ function renderMain(){
   const color = athleteColor(athlete);
   ensureChartPeriod();
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
+  ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
 
   main.innerHTML = `
     <div class="ls-athlete-header">
@@ -1065,7 +1099,28 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Profil terrain</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(chartPeriod.start)} vs ${fmtDateFr(chartPeriod.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance (bouton « Modifier » sur chaque ligne du journal).</div>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(terrainCompareA.start)}–${fmtDateFr(terrainCompareA.end)} vs ${fmtDateFr(terrainCompareB.start)}–${fmtDateFr(terrainCompareB.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance (bouton « Modifier » sur chaque ligne du journal).</div>
+        <div class="ls-period-bar pdf-hide" style="margin-bottom:12px;">
+          <div class="ls-field">
+            <label>Référence — début</label>
+            <input type="date" id="terrain-a-start" value="${terrainCompareA.start}" max="${terrainCompareA.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Référence — fin</label>
+            <input type="date" id="terrain-a-end" value="${terrainCompareA.end}" min="${terrainCompareA.start}">
+          </div>
+          <div class="ls-period-arrow">vs</div>
+          <div class="ls-field">
+            <label>Récente — début</label>
+            <input type="date" id="terrain-b-start" value="${terrainCompareB.start}" max="${terrainCompareB.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Récente — fin</label>
+            <input type="date" id="terrain-b-end" value="${terrainCompareB.end}" min="${terrainCompareB.start}">
+          </div>
+        </div>
         <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
@@ -1109,6 +1164,30 @@ function renderMain(){
   if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
     zonesTotalActivityFilter = e.target.value;
     renderCharts();
+  });
+  const terrainAStart = document.getElementById("terrain-a-start");
+  const terrainAEnd = document.getElementById("terrain-a-end");
+  const terrainBStart = document.getElementById("terrain-b-start");
+  const terrainBEnd = document.getElementById("terrain-b-end");
+  if(terrainAStart) terrainAStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareA = { start: v, end: v > terrainCompareA.end ? v : terrainCompareA.end };
+    renderMain();
+  });
+  if(terrainAEnd) terrainAEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareA = { start: v < terrainCompareA.start ? v : terrainCompareA.start, end: v };
+    renderMain();
+  });
+  if(terrainBStart) terrainBStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareB = { start: v, end: v > terrainCompareB.end ? v : terrainCompareB.end };
+    renderMain();
+  });
+  if(terrainBEnd) terrainBEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareB = { start: v < terrainCompareB.start ? v : terrainCompareB.start, end: v };
+    renderMain();
   });
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
@@ -1501,21 +1580,30 @@ function renderChartsInner(athlete){
   }
 
   const terrainWrap = document.getElementById("terrain-chart-wrap");
-  const gradeNow = gapGradeAverage(sessions, periodEnd, cmpWindowWeeks);
-  const gradePast = gapGradeAverage(sessions, periodStart, cmpWindowWeeks);
+  // Périodes de comparaison choisies librement par le coach (voir les deux
+  // sélecteurs de dates ajoutés sur cette carte), plutôt que dérivées
+  // automatiquement de la période affichée plus haut.
+  const terrainAStartDate = new Date(terrainCompareA.start+"T00:00:00");
+  const terrainAEndDate = new Date(terrainCompareA.end+"T23:59:59");
+  const terrainBStartDate = new Date(terrainCompareB.start+"T00:00:00");
+  const terrainBEndDate = new Date(terrainCompareB.end+"T23:59:59");
+  const gradePast = gapGradeAverageInRange(sessions, terrainAStartDate, terrainAEndDate);
+  const gradeNow = gapGradeAverageInRange(sessions, terrainBStartDate, terrainBEndDate);
+  const terrainLabelA = "Référence (" + fmtDateFr(terrainCompareA.start) + "–" + fmtDateFr(terrainCompareA.end) + ")";
+  const terrainLabelB = "Récente (" + fmtDateFr(terrainCompareB.start) + "–" + fmtDateFr(terrainCompareB.end) + ")";
   const hasGradeData = gradeNow.some(v=>v!=null) || gradePast.some(v=>v!=null);
   if(hasGradeData && terrainWrap){
     charts.terrain = new Chart(document.getElementById("chart-terrain"), {
       type:"bar",
       data:{ labels: GRADE_BUCKET_LABELS, datasets:[
-        { label: oldLabel, data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
-        { label: newLabel, data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+        { label: terrainLabelA, data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label: terrainLabelB, data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
       ]},
       options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} },
         x:{ ticks:{ color:cssVar("--text-muted"), font:{size:10.5} } } } })
     });
   } else if(terrainWrap){
-    terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava.</div>';
+    terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment sur ces deux périodes — nécessite des séances importées depuis Strava.</div>';
   }
 }
 
