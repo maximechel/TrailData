@@ -695,11 +695,15 @@ function gapZoneAverage(sessions, endDate, weeks){
 
 // Vitesse de pointe : moyenne, sur une fenêtre glissante de `weeks` semaines
 // se terminant à endDate, du meilleur segment de 30 secondes soutenues de
-// chaque séance (gapPeak30s, calculé côté serveur depuis les flux Strava
-// bruts — voir strava-webhook). Contrairement à gapZoneAverage, cette valeur
-// est indépendante de la FC : elle ne rate pas les accélérations courtes
+// chaque séance, restreint au terrain plat/roulant (gapPeak30s, calculé côté
+// serveur depuis les flux Strava bruts, pente entre -4% et +4% — voir
+// strava-webhook). Contrairement à gapZoneAverage, cette valeur est
+// indépendante de la FC : elle ne rate pas les accélérations courtes
 // (fractionnés, relances techniques) que la fréquence cardiaque, plus lente
-// à réagir, ne voit pas toujours à temps.
+// à réagir, ne voit pas toujours à temps. Se limiter au plat évite aussi de
+// dépendre du modèle de coût énergétique sur pentes fortes et de la prise de
+// risque propre à la descente (une séance sans segment plat de 30s ne
+// contribue simplement pas, plutôt que d'afficher une valeur trompeuse).
 function peakGapAverage(sessions, endDate, weeks){
   const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
   let sum = 0, count = 0;
@@ -804,10 +808,12 @@ function gapGradeAverageInRange(sessions, startDate, endDate){
 //  Endurance   → charge chronique (28j) : capacité aérobie accumulée.
 //  Montée      → GAP moyen sur les tranches de pente ascendantes (4-10 / 10-18 / >18%).
 //  Descente    → GAP moyen sur les tranches de pente descendantes (>12% / 4-12%).
-//  Vitesse     → meilleur segment de 30 secondes soutenues (vitesse équivalent-plat),
-//                indépendant de la FC : capte aussi les accélérations courtes et
+//  Vitesse     → meilleur segment de 30 secondes soutenues sur terrain plat/roulant
+//                (pente entre -4% et +4%, même tranche que Profil terrain),
+//                indépendant de la FC : capte les accélérations courtes et
 //                techniques (fractionnés) que la fréquence cardiaque, trop lente à
-//                réagir, ne voit pas toujours à temps.
+//                réagir, ne voit pas toujours à temps — sans le biais du modèle de
+//                coût énergétique sur pentes fortes ni la prise de risque en descente.
 //  Résilience  → % du temps passé en zone ACWR "optimale"/"prudence" (0.8-1.5) sur 12 semaines,
 //                plutôt qu'en sous-charge ou en risque élevé.
 //  Physiologie → GAP moyen toutes zones de FC confondues : efficacité aérobie globale.
