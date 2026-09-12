@@ -447,6 +447,7 @@ function sessionFromApi(s){
     paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
     gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
     gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
+    gapPeak30s: s.gap_peak_30s!=null ? Number(s.gap_peak_30s) : null,
     technicityClimb: s.technicity_climb || "roulant",
     technicityDescent: s.technicity_descent || "roulant",
     technicityFlat: s.technicity_flat || "roulant",
@@ -692,6 +693,25 @@ function gapZoneAverage(sessions, endDate, weeks){
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
 
+// Vitesse de pointe : moyenne, sur une fenêtre glissante de `weeks` semaines
+// se terminant à endDate, du meilleur segment de 30 secondes soutenues de
+// chaque séance (gapPeak30s, calculé côté serveur depuis les flux Strava
+// bruts — voir strava-webhook). Contrairement à gapZoneAverage, cette valeur
+// est indépendante de la FC : elle ne rate pas les accélérations courtes
+// (fractionnés, relances techniques) que la fréquence cardiaque, plus lente
+// à réagir, ne voit pas toujours à temps.
+function peakGapAverage(sessions, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  let sum = 0, count = 0;
+  sessions.forEach(s=>{
+    if(s.gapPeak30s == null) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    sum += s.gapPeak30s; count++;
+  });
+  return count > 0 ? Math.round((sum/count)*10)/10 : null;
+}
+
 // Même moyenne GAP par zone de FC que gapZoneAverage, mais sur un sous-
 // ensemble de séances déjà filtré (ex : un mois calendaire) plutôt que sur
 // une fenêtre glissante — sert au graphique "Efficacité physiologique", qui
@@ -784,7 +804,10 @@ function gapGradeAverageInRange(sessions, startDate, endDate){
 //  Endurance   → charge chronique (28j) : capacité aérobie accumulée.
 //  Montée      → GAP moyen sur les tranches de pente ascendantes (4-10 / 10-18 / >18%).
 //  Descente    → GAP moyen sur les tranches de pente descendantes (>12% / 4-12%).
-//  Vitesse     → GAP moyen en zone de FC 90-100% (vitesse au seuil du maximal).
+//  Vitesse     → meilleur segment de 30 secondes soutenues (vitesse équivalent-plat),
+//                indépendant de la FC : capte aussi les accélérations courtes et
+//                techniques (fractionnés) que la fréquence cardiaque, trop lente à
+//                réagir, ne voit pas toujours à temps.
 //  Résilience  → % du temps passé en zone ACWR "optimale"/"prudence" (0.8-1.5) sur 12 semaines,
 //                plutôt qu'en sous-charge ou en risque élevé.
 //  Physiologie → GAP moyen toutes zones de FC confondues : efficacité aérobie globale.
@@ -840,7 +863,7 @@ function matrixRawValuesAt(sessions, dates, chronic, acwr, endDate, windowWeeks)
     seriesValueAt(dates, chronic, endDate),                    // Endurance
     avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),                 // Montée
     avgIgnoreNull([gapG[0], gapG[1]]),                          // Descente
-    gapZ[4],                                                    // Vitesse
+    peakGapAverage(sessions, endDate, windowWeeks),             // Vitesse
     resilienceRatioAt(dates, acwr, endDate, windowWeeks*2),     // Résilience
     avgIgnoreNull(gapZ),                                        // Physiologie
   ];
