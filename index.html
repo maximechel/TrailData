@@ -466,6 +466,7 @@ function sessionFromApi(s){
     envWindFactor: s.env_wind_factor!=null ? Number(s.env_wind_factor) : null,
     envCombinedFactor: s.env_combined_factor!=null ? Number(s.env_combined_factor) : null,
     envAdjustedDuration: s.env_adjusted_duration!=null ? Number(s.env_adjusted_duration) : null,
+    envGradeTimeShares: Array.isArray(s.env_grade_time_shares) ? s.env_grade_time_shares : null,
     technicityClimb: s.technicity_climb || "roulant",
     technicityDescent: s.technicity_descent || "roulant",
     technicityFlat: s.technicity_flat || "roulant",
@@ -751,6 +752,44 @@ function envSeverity(f){
   return { key:"critical", label:"Fort" };
 }
 
+// Facteur de ralentissement lié à la technicité du terrain — pondère les
+// coefficients de technicité saisis par le coach (montée/descente/plat, voir
+// TECHNICITY_COEFFICIENTS) par le temps réellement passé dans chaque tranche
+// de pente (envGradeTimeShares, calculé côté serveur depuis les flux Strava,
+// mêmes tranches que gapByGrade — voir gapGradeAverageInRange pour le même
+// principe de pondération). Calculé ici plutôt que stocké en base : contrairement
+// à la météo (figée à l'import), la technicité peut être modifiée après coup
+// en éditant la séance, donc ce facteur doit toujours refléter sa valeur
+// actuelle. Sessions sans technicité saisie (défaut "roulant", coefficient
+// 1.00 partout) donnent un facteur terrain de 0 — dégradation neutre plutôt
+// qu'une correction inventée.
+function envTerrainFactor(s){
+  if(!Array.isArray(s.envGradeTimeShares)) return null;
+  const cDescent = technicityCoef(s.technicityDescent);
+  const cFlat = technicityCoef(s.technicityFlat);
+  const cClimb = technicityCoef(s.technicityClimb);
+  const bucketCoef = [cDescent, cDescent, cFlat, cClimb, cClimb, cClimb];
+  const weighted = s.envGradeTimeShares.reduce((sum, share, i) => sum + share*bucketCoef[i], 0);
+  return weighted - 1;
+}
+
+// Facteur combiné météo + terrain (mêmes formules que côté serveur pour la
+// météo : produit des (1+facteur) moins 1), avec le facteur terrain calculé
+// dynamiquement ci-dessus. Se rabat sur le facteur météo seul si le terrain
+// n'a pas pu être calculé (flux insuffisants).
+function envCombinedWithTerrain(s){
+  if(s.envCombinedFactor == null) return null;
+  const terrain = envTerrainFactor(s);
+  if(terrain == null) return s.envCombinedFactor;
+  return (1+s.envCombinedFactor)*(1+terrain) - 1;
+}
+function envAdjustedDurationWithTerrain(s){
+  if(s.duration == null) return s.envAdjustedDuration;
+  const combined = envCombinedWithTerrain(s);
+  if(combined == null) return s.envAdjustedDuration;
+  return s.duration/(1+combined);
+}
+
 // Résumé du rapport environnemental sur une fenêtre glissante de `weeks`
 // semaines se terminant à `endDate` — uniquement les séances Strava pour
 // lesquelles le calcul a abouti (flux GPS + météo historique disponibles).
@@ -765,11 +804,12 @@ function envSummaryFor(sessions, endDate, weeks){
   });
   if(eligible.length === 0) return { count:0 };
   const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
+  const combined = eligible.map(envCombinedWithTerrain);
   return {
     count: eligible.length,
     avgTemp: avg(eligible.map(s=>s.envTempC)),
-    avgCombined: avg(eligible.map(s=>s.envCombinedFactor)),
-    markedCount: eligible.filter(s=>s.envCombinedFactor >= 0.18).length,
+    avgCombined: avg(combined),
+    markedCount: combined.filter(v=>v >= 0.18).length,
   };
 }
 
@@ -777,12 +817,14 @@ function envFmtPct(f){ return f==null ? "—" : (f>=0?"+":"") + Math.round(f*100
 function envFmtNum(v, unit, digits){ return v==null ? "—" : v.toFixed(digits!=null?digits:0) + unit; }
 
 function envRowHtml(s){
-  const sev = envSeverity(s.envCombinedFactor);
+  const combined = envCombinedWithTerrain(s);
+  const adjustedDuration = envAdjustedDurationWithTerrain(s);
+  const sev = envSeverity(combined);
   return `<tr>
     <td>${fmtDateFr(s.date)}</td>
     <td>${escapeHtml(s.type)}</td>
     <td>${fmtHoursMinutes(s.duration)}</td>
-    <td>${s.envAdjustedDuration!=null ? fmtHoursMinutes(s.envAdjustedDuration) : "—"}</td>
+    <td>${adjustedDuration!=null ? fmtHoursMinutes(adjustedDuration) : "—"}</td>
     <td>${envFmtNum(s.envTempC,"°C",1)}</td>
     <td>${envFmtNum(s.envHumidityPct,"%",0)}</td>
     <td>${envFmtNum(s.envMeanAltitudeM,"m",0)}</td>
@@ -790,7 +832,8 @@ function envRowHtml(s){
     <td>${envFmtPct(s.envHeatFactor)}</td>
     <td>${envFmtPct(s.envAltitudeFactor)}</td>
     <td>${envFmtPct(s.envWindFactor)}</td>
-    <td><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${envFmtPct(s.envCombinedFactor)}</span></td>
+    <td>${envFmtPct(envTerrainFactor(s))}</td>
+    <td><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${envFmtPct(combined)}</span></td>
   </tr>`;
 }
 
@@ -1254,7 +1297,7 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) sur chaque séance Strava, calculé depuis les flux GPS et la météo historique au moment et au lieu de la séance — chaleur (WBGT), altitude (Peronnet 1991) et vent (traînée aérodynamique) combinés. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres, à titre indicatif.</div>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) et de la technicité du terrain sur chaque séance Strava, calculé depuis les flux GPS et la météo historique au moment et au lieu de la séance — chaleur (WBGT), altitude (Peronnet 1991), vent (traînée aérodynamique) et technicité du terrain (saisie par séance, colonne « Terrain » du tableau) combinés. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres sur terrain roulant, à titre indicatif.</div>
       <div class="ls-stat-grid" style="margin-bottom:18px;">
         <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
         <div class="ls-stat"><div class="ls-stat-label">Température moyenne</div><div class="ls-stat-value">${envSummary.count? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
@@ -1263,7 +1306,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Durée réelle vs ajustée</h3>
-        <div class="ls-chart-sub">Durée de chaque séance Strava (ligne grise en pointillés) comparée à la durée qu'elle aurait donnée en conditions neutres, sans l'effet de la chaleur, de l'altitude ou du vent (ligne pleine) — permet de comparer équitablement des séances faites dans des conditions différentes.</div>
+        <div class="ls-chart-sub">Durée de chaque séance Strava (ligne grise en pointillés) comparée à la durée qu'elle aurait donnée en conditions neutres sur terrain roulant, sans l'effet de la chaleur, de l'altitude, du vent ou de la technicité du terrain (ligne pleine) — permet de comparer équitablement des séances faites dans des conditions différentes.</div>
         <div class="ls-chart-wrap" id="env-chart-wrap"><canvas id="chart-env-trend"></canvas></div>
       </div>
       ${envSessions.length === 0
@@ -1274,7 +1317,7 @@ function renderMain(){
         </div>
         <div class="ls-table-scroll">
           <table class="ls-log">
-            <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Durée ajustée</th><th>Temp.</th><th>Humidité</th><th>Altitude</th><th>Vent</th><th>Chaleur</th><th>Altitude</th><th>Vent</th><th>Combiné</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Durée ajustée</th><th>Temp.</th><th>Humidité</th><th>Altitude</th><th>Vent</th><th>Chaleur</th><th>Altitude</th><th>Vent</th><th>Terrain</th><th>Combiné</th></tr></thead>
             <tbody>${envSessions.map(envRowHtml).join("")}</tbody>
           </table>
         </div>
@@ -1531,7 +1574,7 @@ function renderEnvChart(athlete, envSessions){
     type:"line",
     data:{ labels, datasets:[
       { label:"Durée réelle", data: eligible.map(s=>s.duration), borderColor: cssVar("--text-muted"), backgroundColor:"transparent", borderWidth:2, borderDash:[4,3], pointRadius:2, tension:.25 },
-      { label:"Durée ajustée (conditions neutres)", data: eligible.map(s=>s.envAdjustedDuration), borderColor: color, backgroundColor: color+"22", borderWidth:2, pointRadius:3, tension:.25, fill:true }
+      { label:"Durée ajustée (conditions neutres)", data: eligible.map(envAdjustedDurationWithTerrain), borderColor: color, backgroundColor: color+"22", borderWidth:2, pointRadius:3, tension:.25, fill:true }
     ]},
     options:{
       responsive:true, maintainAspectRatio:false,
