@@ -55,6 +55,10 @@
   .ls-btn.primary:hover{filter:brightness(1.08);}
   .ls-btn.ghost{background:transparent;}
   .ls-btn.small{padding:5px 10px;font-size:12px;}
+  .ls-tabbar{display:flex;gap:18px;margin-bottom:18px;border-bottom:1px solid var(--border);}
+  .ls-tab-btn{font-family:var(--font-ui);font-size:13px;font-weight:700;background:transparent;border:none;border-bottom:2px solid transparent;padding:10px 2px;color:var(--text-muted);cursor:pointer;}
+  .ls-tab-btn:hover{color:var(--text-primary);}
+  .ls-tab-btn.active{color:var(--text-primary);border-bottom-color:var(--accent);}
   input[type=file].ls-hidden{display:none;}
 
   /* ---------- layout ---------- */
@@ -340,6 +344,10 @@ let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historiqu
 // période affichée plus haut). null tant qu'elles n'ont pas été initialisées.
 let terrainCompareA = null;
 let terrainCompareB = null;
+// Onglet actif du panneau principal : "training" (tableau de bord habituel) ou
+// "env" (rapport environnemental — chaleur/altitude/vent). Partagé entre
+// athlètes (pas remis à zéro au changement d'athlète).
+let activeTab = "training";
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
@@ -448,6 +456,16 @@ function sessionFromApi(s){
     gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
     gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
     gapPeak30s: s.gap_peak_30s!=null ? Number(s.gap_peak_30s) : null,
+    envTempC: s.env_temp_c!=null ? Number(s.env_temp_c) : null,
+    envHumidityPct: s.env_humidity_pct!=null ? Number(s.env_humidity_pct) : null,
+    envMeanAltitudeM: s.env_mean_altitude_m!=null ? Number(s.env_mean_altitude_m) : null,
+    envWindMs: s.env_wind_ms!=null ? Number(s.env_wind_ms) : null,
+    envWbgtC: s.env_wbgt_c!=null ? Number(s.env_wbgt_c) : null,
+    envHeatFactor: s.env_heat_factor!=null ? Number(s.env_heat_factor) : null,
+    envAltitudeFactor: s.env_altitude_factor!=null ? Number(s.env_altitude_factor) : null,
+    envWindFactor: s.env_wind_factor!=null ? Number(s.env_wind_factor) : null,
+    envCombinedFactor: s.env_combined_factor!=null ? Number(s.env_combined_factor) : null,
+    envAdjustedDuration: s.env_adjusted_duration!=null ? Number(s.env_adjusted_duration) : null,
     technicityClimb: s.technicity_climb || "roulant",
     technicityDescent: s.technicity_descent || "roulant",
     technicityFlat: s.technicity_flat || "roulant",
@@ -714,6 +732,66 @@ function peakGapAverage(sessions, endDate, weeks){
     sum += s.gapPeak30s; count++;
   });
   return count > 0 ? Math.round((sum/count)*10)/10 : null;
+}
+
+/* ---------------------------- Rapport environnemental (réplique Enduraw) ---------------------------- */
+// Facteurs déjà calculés côté serveur (strava-webhook / strava-backfill-gap :
+// chaleur WBGT, altitude, vent — voir commentaires de colonnes sur
+// public.sessions) et stockés par séance Strava. Cette section ne fait que
+// les résumer et les afficher ; aucun calcul environnemental côté client.
+
+// Sévérité du facteur combiné, mêmes clés que classifyACWR (réutilise les
+// mêmes couleurs --good/--warning/--serious/--critical déjà définies pour
+// l'ACWR, pour rester cohérent visuellement dans toute l'appli).
+function envSeverity(f){
+  if(f == null) return { key:"none", label:"—" };
+  if(f < 0.08) return { key:"good", label:"Faible" };
+  if(f < 0.18) return { key:"warning", label:"Modéré" };
+  if(f < 0.30) return { key:"serious", label:"Marqué" };
+  return { key:"critical", label:"Fort" };
+}
+
+// Résumé du rapport environnemental sur une fenêtre glissante de `weeks`
+// semaines se terminant à `endDate` — uniquement les séances Strava pour
+// lesquelles le calcul a abouti (flux GPS + météo historique disponibles).
+// count = 0 si aucune séance éligible sur la période (renvoie alors un objet
+// minimal, à tester avant de lire les autres champs).
+function envSummaryFor(sessions, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  const eligible = sessions.filter(s=>{
+    if(s.envCombinedFactor == null) return false;
+    const d = new Date(s.date+"T00:00:00");
+    return !isNaN(d) && d >= start && d <= endDate;
+  });
+  if(eligible.length === 0) return { count:0 };
+  const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
+  return {
+    count: eligible.length,
+    avgTemp: avg(eligible.map(s=>s.envTempC)),
+    avgCombined: avg(eligible.map(s=>s.envCombinedFactor)),
+    markedCount: eligible.filter(s=>s.envCombinedFactor >= 0.18).length,
+  };
+}
+
+function envFmtPct(f){ return f==null ? "—" : (f>=0?"+":"") + Math.round(f*100) + "%"; }
+function envFmtNum(v, unit, digits){ return v==null ? "—" : v.toFixed(digits!=null?digits:0) + unit; }
+
+function envRowHtml(s){
+  const sev = envSeverity(s.envCombinedFactor);
+  return `<tr>
+    <td>${fmtDateFr(s.date)}</td>
+    <td>${escapeHtml(s.type)}</td>
+    <td>${fmtHoursMinutes(s.duration)}</td>
+    <td>${s.envAdjustedDuration!=null ? fmtHoursMinutes(s.envAdjustedDuration) : "—"}</td>
+    <td>${envFmtNum(s.envTempC,"°C",1)}</td>
+    <td>${envFmtNum(s.envHumidityPct,"%",0)}</td>
+    <td>${envFmtNum(s.envMeanAltitudeM,"m",0)}</td>
+    <td>${envFmtNum(s.envWindMs,"m/s",1)}</td>
+    <td>${envFmtPct(s.envHeatFactor)}</td>
+    <td>${envFmtPct(s.envAltitudeFactor)}</td>
+    <td>${envFmtPct(s.envWindFactor)}</td>
+    <td><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${envFmtPct(s.envCombinedFactor)}</span></td>
+  </tr>`;
 }
 
 // Même moyenne GAP par zone de FC que gapZoneAverage, mais sur un sous-
@@ -1012,6 +1090,8 @@ function renderMain(){
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sessions);
   const color = athleteColor(athlete);
+  const envSummary = envSummaryFor(sessions, new Date(), MATRIX_WINDOW_WEEKS);
+  const envSessions = sessions.filter(s=>s.source==="strava");
   ensureChartPeriod();
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
   ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
@@ -1037,6 +1117,12 @@ function renderMain(){
       </div>
     </div>
 
+    <div class="ls-tabbar pdf-hide">
+      <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
+      <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
     <div class="ls-stat-grid">
       <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
@@ -1165,11 +1251,39 @@ function renderMain(){
         </table>
       </div>
     </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) sur chaque séance Strava, calculé depuis les flux GPS et la météo historique au moment et au lieu de la séance — chaleur (WBGT), altitude (Peronnet 1991) et vent (traînée aérodynamique) combinés. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres, à titre indicatif.</div>
+      <div class="ls-stat-grid" style="margin-bottom:18px;">
+        <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Température moyenne</div><div class="ls-stat-value">${envSummary.count? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Séances marquées (≥18%)</div><div class="ls-stat-value">${envSummary.count? envSummary.markedCount + "/" + envSummary.count : "—"}</div></div>
+      </div>
+      ${envSessions.length === 0
+        ? '<div class="ls-panel"><div class="ls-empty">Aucune séance Strava pour cet athlète.</div></div>'
+        : `<div class="ls-table-card">
+        <div class="ls-table-head">
+          <h3>Détail par séance (${envSessions.length})</h3>
+        </div>
+        <div class="ls-table-scroll">
+          <table class="ls-log">
+            <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Durée ajustée</th><th>Temp.</th><th>Humidité</th><th>Altitude</th><th>Vent</th><th>Chaleur</th><th>Altitude</th><th>Vent</th><th>Combiné</th></tr></thead>
+            <tbody>${envSessions.map(envRowHtml).join("")}</tbody>
+          </table>
+        </div>
+      </div>`}
+    </div>
   `;
 
   document.getElementById("btn-add-session").addEventListener("click", ()=>openSessionModal(athlete.id));
   document.getElementById("btn-edit-athlete").addEventListener("click", ()=>openAthleteModal(athlete));
   document.getElementById("btn-delete-athlete").addEventListener("click", ()=>deleteAthlete(athlete.id));
+  main.querySelectorAll("[data-tab]").forEach(b=> b.addEventListener("click", ()=>{
+    activeTab = b.getAttribute("data-tab");
+    renderMain();
+  }));
   document.getElementById("period-start").addEventListener("change", e=>{
     const v = e.target.value; if(!v) return;
     chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
@@ -1221,7 +1335,7 @@ function renderMain(){
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
-  renderCharts();
+  if(activeTab === "training") renderCharts(); else destroyCharts();
 }
 
 function rowHtml(s){
@@ -1985,18 +2099,28 @@ function measurePdfBreakUnits(main){
   const mainTop = main.getBoundingClientRect().top;
   const units = [];
   const pushIfVisible = (el)=>{
-    if(!el || el.offsetParent === null) return; // display:none (masqué par .pdf-exporting)
+    if(!el || el.offsetParent === null) return; // display:none (masqué par .pdf-exporting, ou onglet inactif)
     const r = el.getBoundingClientRect();
     if(r.height <= 0) return;
     units.push({ top: r.top - mainTop, bottom: r.bottom - mainTop });
   };
-  Array.from(main.children).forEach(child=>{
-    if(child.classList && child.classList.contains("ls-charts")){
-      Array.from(child.children).forEach(pushIfVisible);
-    } else {
-      pushIfVisible(child);
-    }
-  });
+  // Descend transparemment dans le panneau de l'onglet actif (.ls-tab-panel) —
+  // seul l'onglet visible contribue des blocs ; l'onglet masqué est ignoré
+  // entièrement (offsetParent null). Préserve le découpage fin par carte
+  // existant à l'intérieur de .ls-charts.
+  const walk = (children)=>{
+    Array.from(children).forEach(child=>{
+      if(child.classList && child.classList.contains("ls-charts")){
+        Array.from(child.children).forEach(pushIfVisible);
+      } else if(child.classList && child.classList.contains("ls-tab-panel")){
+        if(child.offsetParent === null) return;
+        walk(child.children);
+      } else {
+        pushIfVisible(child);
+      }
+    });
+  };
+  walk(main.children);
   units.sort((a,b)=> a.top - b.top);
   const rows = [];
   units.forEach(u=>{
