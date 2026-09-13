@@ -336,7 +336,7 @@ const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null };
+let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 // Périodes de comparaison du graphique "Profil terrain" — { start, end } au
@@ -1003,7 +1003,7 @@ function applyTheme(mode){
   const labels = { system:"Automatique", light:"Clair", dark:"Sombre" };
   const btn = document.getElementById("btn-theme");
   if(btn) btn.textContent = "Thème : " + labels[mode];
-  renderCharts();
+  renderActiveTabCharts();
 }
 function cycleTheme(){
   const order = ["system","light","dark"];
@@ -1261,6 +1261,11 @@ function renderMain(){
         <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
         <div class="ls-stat"><div class="ls-stat-label">Séances marquées (≥18%)</div><div class="ls-stat-value">${envSummary.count? envSummary.markedCount + "/" + envSummary.count : "—"}</div></div>
       </div>
+      <div class="ls-chart-card full">
+        <h3>Durée réelle vs ajustée</h3>
+        <div class="ls-chart-sub">Durée de chaque séance Strava (ligne grise en pointillés) comparée à la durée qu'elle aurait donnée en conditions neutres, sans l'effet de la chaleur, de l'altitude ou du vent (ligne pleine) — permet de comparer équitablement des séances faites dans des conditions différentes.</div>
+        <div class="ls-chart-wrap" id="env-chart-wrap"><canvas id="chart-env-trend"></canvas></div>
+      </div>
       ${envSessions.length === 0
         ? '<div class="ls-panel"><div class="ls-empty">Aucune séance Strava pour cet athlète.</div></div>'
         : `<div class="ls-table-card">
@@ -1335,7 +1340,7 @@ function renderMain(){
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
 
-  if(activeTab === "training") renderCharts(); else destroyCharts();
+  renderActiveTabCharts();
 }
 
 function rowHtml(s){
@@ -1493,6 +1498,75 @@ function renderCharts(){
     document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
       el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Impossible d\'afficher ce graphique.</div>';
     });
+  }
+}
+
+// Graphique "Durée réelle vs ajustée" de l'onglet Rapport environnemental —
+// ne montre que les séances Strava pour lesquelles le calcul environnemental
+// a abouti (flux GPS + météo historique disponibles). Permet de comparer
+// deux séances faites dans des conditions différentes en neutralisant
+// l'effet de la chaleur, de l'altitude et du vent (même logique que le
+// "normalize your performance" d'Enduraw).
+function renderEnvChart(athlete, envSessions){
+  const wrap = document.getElementById("env-chart-wrap");
+  if(!wrap) return;
+  if(typeof Chart === "undefined"){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphique indisponible (bibliothèque non chargée). Rechargez la page.</div>';
+    return;
+  }
+  const eligible = envSessions
+    .filter(s=>s.envAdjustedDuration!=null)
+    .slice()
+    .sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  if(eligible.length === 0){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec données environnementales pour le moment.</div>';
+    return;
+  }
+  // Réinsère un <canvas> propre : un rendu précédent (aucune donnée, ou lib
+  // absente) peut avoir remplacé ce wrap par un message texte.
+  wrap.innerHTML = '<canvas id="chart-env-trend"></canvas>';
+  const color = athleteColor(athlete);
+  const labels = eligible.map(s=> fmtDateFr(s.date).slice(0,5));
+  charts.envTrend = new Chart(document.getElementById("chart-env-trend"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"Durée réelle", data: eligible.map(s=>s.duration), borderColor: cssVar("--text-muted"), backgroundColor:"transparent", borderWidth:2, borderDash:[4,3], pointRadius:2, tension:.25 },
+      { label:"Durée ajustée (conditions neutres)", data: eligible.map(s=>s.envAdjustedDuration), borderColor: color, backgroundColor: color+"22", borderWidth:2, pointRadius:3, tension:.25, fill:true }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:"index", intersect:false },
+      plugins:{
+        legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+        tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+          borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Manrope", weight:700}, bodyFont:{family:"IBM Plex Mono"},
+          callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${fmtHoursMinutes(ctx.parsed.y)}` } }
+      },
+      scales:{
+        x:{ grid:{ color: cssVar("--grid"), drawTicks:false }, ticks:{ color: cssVar("--text-muted"), font:{family:"IBM Plex Mono", size:10}, maxRotation:0, autoSkip:true } },
+        y:{ grid:{ color: cssVar("--grid"), drawTicks:false }, ticks:{ color: cssVar("--text-muted"), font:{family:"IBM Plex Mono", size:10}, callback:v=>fmtHoursMinutes(v) },
+          border:{ color: cssVar("--axis") }, title:{ display:true, text:"Durée", color: cssVar("--text-muted"), font:{size:10} } }
+      }
+    }
+  });
+}
+
+// Point d'entrée unique pour (re)construire les graphiques de l'onglet actif
+// (entraînement ou rapport environnemental) — utilisé au premier rendu, lors
+// d'un changement de thème et lors du basculement d'onglet, pour éviter de
+// dupliquer cette logique de dispatch à plusieurs endroits.
+function renderActiveTabCharts(){
+  if(!state) return;
+  const athlete = state.athletes.find(a=>a.id===activeAthleteId);
+  if(!athlete){ destroyCharts(); return; }
+  if(activeTab === "training"){
+    renderCharts();
+  } else if(activeTab === "env"){
+    destroyCharts();
+    const envSessions = state.sessions.filter(s=>s.athleteId===athlete.id && s.source==="strava");
+    renderEnvChart(athlete, envSessions);
+  } else {
+    destroyCharts();
   }
 }
 
@@ -2359,7 +2433,7 @@ function init(){
     e.target.value="";
   });
 
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", ()=>{ if(currentThemeMode()==="system") renderCharts(); });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", ()=>{ if(currentThemeMode()==="system") renderActiveTabCharts(); });
 
   handleStravaRedirectParam();
   ensureCoachKey();
