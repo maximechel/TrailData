@@ -303,6 +303,13 @@ const TECHNICITY_LEVELS = [
 const TECHNICITY_COEFFICIENTS = { roulant:1.00, normal:1.10, technique:1.25, tres_technique:1.50 };
 function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
 function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
+// Les 4 tests de terrain du jumeau numérique (voir table athlete_tests).
+const ATHLETE_TEST_TYPES_META = [
+  { value:"force_membre_inf", label:"Force max membre inférieur (plateforme de force)" },
+  { value:"vma", label:"VMA (test de terrain)" },
+  { value:"seuil1", label:"Seuil 1 — aérobie" },
+  { value:"seuil2", label:"Seuil 2 — anaérobie" },
+];
 // Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
 // km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
 // (efforts anaérobies courts) n'ont pas de bornes FC : la fréquence cardiaque
@@ -429,6 +436,12 @@ function apiSaveSession(session){
 }
 function apiDeleteSession(id){
   return apiFetch("/sessions?id=" + encodeURIComponent(id), { method:"DELETE" });
+}
+function apiSaveAthleteTest(test){
+  return apiFetch("/athlete-tests", { method:"POST", body: JSON.stringify(athleteTestToApi(test)) });
+}
+function apiDeleteAthleteTest(id){
+  return apiFetch("/athlete-tests?id=" + encodeURIComponent(id), { method:"DELETE" });
 }
 
 /* ---------------------------- snake_case <-> camelCase transform ---------------------------- */
@@ -1280,6 +1293,8 @@ function renderMain(){
     return;
   }
   const sessions = state.sessions.filter(s=>s.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
+  const athleteTests = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
+  const twin = digitalTwinParams(athlete.id, sessions, new Date());
   const zonesTotalTypes = Array.from(new Set(sessions.map(s=>s.type))).sort((a,b)=>a.localeCompare(b,"fr"));
   const { acwr } = acwrSeries(sessions);
   const acuteVal = acuteChronicLatest(sessions).acute;
@@ -1319,6 +1334,7 @@ function renderMain(){
     <div class="ls-tabbar pdf-hide">
       <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
+      <button class="ls-tab-btn ${activeTab==="twin"?"active":""}" data-tab="twin" type="button">Jumeau numérique</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
@@ -1479,6 +1495,43 @@ function renderMain(){
         </div>
       </div>`}
     </div>
+
+    <div class="ls-tab-panel" id="tab-panel-twin" ${activeTab!=="twin"?"hidden":""}>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Sept paramètres réunis pour comprendre comment la progression de l'un influence les autres, et guider la planification et la création des séances. Force, VMA et seuils sont saisis à la main depuis des tests de terrain ; Montée, Descente et Volume sont calculés automatiquement depuis les séances Strava.</div>
+
+      <div class="ls-table-head" style="margin-bottom:10px;">
+        <h3>Tests de terrain</h3>
+        <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
+      </div>
+      <div class="ls-stat-grid" style="margin-bottom:14px;">
+        <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${twin.forceMax? twin.forceMax.value.toFixed(0) : "—"}<small> N${twin.forceMax? " · "+fmtDateFr(twin.forceMax.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${twin.vma? twin.vma.value.toFixed(1) : "—"}<small> km/h${twin.vma? " · "+fmtDateFr(twin.vma.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
+      </div>
+      ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
+        <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
+        <div class="ls-table-scroll">
+          <table class="ls-log">
+            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th></th></tr></thead>
+            <tbody>${athleteTests.map(athleteTestRowHtml).join("")}</tbody>
+          </table>
+        </div>
+      </div>`}
+
+      <h3 style="margin:0 0 6px;">Montée — VAM par zone de FC × pente</h3>
+      <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse ascensionnelle moyenne (m/h), moyenne des ${MATRIX_WINDOW_WEEKS} dernières semaines, calculée depuis les séances Strava.</div>
+      ${vamProfileTableHtml(twin.vamClimbProfile, [3,4,5])}
+
+      <h3 style="margin:18px 0 6px;">Descente — VAM par zone de FC × pente</h3>
+      <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse de descente moyenne (m/h), même fenêtre.</div>
+      ${vamProfileTableHtml(twin.vamDescentProfile, [0,1])}
+
+      <div class="ls-stat-grid" style="margin-top:22px;">
+        <div class="ls-stat"><div class="ls-stat-label">Volume hebdo moyen (6 mois)</div><div class="ls-stat-value">${twin.volume.km.toFixed(1)}<small>km/sem.</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Volume hebdo moyen (6 mois)</div><div class="ls-stat-value">${twin.volume.hours.toFixed(1)}<small>h/sem.</small></div></div>
+      </div>
+    </div>
   `;
 
   document.getElementById("btn-add-session").addEventListener("click", ()=>openSessionModal(athlete.id));
@@ -1540,6 +1593,10 @@ function renderMain(){
   });
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
+  main.querySelectorAll("[data-edit-test]").forEach(b=> b.addEventListener("click", ()=> openAthleteTestModal(athlete.id, b.getAttribute("data-edit-test"))));
+  main.querySelectorAll("[data-del-test]").forEach(b=> b.addEventListener("click", ()=> deleteAthleteTest(b.getAttribute("data-del-test"))));
+  const addTestBtn = document.getElementById("btn-add-athlete-test");
+  if(addTestBtn) addTestBtn.addEventListener("click", ()=> openAthleteTestModal(athlete.id));
 
   renderActiveTabCharts();
 }
@@ -1561,6 +1618,44 @@ function rowHtml(s){
       <button class="ls-icon-btn" data-del-session="${s.id}" title="Supprimer">✕</button>
     </span></td>
   </tr>`;
+}
+
+function athleteTestTypeLabel(type){
+  const meta = ATHLETE_TEST_TYPES_META.find(m=>m.value===type);
+  return meta ? meta.label : type;
+}
+function athleteTestValueLabel(test){
+  if(test.testType==="force_membre_inf"){
+    if(test.valueDroite==null || test.valueGauche==null) return "—";
+    return `${(test.valueDroite+test.valueGauche).toFixed(0)} N (D ${test.valueDroite.toFixed(0)} / G ${test.valueGauche.toFixed(0)})`;
+  }
+  return test.value!=null ? test.value.toFixed(1)+" km/h" : "—";
+}
+function athleteTestRowHtml(test){
+  return `<tr>
+    <td>${fmtDateFr(test.date)}</td>
+    <td>${escapeHtml(athleteTestTypeLabel(test.testType))}</td>
+    <td>${athleteTestValueLabel(test)}</td>
+    <td><span class="ls-row-actions">
+      <button class="ls-icon-btn" data-edit-test="${test.id}" title="Modifier">✎</button>
+      <button class="ls-icon-btn" data-del-test="${test.id}" title="Supprimer">✕</button>
+    </span></td>
+  </tr>`;
+}
+// Petit tableau VAM (m/h) par zone de FC (lignes, ZONE_LABELS) x tranche de
+// pente (colonnes, gradeLabelIndices = indices dans GRADE_BUCKET_LABELS ;
+// [3,4,5] pour la montée, [0,1] pour la descente) -- voir vamProfileCell.
+function vamProfileTableHtml(profile, gradeLabelIndices){
+  const bucketsPerZone = gradeLabelIndices.length;
+  const headers = gradeLabelIndices.map(gi=>`<th>${escapeHtml(GRADE_BUCKET_LABELS[gi])}</th>`).join("");
+  const rows = ZONE_LABELS.map((label,zi)=>{
+    const cells = gradeLabelIndices.map((_,bi)=>{
+      const v = vamProfileCell(profile, zi, bi, bucketsPerZone);
+      return `<td class="ls-num">${v!=null? Math.round(v)+" m/h" : "—"}</td>`;
+    }).join("");
+    return `<tr><td>${escapeHtml(label)}</td>${cells}</tr>`;
+  }).join("");
+  return `<div class="ls-table-scroll"><table class="ls-log"><thead><tr><th>Zone de FC</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function acuteChronicLatest(sessions){
@@ -2126,6 +2221,86 @@ async function deleteSession(id){
   if(!confirm("Supprimer cette séance ?")) return;
   try{
     await apiDeleteSession(id);
+    await refreshData();
+  }catch(err){
+    if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+    alert("Suppression impossible : " + err.message);
+  }
+}
+
+/* ---------------------------- modal: test de terrain ---------------------------- */
+
+function openAthleteTestModal(athleteId, testId){
+  const existing = testId ? (state.athleteTests||[]).find(t=>t.id===testId) : null;
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal">
+      <h3>${existing? "Modifier le test":"Ajouter un test"}</h3>
+      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h.</div>
+      <form id="athlete-test-form">
+        <div class="ls-field-row">
+          <div class="ls-field"><label>Test</label><select name="testType" id="test-type-select">${ATHLETE_TEST_TYPES_META.map(m=>`<option value="${m.value}" ${(existing?existing.testType:"force_membre_inf")===m.value?"selected":""}>${escapeHtml(m.label)}</option>`).join("")}</select></div>
+          <div class="ls-field"><label>Date</label><input type="date" name="date" required value="${existing? existing.date: fmtDate(new Date())}"></div>
+        </div>
+        <div class="ls-field-row" id="test-force-fields">
+          <div class="ls-field"><label>Force droite (N)</label><input type="number" min="0" step="0.1" name="valueDroite" value="${existing&&existing.valueDroite!=null? existing.valueDroite:""}"></div>
+          <div class="ls-field"><label>Force gauche (N)</label><input type="number" min="0" step="0.1" name="valueGauche" value="${existing&&existing.valueGauche!=null? existing.valueGauche:""}"></div>
+        </div>
+        <div class="ls-field" id="test-speed-fields">
+          <label>Vitesse (km/h)</label>
+          <input type="number" min="0" step="0.1" name="value" value="${existing&&existing.value!=null? existing.value:""}">
+        </div>
+        <div class="ls-modal-actions">
+          <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
+          <button type="submit" class="ls-btn primary">${existing? "Enregistrer":"Ajouter"}</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+
+  const select = document.getElementById("test-type-select");
+  const forceFields = document.getElementById("test-force-fields");
+  const speedFields = document.getElementById("test-speed-fields");
+  const syncFields = () => {
+    const isForce = select.value === "force_membre_inf";
+    forceFields.style.display = isForce ? "" : "none";
+    speedFields.style.display = isForce ? "none" : "";
+  };
+  select.addEventListener("change", syncFields);
+  syncFields();
+
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
+  document.getElementById("athlete-test-form").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const testType = fd.get("testType");
+    const test = {
+      id: existing? existing.id : undefined,
+      athleteId, testType, date: fd.get("date"),
+      valueDroite: testType==="force_membre_inf" && fd.get("valueDroite") ? +fd.get("valueDroite") : null,
+      valueGauche: testType==="force_membre_inf" && fd.get("valueGauche") ? +fd.get("valueGauche") : null,
+      value: testType!=="force_membre_inf" && fd.get("value") ? +fd.get("value") : null,
+    };
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    try{
+      await apiSaveAthleteTest(test);
+      closeModal();
+      await refreshData();
+    }catch(err){
+      if(err.unauthorized){ closeModal(); showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      alert("Impossible d'enregistrer le test : " + err.message);
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+async function deleteAthleteTest(id){
+  if(!confirm("Supprimer ce test ?")) return;
+  try{
+    await apiDeleteAthleteTest(id);
     await refreshData();
   }catch(err){
     if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
