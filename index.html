@@ -429,12 +429,14 @@ function apiDeleteSession(id){
 function athleteFromApi(a){
   return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
     stravaAthleteId: a.strava_athlete_id, heightCm: a.height_cm, weightKg: a.weight_kg!=null? Number(a.weight_kg): null,
-    birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null };
+    birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null,
+    email: a.email || "" };
 }
 function athleteToApi(a){
   const row = { name:a.name, sport:a.sport, max_hr: a.maxHR!=null? a.maxHR : null, color_index: a.colorIndex||0,
     height_cm: a.heightCm!=null? a.heightCm : null, weight_kg: a.weightKg!=null? a.weightKg : null,
-    birth_date: a.birthDate || null, intensity_zones: a.intensityZones || null };
+    birth_date: a.birthDate || null, intensity_zones: a.intensityZones || null,
+    email: a.email || null };
   if(a.id) row.id = a.id;
   return row;
 }
@@ -1988,6 +1990,11 @@ function openAthleteModal(existing){
       <div class="ls-modal-sub">Le sport détermine les unités affichées par défaut.</div>
       <form id="athlete-form">
         <div class="ls-field"><label>Nom</label><input type="text" name="name" required value="${existing? escapeHtml(existing.name):""}"></div>
+        <div class="ls-field">
+          <label>Email (espace athlète)</label>
+          <input type="email" name="email" placeholder="athlete@exemple.fr" value="${existing&&existing.email? escapeHtml(existing.email):""}">
+          <div class="ls-legend-note">Si renseigné, l'athlète peut se connecter à client.html avec cet email (lien magique, sans mot de passe) pour voir ses propres séances et renseigner la technicité du terrain.</div>
+        </div>
         <div class="ls-field-row">
           <div class="ls-field"><label>Sport principal</label><select name="sport">${SPORTS.map(sp=>`<option ${existing&&existing.sport===sp?"selected":""}>${sp}</option>`).join("")}</select></div>
           <div class="ls-field"><label>FC max (bpm, optionnel)</label><input type="number" min="0" name="maxHR" value="${existing&&existing.maxHR? existing.maxHR:""}"></div>
@@ -2012,7 +2019,8 @@ function openAthleteModal(existing){
     const common = {
       name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null,
       birthDate: fd.get("birthDate") || null, heightCm: fd.get("heightCm")? +fd.get("heightCm") : null,
-      weightKg: fd.get("weightKg")? +fd.get("weightKg") : null
+      weightKg: fd.get("weightKg")? +fd.get("weightKg") : null,
+      email: (fd.get("email")||"").trim() || null
     };
     const athlete = existing
       ? Object.assign({ id: existing.id, colorIndex: existing.colorIndex }, common)
