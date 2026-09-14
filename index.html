@@ -154,6 +154,7 @@
   .ls-field input, .ls-field select{width:100%;font-family:var(--font-ui);font-size:13.5px;padding:8px 10px;border-radius:8px;
     border:1px solid var(--border);background:var(--bg);color:var(--text-primary);}
   .ls-field input:focus, .ls-field select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .ls-field input[type=range]{width:100%;accent-color:var(--accent);padding:0;border:none;background:none;height:auto;margin:6px 0 2px;}
   .ls-field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .ls-field-row3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
   .ls-field-row5{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;}
@@ -1200,6 +1201,207 @@ function digitalTwinParams(athleteId, sessions, endDate){
   };
 }
 
+/* ---------------------------- Simulateur : moteur de régression par paires ---------------------------- */
+//
+// Objectif : déplacer 1-2 des 7 paramètres du jumeau numérique et estimer
+// l'effet sur les autres, à partir de l'historique propre de l'athlète (pas
+// de formule physiologique générique). Deux catégories de paramètres :
+//  - "physio" (Force, VMA, Seuil1, Seuil2) : un point par test de terrain,
+//    donc toujours rare, même avec beaucoup d'historique d'entraînement.
+//  - "perf"/"charge" (Montée, Descente, Volume) : dérivés des séances Strava
+//    par fenêtres glissantes, donc denses et de plus en plus fiables avec le
+//    temps.
+// En dessous du seuil minimum d'observations appariées, on affiche un repère
+// qualitatif par paire de catégories plutôt qu'un chiffre non fiable.
+
+const SIM_PARAMS = [
+  { key:"force", label:"Force max membre inférieur", category:"physio" },
+  { key:"vma", label:"VMA", category:"physio" },
+  { key:"seuil1", label:"Seuil 1 (aérobie)", category:"physio" },
+  { key:"seuil2", label:"Seuil 2 (anaérobie)", category:"physio" },
+  { key:"volume", label:"Volume hebdo", category:"charge" },
+  { key:"montee", label:"Montée (VAM moy.)", category:"perf" },
+  { key:"descente", label:"Descente (VAM moy.)", category:"perf" },
+];
+const SIM_SNAPSHOT_WINDOW_WEEKS = 8;   // fenêtre glissante pour les instantanés Volume/Montée/Descente
+const SIM_SNAPSHOT_STEP_WEEKS = 2;     // pas entre deux instantanés successifs
+const SIM_MAX_GAP_DAYS = 21;           // écart temporel max pour apparier deux observations
+const SIM_MIN_PAIRS = 4;               // nombre minimum de paires pour afficher une tendance chiffrée
+
+function simParamSeriesFromTests(athleteTests, testType, extractValue){
+  return athleteTests.filter(t=>t.testType===testType)
+    .map(t=>({ date:new Date(t.date+"T00:00:00"), value:extractValue(t) }))
+    .filter(p=> p.value!=null && !isNaN(p.date))
+    .sort((a,b)=>a.date-b.date);
+}
+// Instantané du volume hebdo (km, non arrondi) sur une fenêtre de `weeks`
+// semaines se terminant à `endDate` -- même principe que volumeWeeklyAverage,
+// mais paramétrable en largeur de fenêtre pour le moteur de régression, et
+// renvoie null (au lieu de 0) quand la fenêtre est vide.
+function simVolumeSnapshotKm(sessions, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  let km = 0, count = 0;
+  sessions.forEach(s=>{
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    km += s.distance || 0; count++;
+  });
+  return count>0 ? km/weeks : null;
+}
+// Moyenne des cases renseignées d'un profil VAM (climb/descent) -- réduit le
+// profil 2D à une seule valeur pour les besoins du simulateur (l'onglet
+// principal continue d'afficher le détail par zone de FC × pente).
+function simAggregateVamProfile(profile){
+  if(!Array.isArray(profile)) return null;
+  const vals = profile.filter(v=>v!=null);
+  return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+}
+// Série temporelle d'un paramètre pour un athlète : un point par test pour
+// les paramètres physio, des instantanés glissants tous les
+// SIM_SNAPSHOT_STEP_WEEKS pour Volume/Montée/Descente.
+function simParamSeries(sessions, athleteTests, key){
+  if(key==="force") return simParamSeriesFromTests(athleteTests, "force_membre_inf", t=> (t.valueDroite!=null && t.valueGauche!=null) ? t.valueDroite+t.valueGauche : null);
+  if(key==="vma") return simParamSeriesFromTests(athleteTests, "vma", t=>t.value);
+  if(key==="seuil1") return simParamSeriesFromTests(athleteTests, "seuil1", t=>t.value);
+  if(key==="seuil2") return simParamSeriesFromTests(athleteTests, "seuil2", t=>t.value);
+  const stravaSessions = sessions.filter(s=>s.source==="strava");
+  const dates = stravaSessions.map(s=>new Date(s.date+"T00:00:00")).filter(d=>!isNaN(d));
+  if(!dates.length) return [];
+  const rangeStart = new Date(Math.min.apply(null, dates)); rangeStart.setDate(rangeStart.getDate() + SIM_SNAPSHOT_WINDOW_WEEKS*7);
+  const rangeEnd = new Date(Math.max.apply(null, dates));
+  if(rangeStart > rangeEnd) return [];
+  const out = [];
+  let d = new Date(rangeStart);
+  while(d <= rangeEnd){
+    let value = null;
+    if(key==="volume") value = simVolumeSnapshotKm(sessions, d, SIM_SNAPSHOT_WINDOW_WEEKS);
+    else if(key==="montee") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamClimbProfile", 15));
+    else if(key==="descente") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamDescentProfile", 10));
+    if(value!=null) out.push({ date:new Date(d), value });
+    d.setDate(d.getDate() + SIM_SNAPSHOT_STEP_WEEKS*7);
+  }
+  return out;
+}
+// Apparie deux séries temporelles par proximité de date (plus proche voisin,
+// à moins de SIM_MAX_GAP_DAYS) -- donne une liste de paires [x,y] utilisables
+// pour une régression linéaire.
+function simPairObservations(seriesA, seriesB, maxGapDays){
+  const pairs = [];
+  seriesA.forEach(a=>{
+    let best = null, bestDiff = Infinity;
+    seriesB.forEach(b=>{
+      const diff = Math.abs(a.date - b.date);
+      if(diff < bestDiff){ bestDiff = diff; best = b; }
+    });
+    if(best && bestDiff <= maxGapDays*86400000) pairs.push([a.value, best.value]);
+  });
+  return pairs;
+}
+// Régression linéaire simple (moindres carrés) -- renvoie null si trop peu de
+// paires ou si le paramètre déplacé n'a pas varié dans l'historique.
+function simLinearRegression(pairs){
+  const n = pairs.length;
+  if(n < SIM_MIN_PAIRS) return null;
+  let sumX=0, sumY=0, sumXY=0, sumXX=0;
+  pairs.forEach(([x,y])=>{ sumX+=x; sumY+=y; sumXY+=x*y; sumXX+=x*x; });
+  const denom = n*sumXX - sumX*sumX;
+  if(Math.abs(denom) < 1e-9) return null;
+  const slope = (n*sumXY - sumX*sumY) / denom;
+  const intercept = (sumY - slope*sumX) / n;
+  return { slope, intercept, n };
+}
+// Repères qualitatifs par paire de catégories, utilisés en dessous du seuil
+// minimum d'observations -- volontairement génériques (principes
+// d'entraînement établis), jamais un chiffre inventé à partir de trop peu de
+// tests.
+const SIM_CATEGORY_NOTES = {
+  "physio|physio": "Les qualités physiologiques évoluent souvent de façon liée, mais pas forcément dans les mêmes proportions — un gain isolé sur l'une ne garantit pas un gain équivalent sur les autres.",
+  "perf|physio": "La vitesse ascensionnelle/descendante dépend aussi de la technique et de l'expérience du terrain, pas seulement des qualités physiologiques mesurées au test.",
+  "charge|physio": "Une progression physiologique permet en général d'absorber un volume plus élevé, mais augmenter le volume avant qu'elle soit confirmée par un nouveau test expose à un risque de surcharge.",
+  "perf|perf": "Montée et descente sollicitent des qualités différentes (aérobie/puissance vs excentrique/technique) — une progression sur l'une ne présage pas d'une progression équivalente sur l'autre.",
+  "charge|perf": "Un volume plus élevé favorise en général la progression des allures de montée/descente à moyen terme, à condition de rester dans la fourchette sûre indiquée ci-dessus.",
+};
+function simCategoryNote(catA, catB){
+  const key = [catA, catB].sort().join("|");
+  return SIM_CATEGORY_NOTES[key] || "Pas assez de recul pour formuler un repère fiable.";
+}
+function simFormatValue(key, value){
+  if(value==null || !isFinite(value)) return "—";
+  if(key==="force") return value.toFixed(0)+" N";
+  if(key==="vma" || key==="seuil1" || key==="seuil2") return value.toFixed(1)+" km/h";
+  if(key==="volume") return value.toFixed(1)+" km/sem.";
+  if(key==="montee" || key==="descente") return value.toFixed(0)+" m/h";
+  return String(value);
+}
+// Pour chaque paramètre non déplacé, prédit sa valeur (moyenne des
+// prédictions si deux paramètres sont déplacés) via la régression sur
+// l'historique de l'athlète, ou bascule sur un repère qualitatif si trop peu
+// d'observations.
+function simComputeEffects(seriesCache, currentValues, movedKeys, movedValues){
+  const results = [];
+  SIM_PARAMS.filter(p=> !movedKeys.includes(p.key)).forEach(target=>{
+    const predictions = [];
+    movedKeys.forEach((movedKey, i)=>{
+      const pairs = simPairObservations(seriesCache[movedKey], seriesCache[target.key], SIM_MAX_GAP_DAYS);
+      const reg = simLinearRegression(pairs);
+      if(reg) predictions.push({ predictedValue: reg.intercept + reg.slope*movedValues[i], n: reg.n });
+    });
+    if(predictions.length){
+      const avgPredicted = predictions.reduce((a,p)=>a+p.predictedValue,0) / predictions.length;
+      const minN = Math.min.apply(null, predictions.map(p=>p.n));
+      results.push({ key:target.key, label:target.label, mode:"quantified", predictedValue:avgPredicted, currentValue:currentValues[target.key], n:minN });
+    } else {
+      const notes = Array.from(new Set(movedKeys.map(mk=>{
+        const moved = SIM_PARAMS.find(p=>p.key===mk);
+        return simCategoryNote(moved.category, target.category);
+      })));
+      results.push({ key:target.key, label:target.label, mode:"qualitative", currentValue:currentValues[target.key], notes });
+    }
+  });
+  return results;
+}
+// Fourchette de volume hebdo sûre : règle des 10% sur le volume moyen actuel
+// (même base que twin.volume), recoupée avec l'ACWR déjà calculé pour
+// l'onglet Entraînement (charge TRIMP acute/chronique) pour signaler un
+// contexte de risque -- pas une double contrainte, juste un repère de
+// prudence supplémentaire.
+function simVolumeSafeRange(athleteSessions){
+  const current = volumeWeeklyAverage(athleteSessions, new Date());
+  if(!current.km) return null;
+  const { acute, chronic } = acuteChronicLatest(athleteSessions);
+  const acwrNow = chronic > 0.5 ? acute/chronic : null;
+  const cls = classifyACWR(acwrNow);
+  return {
+    lowKm: current.km*0.9, highKm: current.km*1.1,
+    lowH: current.hours*0.9, highH: current.hours*1.1,
+    currentKm: current.km, currentH: current.hours,
+    acwrKey: cls.key, acwrLabel: cls.label,
+  };
+}
+function simVolumeRangeHtml(range){
+  if(!range) return "";
+  const riskNote = (range.acwrKey==="critical" || range.acwrKey==="serious")
+    ? ` Attention : la charge actuelle de l'athlète est déjà en zone « ${escapeHtml(range.acwrLabel)} » (ACWR) — privilégier le bas de cette fourchette.`
+    : "";
+  return `<div class="ls-panel" style="margin-bottom:14px;">
+    <div class="ls-stat-label" style="margin-bottom:4px;">Fourchette de volume hebdo sûre (règle des 10%)</div>
+    <div class="ls-stat-value">${range.lowKm.toFixed(1)}–${range.highKm.toFixed(1)}<small>km/sem.</small></div>
+    <div class="ls-chart-sub" style="margin-top:4px;">soit environ ${range.lowH.toFixed(1)}–${range.highH.toFixed(1)} h/sem. Actuel : ${range.currentKm.toFixed(1)} km/sem.${riskNote}</div>
+  </div>`;
+}
+function simResultsHtml(effects){
+  if(!effects.length) return '<div class="ls-empty">Choisissez au moins un paramètre à faire varier.</div>';
+  return `<div class="ls-stat-grid">` + effects.map(e=>{
+    if(e.mode==="quantified"){
+      return `<div class="ls-stat"><div class="ls-stat-label">${escapeHtml(e.label)}</div>
+        <div class="ls-stat-value">${simFormatValue(e.key, e.predictedValue)}</div>
+        <small>actuel : ${simFormatValue(e.key, e.currentValue)} · tendance sur ${e.n} observations</small></div>`;
+    }
+    return `<div class="ls-stat" style="grid-column:1 / -1;"><div class="ls-stat-label">${escapeHtml(e.label)}</div>
+      <div class="ls-chart-sub" style="margin-top:4px;">${e.notes.map(n=>escapeHtml(n)).join(" ")}</div></div>`;
+  }).join("") + `</div>`;
+}
+
 /* ---------------------------- theme handling ---------------------------- */
 
 function currentThemeMode(){
@@ -1295,6 +1497,20 @@ function renderMain(){
   const sessions = state.sessions.filter(s=>s.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
   const athleteTests = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
   const twin = digitalTwinParams(athlete.id, sessions, new Date());
+  const simSeriesCache = {};
+  SIM_PARAMS.forEach(p=> simSeriesCache[p.key] = simParamSeries(sessions, athleteTests, p.key));
+  const simCurrentValues = {};
+  SIM_PARAMS.forEach(p=>{ const s = simSeriesCache[p.key]; simCurrentValues[p.key] = s.length ? s[s.length-1].value : null; });
+  const simVolumeRange = simVolumeSafeRange(sessions);
+  const simDefaultKey1 = simCurrentValues.volume!=null ? "volume" : ((SIM_PARAMS.find(p=>simCurrentValues[p.key]!=null)||{key:"volume"}).key);
+  const simDefault1 = simCurrentValues[simDefaultKey1];
+  const simMin1 = simDefault1!=null ? simDefault1*0.7 : 0;
+  const simMax1 = simDefault1!=null ? simDefault1*1.3 : 1;
+  const simStep1 = simDefault1!=null ? Math.max((simMax1-simMin1)/100, 0.01) : 1;
+  const simOptionsHtml = (selectedKey) => SIM_PARAMS.map(p=>{
+    const has = simCurrentValues[p.key]!=null;
+    return `<option value="${p.key}" ${p.key===selectedKey?"selected":""} ${has?"":"disabled"}>${escapeHtml(p.label)}${has?"":" (pas de donnée)"}</option>`;
+  }).join("");
   const zonesTotalTypes = Array.from(new Set(sessions.map(s=>s.type))).sort((a,b)=>a.localeCompare(b,"fr"));
   const { acwr } = acwrSeries(sessions);
   const acuteVal = acuteChronicLatest(sessions).acute;
@@ -1531,6 +1747,27 @@ function renderMain(){
         <div class="ls-stat"><div class="ls-stat-label">Volume hebdo moyen (6 mois)</div><div class="ls-stat-value">${twin.volume.km.toFixed(1)}<small>km/sem.</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Volume hebdo moyen (6 mois)</div><div class="ls-stat-value">${twin.volume.hours.toFixed(1)}<small>h/sem.</small></div></div>
       </div>
+
+      <div class="ls-table-head" style="margin-top:26px;">
+        <h3>Simulateur</h3>
+      </div>
+      <div class="ls-chart-sub" style="margin-bottom:10px;">Déplacez 1 ou 2 paramètres pour estimer leur effet sur les autres et vérifier la fourchette de volume hebdo sûre. Les valeurs chiffrées reposent sur l'historique propre de cet athlète (minimum ${SIM_MIN_PAIRS} observations) ; en dessous, un repère qualitatif général s'affiche à la place.</div>
+      ${simVolumeRangeHtml(simVolumeRange)}
+      <div class="ls-field-row">
+        <div class="ls-field">
+          <label>Paramètre 1</label>
+          <select id="sim-param-1">${simOptionsHtml(simDefaultKey1)}</select>
+          <input type="range" id="sim-slider-1" min="${simMin1}" max="${simMax1}" step="${simStep1}" value="${simDefault1!=null?simDefault1:0}" ${simDefault1==null?"disabled":""}>
+          <div class="ls-chart-sub" id="sim-value-1">${simDefault1!=null? simFormatValue(simDefaultKey1, simDefault1) : "—"}</div>
+        </div>
+        <div class="ls-field">
+          <label>Paramètre 2 (optionnel)</label>
+          <select id="sim-param-2"><option value="none" selected>Aucun</option>${simOptionsHtml("")}</select>
+          <input type="range" id="sim-slider-2" min="0" max="1" step="1" value="0" disabled>
+          <div class="ls-chart-sub" id="sim-value-2"></div>
+        </div>
+      </div>
+      <div id="sim-results"></div>
     </div>
   `;
 
@@ -1597,6 +1834,46 @@ function renderMain(){
   main.querySelectorAll("[data-del-test]").forEach(b=> b.addEventListener("click", ()=> deleteAthleteTest(b.getAttribute("data-del-test"))));
   const addTestBtn = document.getElementById("btn-add-athlete-test");
   if(addTestBtn) addTestBtn.addEventListener("click", ()=> openAthleteTestModal(athlete.id));
+
+  const simSel1 = document.getElementById("sim-param-1");
+  const simSel2 = document.getElementById("sim-param-2");
+  const simSlider1 = document.getElementById("sim-slider-1");
+  const simSlider2 = document.getElementById("sim-slider-2");
+  function simSetupSlider(paramKey, sliderEl, labelEl){
+    if(!sliderEl) return;
+    const cur = simCurrentValues[paramKey];
+    if(cur==null){ sliderEl.disabled = true; if(labelEl) labelEl.textContent = "—"; return; }
+    const min = cur*0.7, max = cur*1.3;
+    sliderEl.min = min; sliderEl.max = max; sliderEl.step = Math.max((max-min)/100, 0.01);
+    sliderEl.value = cur; sliderEl.disabled = false;
+    if(labelEl) labelEl.textContent = simFormatValue(paramKey, cur);
+  }
+  function twinSimUpdate(){
+    if(!simSel1 || !simSlider1) return;
+    const key1 = simSel1.value, key2 = simSel2 ? simSel2.value : "none";
+    const movedKeys = [key1], movedValues = [Number(simSlider1.value)];
+    if(key2 !== "none" && key2 !== key1){ movedKeys.push(key2); movedValues.push(Number(simSlider2.value)); }
+    const label1 = document.getElementById("sim-value-1");
+    if(label1) label1.textContent = simFormatValue(key1, Number(simSlider1.value));
+    const label2 = document.getElementById("sim-value-2");
+    if(label2) label2.textContent = (key2!=="none") ? simFormatValue(key2, Number(simSlider2.value)) : "";
+    const effects = simComputeEffects(simSeriesCache, simCurrentValues, movedKeys, movedValues);
+    const out = document.getElementById("sim-results");
+    if(out) out.innerHTML = simResultsHtml(effects);
+  }
+  if(simSel1 && simSlider1){
+    simSel1.addEventListener("change", e=>{ simSetupSlider(e.target.value, simSlider1, document.getElementById("sim-value-1")); twinSimUpdate(); });
+    simSlider1.addEventListener("input", twinSimUpdate);
+  }
+  if(simSel2 && simSlider2){
+    simSel2.addEventListener("change", e=>{
+      if(e.target.value !== "none") simSetupSlider(e.target.value, simSlider2, document.getElementById("sim-value-2"));
+      else { simSlider2.disabled = true; const lbl2 = document.getElementById("sim-value-2"); if(lbl2) lbl2.textContent = ""; }
+      twinSimUpdate();
+    });
+    simSlider2.addEventListener("input", twinSimUpdate);
+  }
+  twinSimUpdate();
 
   renderActiveTabCharts();
 }
