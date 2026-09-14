@@ -333,6 +333,13 @@ const STRAVA_CLIENT_ID = "277368";
 const STRAVA_REDIRECT_URI = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-callback";
 const COACH_KEY_STORAGE = "loadscope.coachkey";
 const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
+// Espace athlète (client.html) : URL publique de la page et clé publique
+// (anon) du projet Supabase -- utilisées uniquement pour déclencher l'envoi
+// d'un email de lien magique (endpoint /auth/v1/otp), jamais pour lire ou
+// écrire des données (ça reste le rôle exclusif de app-api + x-coach-key).
+const SUPABASE_URL = "https://ibhrdpzcrwofltleylxr.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliaHJkcHpjcndvZmx0bGV5bHhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2Njc1NDMsImV4cCI6MjEwNDI0MzU0M30.L6CRLPdvwSCxQnq9mEX18TdAIroGGLDFc13VgzOnBKY";
+const CLIENT_PORTAL_URL = "https://maximechel.github.io/TrailData/client.html";
 
 let state = null;
 let activeAthleteId = null;
@@ -496,6 +503,35 @@ function buildStravaAuthUrl(athleteId){
     state: athleteId
   });
   return "https://www.strava.com/oauth/authorize?" + params.toString();
+}
+
+// Déclenche l'envoi par Supabase Auth de l'email de connexion (lien magique)
+// à l'adresse renseignée sur la fiche de l'athlète, avec la même URL de
+// redirection que le formulaire de connexion de client.html -- évite au
+// coach de devoir copier/coller le lien de la page et de le transmettre à la
+// main (SMS, etc). Utilise uniquement la clé publique (anon) : aucune
+// authentification requise pour demander un lien de connexion.
+async function sendPortalLink(athlete){
+  if(!athlete.email) return;
+  const btn = document.getElementById("btn-send-portal-link");
+  if(btn) btn.disabled = true;
+  try{
+    const res = await fetch(SUPABASE_URL + "/auth/v1/otp?redirect_to=" + encodeURIComponent(CLIENT_PORTAL_URL), {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "apikey": SUPABASE_ANON_KEY },
+      body: JSON.stringify({ email: athlete.email })
+    });
+    if(!res.ok){
+      let msg = "Erreur (" + res.status + ")";
+      try{ const j = await res.json(); if(j.msg) msg = j.msg; else if(j.error_description) msg = j.error_description; }catch(e){}
+      throw new Error(msg);
+    }
+    showToast("Lien de connexion envoyé à " + athlete.email, "--good");
+  }catch(err){
+    showToast("Envoi impossible : " + err.message, "--critical");
+  }finally{
+    if(btn) btn.disabled = false;
+  }
 }
 
 // À utiliser uniquement quand c'est l'athlète lui-même qui est devant cet écran
@@ -1155,6 +1191,7 @@ function renderMain(){
           ? `<span class="ls-strava-pill" title="Séances importées automatiquement depuis Strava">● Strava connecté</span>`
           : `<button class="ls-btn small ghost" id="btn-copy-strava-link" title="À envoyer à l'athlète : il l'ouvre sur son propre appareil, connecté à son propre compte Strava">Copier le lien Strava</button>
              <button class="ls-btn small strava" id="btn-connect-strava" title="À utiliser seulement si c'est ${escapeHtml(athlete.name)} qui est devant cet écran">Connecter ici</button>`}
+        ${athlete.email ? `<button class="ls-btn small ghost" id="btn-send-portal-link" title="Envoie un email de connexion (lien magique) à ${escapeHtml(athlete.email)}">Envoyer le lien de connexion</button>` : ""}
         <button class="ls-btn small ghost" id="btn-intensity-table">Table d'intensité</button>
         <button class="ls-btn small" id="btn-edit-athlete">Modifier</button>
         <button class="ls-btn small" id="btn-add-session">+ Séance</button>
@@ -1352,6 +1389,8 @@ function renderMain(){
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
   if(stravaCopyBtn) stravaCopyBtn.addEventListener("click", ()=>copyStravaLink(athlete.id));
+  const sendPortalLinkBtn = document.getElementById("btn-send-portal-link");
+  if(sendPortalLinkBtn) sendPortalLinkBtn.addEventListener("click", ()=>sendPortalLink(athlete));
   document.getElementById("btn-intensity-table").addEventListener("click", ()=>openIntensityModal(athlete));
   const zonesTotalSelect = document.getElementById("zones-total-activity");
   if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
