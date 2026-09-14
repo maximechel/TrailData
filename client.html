@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mon espace – DATAS Trail running</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#f9f9f7; --surface:#fcfcfb; --surface-2:#f3f2ee;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --accent-ink:#ffffff;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --good-ink:#ffffff; --warning-ink:#2b1c00; --serious-ink:#341000; --critical-ink:#ffffff;
+    --cat-1:#2a78d6; --cat-2:#eb6834; --cat-3:#1baf7a; --cat-4:#eda100;
+    --cat-5:#e87ba4; --cat-6:#008300; --cat-7:#4a3aa7; --cat-8:#e34948;
+    --z1:#5598e7; --z2:#1baf7a; --z3:#eda100; --z4:#eb6834; --z5:#d03b3b; --z6:#4a3aa7; --z7:#e87ba4;
+    --font-ui:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,"SFMono-Regular",Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#222220;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5;
+      --cat-1:#3987e5; --cat-2:#d95926; --cat-3:#199e70; --cat-4:#c98500;
+      --cat-5:#d55181; --cat-6:#008300; --cat-7:#9085e9; --cat-8:#e66767;
+      --z6:#9085e9; --z7:#d55181;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#222220;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --accent:#3987e5;
+    --cat-1:#3987e5; --cat-2:#d95926; --cat-3:#199e70; --cat-4:#c98500;
+    --cat-5:#d55181; --cat-6:#008300; --cat-7:#9085e9; --cat-8:#e66767;
+    --z6:#9085e9; --z7:#d55181;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text-primary);font-family:var(--font-ui);}
+  .ls-app{max-width:1320px;margin:0 auto;padding:20px 24px 64px;}
+
+  .ls-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 4px 20px;flex-wrap:wrap;}
+  .ls-brand{display:flex;align-items:baseline;gap:10px;}
+  .ls-brand h1{font-size:22px;font-weight:800;letter-spacing:-0.02em;margin:0;}
+  .ls-brand span{color:var(--text-muted);font-size:13px;}
+  .ls-header-actions{display:flex;align-items:center;gap:8px;}
+  .ls-btn{font-family:var(--font-ui);font-size:13px;font-weight:600;border-radius:8px;padding:8px 14px;
+    border:1px solid var(--border);background:var(--surface);color:var(--text-primary);cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+  .ls-btn:hover{background:var(--surface-2);}
+  .ls-btn.primary{background:var(--accent);color:#fff;border-color:transparent;}
+  .ls-btn.primary:hover{filter:brightness(1.08);}
+  .ls-btn.ghost{background:transparent;}
+  .ls-btn.small{padding:5px 10px;font-size:12px;}
+  .ls-btn[disabled]{opacity:.6;cursor:default;pointer-events:none;}
+  .ls-tabbar{display:flex;gap:18px;margin-bottom:18px;border-bottom:1px solid var(--border);}
+  .ls-tab-btn{font-family:var(--font-ui);font-size:13px;font-weight:700;background:transparent;border:none;border-bottom:2px solid transparent;padding:10px 2px;color:var(--text-muted);cursor:pointer;}
+  .ls-tab-btn:hover{color:var(--text-primary);}
+  .ls-tab-btn.active{color:var(--text-primary);border-bottom-color:var(--accent);}
+
+  .ls-panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;}
+  .ls-empty{padding:60px 20px;text-align:center;color:var(--text-muted);}
+  .ls-athlete-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+  .ls-athlete-title{display:flex;align-items:center;gap:12px;}
+  .ls-avatar{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:800;font-size:16px;flex:none;}
+  .ls-athlete-title h2{font-size:20px;font-weight:800;margin:0;letter-spacing:-0.01em;}
+  .ls-athlete-title .ls-athlete-sub{font-size:12.5px;margin-top:2px;}
+
+  .ls-stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+  @media (max-width: 1100px){ .ls-stat-grid{grid-template-columns:repeat(3,1fr);} }
+  @media (max-width: 620px){ .ls-stat-grid{grid-template-columns:repeat(2,1fr);} }
+  .ls-stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;}
+  .ls-stat-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:6px;}
+  .ls-stat-value{font-family:var(--font-mono);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;}
+  .ls-stat-value small{font-family:var(--font-ui);font-size:11px;color:var(--text-muted);font-weight:600;margin-left:2px;}
+  .ls-status-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;font-family:var(--font-mono);}
+
+  .ls-insight{display:flex;gap:10px;align-items:flex-start;border-radius:12px;padding:12px 14px;margin-bottom:18px;
+    border-left:4px solid var(--accent);background:var(--surface);border-top:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);}
+  .ls-insight p{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary);}
+
+  .ls-period-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;border-radius:12px;padding:12px 14px;margin-bottom:18px;
+    background:var(--surface);border:1px solid var(--border);}
+  .ls-period-bar .ls-field{margin:0;width:150px;}
+  .ls-period-bar .ls-field label{font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.02em;}
+  .ls-period-bar .ls-period-arrow{color:var(--text-muted);font-size:14px;padding-bottom:9px;}
+  .ls-period-note{flex:1 1 240px;font-size:11.5px;color:var(--text-muted);line-height:1.5;padding-bottom:2px;}
+  .ls-period-arrow{color:var(--text-muted);font-size:14px;padding-bottom:9px;}
+
+  .ls-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;}
+  @media (max-width: 980px){ .ls-charts{grid-template-columns:1fr;} }
+  .ls-chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px 8px;}
+  .ls-chart-card.full{grid-column:1 / -1;}
+  .ls-chart-card h3{font-size:13px;font-weight:700;margin:0 0 2px;}
+  .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
+  .ls-chart-wrap{position:relative;height:220px;}
+  .ls-chart-wrap.tall{height:260px;}
+  .ls-chart-wrap.radar{height:340px;max-width:440px;margin:0 auto;}
+  .ls-chart-wrap.donut{height:400px;max-width:760px;margin:0 auto;}
+  .ls-subchart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width: 760px){ .ls-subchart-grid{grid-template-columns:1fr;} }
+  .ls-subchart-label{font-size:11.5px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;}
+  .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:center;}
+
+  .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
+  .ls-table-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
+  .ls-table-head h3{font-size:13px;font-weight:700;margin:0;}
+  .ls-table-scroll{overflow-x:auto;max-height:360px;overflow-y:auto;border-radius:10px;}
+  table.ls-log{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
+  table.ls-log th{position:sticky;top:0;background:var(--surface);text-align:left;font-size:11px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--text-muted);padding:8px 10px;border-bottom:1px solid var(--grid);font-weight:700;}
+  table.ls-log td{padding:8px 10px;border-bottom:1px solid var(--grid);color:var(--text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums;}
+  table.ls-log td.ls-num{font-family:var(--font-mono);}
+  table.ls-log tr:last-child td{border-bottom:none;}
+  table.ls-log select.ls-technicity-select{font-family:var(--font-ui);font-size:12px;padding:4px 6px;border-radius:6px;
+    border:1px solid var(--border);background:var(--bg);color:var(--text-primary);}
+
+  .ls-field{margin-bottom:12px;}
+  .ls-field label{display:block;font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:5px;}
+  .ls-field input, .ls-field select{width:100%;font-family:var(--font-ui);font-size:13.5px;padding:8px 10px;border-radius:8px;
+    border:1px solid var(--border);background:var(--bg);color:var(--text-primary);}
+  .ls-field input:focus, .ls-field select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+
+  .ls-footer{margin-top:28px;text-align:center;font-size:11.5px;color:var(--text-muted);}
+  [hidden]{display:none!important;}
+
+  .ls-toast{display:flex;align-items:flex-start;gap:10px;border-radius:12px;padding:11px 14px;margin-bottom:16px;
+    border:1px solid var(--border);background:var(--surface);border-left:4px solid var(--accent);font-size:13px;color:var(--text-secondary);}
+  .ls-toast button{margin-left:auto;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:13px;padding:0 2px;flex:none;}
+
+  .ls-source-tag{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:999px;font-family:var(--font-mono);}
+  .ls-source-tag.manual{background:var(--surface-2);color:var(--text-muted);}
+  .ls-source-tag.strava{background:#fc4c0222;color:#fc4c02;}
+
+  .ls-login-card{max-width:420px;margin:60px auto;}
+  .ls-login-card h2{margin-top:0;font-size:18px;}
+  .ls-login-card p{font-size:13px;color:var(--text-secondary);line-height:1.5;}
+  .ls-login-status{margin-top:10px;font-size:12.5px;line-height:1.5;}
+  .ls-login-status.error{color:var(--critical);}
+  .ls-login-status.ok{color:var(--good);}
+</style>
+</head>
+<body>
+<div class="ls-app">
+  <header class="ls-header">
+    <div class="ls-brand">
+      <h1>DATAS Trail running</h1>
+      <span>Mon espace</span>
+    </div>
+    <div class="ls-header-actions">
+      <button class="ls-btn ghost small" id="btn-theme" type="button">Thème : Automatique</button>
+      <button class="ls-btn small ghost" id="btn-logout" type="button" hidden>Se déconnecter</button>
+    </div>
+  </header>
+
+  <div id="toast-root"></div>
+
+  <div id="login-screen" class="ls-panel ls-login-card">
+    <h2>Connexion</h2>
+    <p>Entre l'adresse email que ton coach a enregistrée pour toi. Tu recevras un lien de connexion par email, valable quelques minutes — pas besoin de mot de passe.</p>
+    <div class="ls-field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="toi@exemple.fr" autocomplete="email">
+    </div>
+    <button class="ls-btn primary" id="btn-send-link" type="button" style="width:100%;justify-content:center;">Recevoir mon lien de connexion</button>
+    <div id="login-status" class="ls-login-status"></div>
+  </div>
+
+  <main id="main-panel" hidden></main>
+
+  <div class="ls-footer">DATAS Trail running — espace athlète. Les données affichées sont celles suivies par ton coach, synchronisées depuis Strava.</div>
+</div>
+
+<script src="chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* =========================================================================
+   DATAS Trail running — espace athlète (client.html)
+   Page indépendante d'index.html (espace coach), mais qui reprend à
+   l'identique les fonctions de calcul et de graphiques pures (aucune copie
+   d'écran n'a de valeur si les chiffres divergent de l'espace coach — voir
+   commentaires d'origine dans index.html pour le détail des formules).
+   Différences volontaires par rapport à l'espace coach :
+   - un seul athlète (le compte connecté), jamais de liste à choisir ;
+   - lecture seule sur tout, sauf la technicité du terrain par séance
+     (montée / descente / plat), éditable directement dans le tableau du
+     rapport environnemental ;
+   - authentification par lien magique (Supabase Auth) au lieu de la clé
+     coach partagée — les données sont lues/écrites directement via
+     supabase-js, filtrées côté serveur par les policies RLS scopées à
+     athletes.user_id = auth.uid() (voir migration add_athlete_portal_auth).
+   ========================================================================= */
+
+const SUPABASE_URL = "https://ibhrdpzcrwofltleylxr.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliaHJkcHpjcndvZmx0bGV5bHhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2Njc1NDMsImV4cCI6MjEwNDI0MzU0M30.L6CRLPdvwSCxQnq9mEX18TdAIroGGLDFc13VgzOnBKY";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const CAT_HUES = ["--cat-1","--cat-2","--cat-3","--cat-4","--cat-5","--cat-6","--cat-7","--cat-8"];
+const VOLUME_CATEGORIES = [
+  { key:"velo", label:"Vélo", colorVar:"--cat-1" },
+  { key:"course", label:"Course à pied", colorVar:"--cat-2" },
+  { key:"muscu", label:"Musculation", colorVar:"--cat-3" },
+  { key:"ski", label:"Ski", colorVar:"--cat-4" },
+  { key:"autres", label:"Autres", colorVar:"--text-muted" }
+];
+function volumeCategoryOf(type){
+  if(type === "Cyclisme") return "velo";
+  if(type === "Course à pied" || type === "Trail") return "course";
+  if(type === "Musculation") return "muscu";
+  if(type === "Ski de fond") return "ski";
+  return "autres";
+}
+const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
+const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)","Plat / roulant (±4%)","Montée modérée (4-10%)","Montée soutenue (10-18%)","Montée forte (>18%)"];
+const MATRIX_BRANCHES = ["Endurance","Montée","Descente","Vitesse","Résilience","Physiologie"];
+const MATRIX_WINDOW_WEEKS = 6;
+const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
+
+const TECHNICITY_LEVELS = [
+  { value:"roulant", label:"Roulant" },
+  { value:"normal", label:"Normal" },
+  { value:"technique", label:"Technique" },
+  { value:"tres_technique", label:"Très technique" },
+];
+const TECHNICITY_COEFFICIENTS = { roulant:1.00, normal:1.10, technique:1.25, tres_technique:1.50 };
+function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
+function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
+function defaultIntensityZones(){
+  return [
+    { name:"Échauffement", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Endurance fondamentale (Seuil 1)", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Tempo", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Seuil 2", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"VO2max", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Capacité anaérobie", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
+    { name:"Puissance anaérobie", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null }
+  ];
+}
+function intensityZonesOf(athlete){
+  const zones = Array.isArray(athlete && athlete.intensityZones) ? athlete.intensityZones : null;
+  if(!zones || zones.length !== 7) return defaultIntensityZones();
+  return zones;
+}
+function paceZoneLabel(athleteObj, i){
+  const zones = intensityZonesOf(athleteObj);
+  return (zones[i] && zones[i].name) || defaultIntensityZones()[i].name;
+}
+
+let athlete = null;
+let sessions = [];
+let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
+let chartPeriod = null;
+let zonesTotalActivityFilter = "all";
+let terrainCompareA = null;
+let terrainCompareB = null;
+let activeTab = "training";
+
+function fmtDate(d){ return d.toISOString().slice(0,10); }
+function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
+function fmtHoursMinutes(totalMinutes){
+  const m = Math.max(0, Math.round(totalMinutes||0));
+  return Math.floor(m/60) + "h" + String(m%60).padStart(2,"0") + "min";
+}
+function defaultChartPeriod(){
+  const end = new Date();
+  const start = new Date(end); start.setMonth(start.getMonth()-6);
+  return { start: fmtDate(start), end: fmtDate(end) };
+}
+function ensureChartPeriod(){ if(!chartPeriod) chartPeriod = defaultChartPeriod(); return chartPeriod; }
+function ensureTerrainComparePeriods(periodStartStr, periodEndStr, weeks){
+  if(!terrainCompareA){
+    const end = new Date(periodStartStr+"T00:00:00");
+    const start = new Date(end); start.setDate(start.getDate() - weeks*7);
+    terrainCompareA = { start: fmtDate(start), end: periodStartStr };
+  }
+  if(!terrainCompareB){
+    const end = new Date(periodEndStr+"T00:00:00");
+    const start = new Date(end); start.setDate(start.getDate() - weeks*7);
+    terrainCompareB = { start: fmtDate(start), end: periodEndStr };
+  }
+}
+
+function showToast(text, cssVarName){
+  const root = document.getElementById("toast-root");
+  if(!root) return;
+  root.innerHTML = `<div class="ls-toast" style="border-left-color:var(${cssVarName||"--accent"})">
+    <span>${escapeHtml(text)}</span>
+    <button type="button" id="toast-close" aria-label="Fermer">✕</button>
+  </div>`;
+  const close = document.getElementById("toast-close");
+  if(close) close.addEventListener("click", ()=>{ root.innerHTML = ""; });
+}
+
+/* ---------------------------- snake_case -> camelCase ---------------------------- */
+
+function athleteFromApi(a){
+  return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
+    stravaAthleteId: a.strava_athlete_id, heightCm: a.height_cm, weightKg: a.weight_kg!=null? Number(a.weight_kg): null,
+    birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null };
+}
+function ageFromBirthDate(dateStr){
+  if(!dateStr) return null;
+  const b = new Date(dateStr + "T00:00:00");
+  if(isNaN(b)) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if(m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
+  return age;
+}
+function sessionFromApi(s){
+  return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
+    distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
+    paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
+    gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
+    gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
+    gapPeak30s: s.gap_peak_30s!=null ? Number(s.gap_peak_30s) : null,
+    envTempC: s.env_temp_c!=null ? Number(s.env_temp_c) : null,
+    envHumidityPct: s.env_humidity_pct!=null ? Number(s.env_humidity_pct) : null,
+    envMeanAltitudeM: s.env_mean_altitude_m!=null ? Number(s.env_mean_altitude_m) : null,
+    envWindMs: s.env_wind_ms!=null ? Number(s.env_wind_ms) : null,
+    envWbgtC: s.env_wbgt_c!=null ? Number(s.env_wbgt_c) : null,
+    envHeatFactor: s.env_heat_factor!=null ? Number(s.env_heat_factor) : null,
+    envAltitudeFactor: s.env_altitude_factor!=null ? Number(s.env_altitude_factor) : null,
+    envWindFactor: s.env_wind_factor!=null ? Number(s.env_wind_factor) : null,
+    envCombinedFactor: s.env_combined_factor!=null ? Number(s.env_combined_factor) : null,
+    envAdjustedDuration: s.env_adjusted_duration!=null ? Number(s.env_adjusted_duration) : null,
+    envGradeTimeShares: Array.isArray(s.env_grade_time_shares) ? s.env_grade_time_shares : null,
+    technicityClimb: s.technicity_climb || "roulant",
+    technicityDescent: s.technicity_descent || "roulant",
+    technicityFlat: s.technicity_flat || "roulant",
+    rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
+}
+
+/* ---------------------------- domain calculations (identiques à index.html) ---------------------------- */
+
+function trimp(session){
+  const z = session.zones;
+  return z[0]*1 + z[1]*2 + z[2]*3 + z[3]*4 + z[4]*5;
+}
+function dailySeries(sessionsArr){
+  const map = {};
+  sessionsArr.forEach(s => { map[s.date] = (map[s.date]||0) + trimp(s); });
+  return map;
+}
+function dateRangeDays(startISO, endISO){
+  const out = [];
+  let d = new Date(startISO);
+  const end = new Date(endISO);
+  while(d <= end){ out.push(fmtDate(d)); d.setDate(d.getDate()+1); }
+  return out;
+}
+function rollingAvg(orderedDates, map, index, window){
+  let sum = 0, n = 0;
+  for(let k = index; k > index - window && k >= 0; k--){
+    sum += map[orderedDates[k]] || 0; n++;
+  }
+  return n ? sum / window : 0;
+}
+function acwrSeries(sessionsArr){
+  if(sessionsArr.length === 0) return { dates:[], acute:[], chronic:[], acwr:[] };
+  const map = dailySeries(sessionsArr);
+  const sorted = sessionsArr.map(s=>s.date).sort();
+  const start = sorted[0];
+  const end = fmtDate(new Date());
+  const dates = dateRangeDays(start, end);
+  const acute = [], chronic = [], acwr = [];
+  dates.forEach((d, i) => {
+    const a = rollingAvg(dates, map, i, 7);
+    const c = rollingAvg(dates, map, i, 28);
+    acute.push(a); chronic.push(c);
+    acwr.push(c > 0.5 && i >= 13 ? a/c : null);
+  });
+  return { dates, acute, chronic, acwr };
+}
+function classifyACWR(v){
+  if(v == null || !isFinite(v)) return { key:"none", label:"Pas assez d'historique", css:"--text-muted" };
+  if(v < 0.8) return { key:"warning", label:"Sous-charge" };
+  if(v <= 1.3) return { key:"good", label:"Zone optimale" };
+  if(v <= 1.5) return { key:"serious", label:"Prudence" };
+  return { key:"critical", label:"Risque élevé" };
+}
+function isoMonday(dateStr){
+  const d = new Date(dateStr);
+  const day = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - day);
+  return fmtDate(d);
+}
+function weeklyAggregates(sessionsArr, startISO, endISO){
+  const byWeek = {};
+  sessionsArr.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const wk = isoMonday(s.date);
+    if(!byWeek[wk]) byWeek[wk] = { week: wk, km:0, dPlus:0, dMinus:0, zones:[0,0,0,0,0], paceZones:[0,0,0,0,0,0,0], hasPaceData:false, count:0 };
+    const b = byWeek[wk];
+    b.km += s.distance; b.dPlus += s.dPlus; b.dMinus += s.dMinus; b.count++;
+    s.zones.forEach((m,i)=> b.zones[i]+=m);
+    if(Array.isArray(s.paceZones)){ b.hasPaceData = true; s.paceZones.forEach((m,i)=> b.paceZones[i]+=m); }
+  });
+  return Object.values(byWeek).sort((a,b)=> a.week < b.week ? -1 : 1);
+}
+function weeklyKmByCategory(sessionsArr, startISO, endISO){
+  const byWeek = {};
+  sessionsArr.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const wk = isoMonday(s.date);
+    if(!byWeek[wk]) byWeek[wk] = {};
+    const cat = volumeCategoryOf(s.type);
+    byWeek[wk][cat] = (byWeek[wk][cat]||0) + s.distance;
+  });
+  return byWeek;
+}
+function weeklyElevationByCategory(sessionsArr, startISO, endISO){
+  const byWeek = {};
+  sessionsArr.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const wk = isoMonday(s.date);
+    if(!byWeek[wk]) byWeek[wk] = {};
+    const cat = volumeCategoryOf(s.type);
+    if(!byWeek[wk][cat]) byWeek[wk][cat] = { dPlus:0, dMinus:0 };
+    byWeek[wk][cat].dPlus += (s.dPlus||0);
+    byWeek[wk][cat].dMinus += (s.dMinus||0);
+  });
+  return byWeek;
+}
+function gapZoneAverage(sessionsArr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
+  sessionsArr.forEach(s=>{
+    if(!Array.isArray(s.gapByHrZone)) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+function peakGapAverage(sessionsArr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  let sum = 0, count = 0;
+  sessionsArr.forEach(s=>{
+    if(s.gapPeak30s == null) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    sum += s.gapPeak30s; count++;
+  });
+  return count > 0 ? Math.round((sum/count)*10)/10 : null;
+}
+
+/* ---------------------------- Rapport environnemental ---------------------------- */
+
+function envSeverity(f){
+  if(f == null) return { key:"none", label:"—" };
+  if(f < 0.08) return { key:"good", label:"Faible" };
+  if(f < 0.18) return { key:"warning", label:"Modéré" };
+  if(f < 0.30) return { key:"serious", label:"Marqué" };
+  return { key:"critical", label:"Fort" };
+}
+function envTerrainFactor(s){
+  if(!Array.isArray(s.envGradeTimeShares)) return null;
+  const cDescent = technicityCoef(s.technicityDescent);
+  const cFlat = technicityCoef(s.technicityFlat);
+  const cClimb = technicityCoef(s.technicityClimb);
+  const bucketCoef = [cDescent, cDescent, cFlat, cClimb, cClimb, cClimb];
+  const weighted = s.envGradeTimeShares.reduce((sum, share, i) => sum + share*bucketCoef[i], 0);
+  return weighted - 1;
+}
+function envCombinedWithTerrain(s){
+  if(s.envCombinedFactor == null) return null;
+  const terrain = envTerrainFactor(s);
+  if(terrain == null) return s.envCombinedFactor;
+  return (1+s.envCombinedFactor)*(1+terrain) - 1;
+}
+function envAdjustedDurationWithTerrain(s){
+  if(s.duration == null) return s.envAdjustedDuration;
+  const combined = envCombinedWithTerrain(s);
+  if(combined == null) return s.envAdjustedDuration;
+  return s.duration/(1+combined);
+}
+function envSummaryFor(sessionsArr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  const eligible = sessionsArr.filter(s=>{
+    if(s.envCombinedFactor == null) return false;
+    const d = new Date(s.date+"T00:00:00");
+    return !isNaN(d) && d >= start && d <= endDate;
+  });
+  if(eligible.length === 0) return { count:0 };
+  const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
+  const combined = eligible.map(envCombinedWithTerrain);
+  return {
+    count: eligible.length,
+    avgTemp: avg(eligible.map(s=>s.envTempC)),
+    avgCombined: avg(combined),
+    markedCount: combined.filter(v=>v >= 0.18).length,
+  };
+}
+function envFmtPct(f){ return f==null ? "—" : (f>=0?"+":"") + Math.round(f*100) + "%"; }
+function envFmtNum(v, unit, digits){ return v==null ? "—" : v.toFixed(digits!=null?digits:0) + unit; }
+
+// Sélecteur de technicité éditable, inséré dans la ligne d'une séance du
+// rapport environnemental — seul champ modifiable par l'athlète dans tout
+// l'espace. field est "climb" | "descent" | "flat".
+function technicitySelectHtml(s, field){
+  const current = field==="climb" ? s.technicityClimb : field==="descent" ? s.technicityDescent : s.technicityFlat;
+  const options = TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${t.value===current?"selected":""}>${t.label}</option>`).join("");
+  return `<select class="ls-technicity-select" data-technicity-session="${s.id}" data-technicity-field="${field}">${options}</select>`;
+}
+function envRowHtml(s){
+  const combined = envCombinedWithTerrain(s);
+  const adjustedDuration = envAdjustedDurationWithTerrain(s);
+  const sev = envSeverity(combined);
+  return `<tr>
+    <td>${fmtDateFr(s.date)}</td>
+    <td>${escapeHtml(s.type)}</td>
+    <td>${fmtHoursMinutes(s.duration)}</td>
+    <td>${adjustedDuration!=null ? fmtHoursMinutes(adjustedDuration) : "—"}</td>
+    <td>${envFmtNum(s.envTempC,"°C",1)}</td>
+    <td>${envFmtNum(s.envHumidityPct,"%",0)}</td>
+    <td>${envFmtNum(s.envMeanAltitudeM,"m",0)}</td>
+    <td>${envFmtNum(s.envWindMs,"m/s",1)}</td>
+    <td>${envFmtPct(s.envHeatFactor)}</td>
+    <td>${envFmtPct(s.envAltitudeFactor)}</td>
+    <td>${envFmtPct(s.envWindFactor)}</td>
+    <td>${technicitySelectHtml(s,"climb")}</td>
+    <td>${technicitySelectHtml(s,"descent")}</td>
+    <td>${technicitySelectHtml(s,"flat")}</td>
+    <td>${envFmtPct(envTerrainFactor(s))}</td>
+    <td><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${envFmtPct(combined)}</span></td>
+  </tr>`;
+}
+function gapZoneAverageOf(sessionsSubset){
+  const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
+  sessionsSubset.forEach(s=>{
+    if(!Array.isArray(s.gapByHrZone)) return;
+    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+function monthsBetween(periodStart, periodEnd){
+  const months = [];
+  const cur = new Date(periodStart.getFullYear(), periodStart.getMonth(), 1);
+  const last = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), 1);
+  while(cur <= last){
+    months.push({ year: cur.getFullYear(), month: cur.getMonth() });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return months;
+}
+function monthLabelFr(year, month){
+  const label = new Date(year, month, 1).toLocaleDateString("fr-FR", { month:"long", year:"numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+function hexToRgb(hex){
+  hex = hex.replace("#","");
+  if(hex.length === 3) hex = hex.split("").map(c=>c+c).join("");
+  const num = parseInt(hex, 16);
+  return [(num>>16)&255, (num>>8)&255, num&255];
+}
+function mixHexColors(hexA, hexB, t){
+  const a = hexToRgb(hexA), b = hexToRgb(hexB);
+  const mix = a.map((v,i)=> Math.round(v + (b[i]-v)*t));
+  return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
+}
+function gapGradeAverage(sessionsArr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  return gapGradeAverageInRange(sessionsArr, start, endDate);
+}
+function gapGradeAverageInRange(sessionsArr, startDate, endDate){
+  const sums = [0,0,0,0,0,0], counts = [0,0,0,0,0,0];
+  sessionsArr.forEach(s=>{
+    if(!Array.isArray(s.gapByGrade)) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < startDate || d > endDate) return;
+    const cDescent = technicityCoef(s.technicityDescent);
+    const cFlat = technicityCoef(s.technicityFlat);
+    const cClimb = technicityCoef(s.technicityClimb);
+    const bucketCoef = [cDescent, cDescent, cFlat, cClimb, cClimb, cClimb];
+    s.gapByGrade.forEach((v,i)=>{ if(v!=null){ sums[i]+=v*bucketCoef[i]; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+
+/* ---------------------------- Runner Matrix ---------------------------- */
+
+function seriesValueAt(dates, arr, endDate){
+  const endStr = fmtDate(endDate);
+  let idx = -1;
+  for(let i=0;i<dates.length;i++){ if(dates[i] <= endStr) idx = i; else break; }
+  return idx >= 0 ? arr[idx] : null;
+}
+function avgIgnoreNull(arr){
+  const v = arr.filter(x=>x!=null);
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
+}
+function resilienceRatioAt(dates, acwr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  let total = 0, safe = 0;
+  dates.forEach((dStr, i) => {
+    const d = new Date(dStr+"T00:00:00");
+    if(d < start || d > endDate) return;
+    const v = acwr[i];
+    if(v == null) return;
+    total++;
+    if(v >= 0.8 && v < 1.5) safe++;
+  });
+  return total > 0 ? Math.round((safe/total)*1000)/10 : null;
+}
+function periodWeeksBetween(startDate, endDate){
+  return Math.max(1, Math.round((endDate - startDate) / (7*86400000)));
+}
+function comparisonWindowWeeksFor(startDate, endDate){
+  return Math.max(1, Math.min(MATRIX_WINDOW_WEEKS, Math.floor(periodWeeksBetween(startDate, endDate)/2)));
+}
+function matrixRawValuesAt(sessionsArr, dates, chronic, acwr, endDate, windowWeeks){
+  windowWeeks = windowWeeks || MATRIX_WINDOW_WEEKS;
+  const gapZ = gapZoneAverage(sessionsArr, endDate, windowWeeks);
+  const gapG = gapGradeAverage(sessionsArr, endDate, windowWeeks);
+  return [
+    seriesValueAt(dates, chronic, endDate),
+    avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),
+    avgIgnoreNull([gapG[0], gapG[1]]),
+    peakGapAverage(sessionsArr, endDate, windowWeeks),
+    resilienceRatioAt(dates, acwr, endDate, windowWeeks*2),
+    avgIgnoreNull(gapZ),
+  ];
+}
+function buildMatrixHistories(sessionsArr, dates, chronic, acwr, windowWeeks){
+  if(!sessionsArr.length) return MATRIX_BRANCHES.map(()=>[]);
+  const firstDate = new Date(sessionsArr.map(s=>s.date).sort()[0]+"T00:00:00");
+  const today = new Date();
+  const histories = MATRIX_BRANCHES.map(()=>[]);
+  for(let d = new Date(firstDate); d <= today; d.setDate(d.getDate()+7)){
+    const values = matrixRawValuesAt(sessionsArr, dates, chronic, acwr, new Date(d), windowWeeks);
+    values.forEach((v,i)=>{ if(v!=null) histories[i].push(v); });
+  }
+  return histories;
+}
+function scoreFromHistory(history, value){
+  if(value == null || history.length < 6) return null;
+  const min = Math.min(...history), max = Math.max(...history);
+  if(max - min < 1e-9) return 50;
+  return Math.round(Math.max(0, Math.min(100, (value-min)/(max-min)*100)));
+}
+function matrixScoresAt(sessionsArr, dates, chronic, acwr, endDate, histories, windowWeeks){
+  const raw = matrixRawValuesAt(sessionsArr, dates, chronic, acwr, endDate, windowWeeks);
+  return raw.map((v,i)=> scoreFromHistory(histories[i], v));
+}
+function sum7(sessionsArr){
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6);
+  const cutoffStr = fmtDate(cutoff);
+  return sessionsArr.filter(s=>s.date >= cutoffStr).reduce((acc,s)=>{
+    acc.km += s.distance; acc.dPlus += s.dPlus; acc.dMinus += s.dMinus; return acc;
+  }, {km:0, dPlus:0, dMinus:0});
+}
+
+/* ---------------------------- thème ---------------------------- */
+
+function currentThemeMode(){
+  return localStorage.getItem("loadscope-theme") || "system";
+}
+function applyTheme(mode){
+  const root = document.documentElement;
+  if(mode === "light") root.setAttribute("data-theme","light");
+  else if(mode === "dark") root.setAttribute("data-theme","dark");
+  else root.removeAttribute("data-theme");
+  localStorage.setItem("loadscope-theme", mode);
+  const labels = { system:"Automatique", light:"Clair", dark:"Sombre" };
+  const btn = document.getElementById("btn-theme");
+  if(btn) btn.textContent = "Thème : " + labels[mode];
+  renderActiveTabCharts();
+}
+function cycleTheme(){
+  const order = ["system","light","dark"];
+  const next = order[(order.indexOf(currentThemeMode())+1) % order.length];
+  applyTheme(next);
+}
+function cssVar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function isDarkNow(){
+  const mode = currentThemeMode();
+  if(mode === "dark") return true;
+  if(mode === "light") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function athleteColor(a){ return cssVar(CAT_HUES[(a.colorIndex||0) % CAT_HUES.length]); }
+function initials(name){ return name.split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase(); }
+function statusVar(key){
+  return { good:"--good", warning:"--warning", serious:"--serious", critical:"--critical", none:"--text-muted" }[key] || "--text-muted";
+}
+function statusInk(key){
+  return { good:"var(--good-ink)", warning:"var(--warning-ink)", serious:"var(--serious-ink)", critical:"var(--critical-ink)", none:"var(--bg)" }[key] || "#fff";
+}
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function athleteMetaLine(a){
+  const bits = [escapeHtml(a.sport)];
+  const age = ageFromBirthDate(a.birthDate);
+  if(age != null) bits.push(age + " ans");
+  if(a.maxHR) bits.push("FC max " + a.maxHR + " bpm");
+  if(a.heightCm) bits.push(a.heightCm + " cm");
+  if(a.weightKg) bits.push(a.weightKg + " kg");
+  return bits.join(" · ");
+}
+
+/* ---------------------------- rendu principal ---------------------------- */
+
+function rowHtml(s){
+  const isStrava = s.source === "strava";
+  return `<tr>
+    <td>${s.date}</td>
+    <td>${escapeHtml(s.type)}</td>
+    <td class="ls-num">${s.duration} min</td>
+    <td class="ls-num">${s.distance.toFixed(1)} km</td>
+    <td class="ls-num">${s.dPlus} m</td>
+    <td class="ls-num">${s.dMinus} m</td>
+    <td class="ls-num">${trimp(s).toFixed(0)}</td>
+    <td class="ls-num">${s.rpe ?? "—"}</td>
+    <td><span class="ls-source-tag ${isStrava?"strava":"manual"}">${isStrava?"Strava":"Manuel"}</span></td>
+  </tr>`;
+}
+function acuteChronicLatest(sessionsArr){
+  const { acute, chronic } = acwrSeries(sessionsArr);
+  return { acute: acute.length? acute[acute.length-1]:0, chronic: chronic.length? chronic[chronic.length-1]:0 };
+}
+function buildInsight(sessionsArr, lastACWR, cls){
+  if(sessionsArr.length < 5) return "Historique encore limité : l'ACWR se stabilise après environ 4 semaines de données.";
+  if(cls.key === "none" || lastACWR == null) return "Pas encore assez d'historique pour calculer un ACWR fiable.";
+  const { acute } = acwrSeries(sessionsArr);
+  const trend = acute.length >= 8 ? acute[acute.length-1] - acute[acute.length-8] : 0;
+  const trendPct = acute[acute.length-8] > 0 ? (trend/acute[acute.length-8]*100) : 0;
+  const trendTxt = trendPct > 15 ? `en hausse de ${trendPct.toFixed(0)}% sur 7 jours` : trendPct < -15 ? `en baisse de ${Math.abs(trendPct).toFixed(0)}% sur 7 jours` : "stable sur 7 jours";
+  const msgs = {
+    critical: `ACWR à ${lastACWR.toFixed(2)}, risque élevé. Charge ${trendTxt} — une hausse aussi rapide est associée à un risque accru de blessure. Envisage d'en parler à ton coach.`,
+    serious: `ACWR à ${lastACWR.toFixed(2)}, zone de prudence. Charge ${trendTxt}. Surveille ta récupération avant d'augmenter encore le volume.`,
+    good: `ACWR à ${lastACWR.toFixed(2)}, zone optimale. Charge ${trendTxt} — la progression actuelle est cohérente.`,
+    warning: `ACWR à ${lastACWR.toFixed(2)}, sous la zone optimale. Charge ${trendTxt}.`,
+    none: "Pas encore assez d'historique pour calculer un ACWR fiable."
+  };
+  return msgs[cls.key] || msgs.none;
+}
+
+function renderMain(){
+  const main = document.getElementById("main-panel");
+  if(!athlete){
+    main.innerHTML = '<div class="ls-panel"><div class="ls-empty">Ton compte n\'est pas encore relié à un profil. Demande à ton coach de renseigner ton email dans ton espace, puis reconnecte-toi.</div></div>';
+    return;
+  }
+  const sess = sessions.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
+  const { acwr } = acwrSeries(sess);
+  const acuteVal = acuteChronicLatest(sess).acute;
+  const chronicVal = acuteChronicLatest(sess).chronic;
+  const lastACWR = acwr.length ? acwr[acwr.length-1] : null;
+  const cls = classifyACWR(lastACWR);
+  const wk = sum7(sess);
+  const color = athleteColor(athlete);
+  const envSummary = envSummaryFor(sess, new Date(), MATRIX_WINDOW_WEEKS);
+  const envSessions = sess.filter(s=>s.source==="strava");
+  ensureChartPeriod();
+  const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
+  ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
+
+  main.innerHTML = `
+    <div class="ls-athlete-header">
+      <div class="ls-athlete-title">
+        <div class="ls-avatar" style="background:${color}">${initials(athlete.name)}</div>
+        <div>
+          <h2>${escapeHtml(athlete.name)}</h2>
+          <div class="ls-athlete-sub">${athleteMetaLine(athlete)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ls-tabbar">
+      <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
+      <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
+    <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
+    </div>
+
+    <div class="ls-insight" style="border-left-color:var(${statusVar(cls.key)})">
+      <p>${buildInsight(sess, lastACWR, cls)}</p>
+    </div>
+
+    <div class="ls-period-bar">
+      <div class="ls-field">
+        <label>Période — début</label>
+        <input type="date" id="period-start" value="${chartPeriod.start}" max="${chartPeriod.end}">
+      </div>
+      <div class="ls-period-arrow">→</div>
+      <div class="ls-field">
+        <label>Période — fin</label>
+        <input type="date" id="period-end" value="${chartPeriod.end}" min="${chartPeriod.start}">
+      </div>
+      <button class="ls-btn small ghost" type="button" id="btn-period-reset">Réinitialiser (6 mois)</button>
+      <div class="ls-period-note">Filtre les graphes ci-dessous sur cette période (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date pour le Runner Matrix et le profil terrain).</div>
+    </div>
+
+    <div class="ls-charts">
+      <div class="ls-chart-card full">
+        <h3>Profil du coureur — Runner Matrix</h3>
+        <div class="ls-chart-sub">6 branches notées 0-100 par rapport à ton propre historique — pas un barème absolu. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}. Montée et Descente corrigées de la technicité du terrain.</div>
+        <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
+        <div class="ls-matrix-note" id="matrix-note"></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Charge d'entraînement</h3>
+        <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
+        <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
+        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
+        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
+      </div>
+      <div class="ls-chart-card">
+        <h3>Volume hebdomadaire</h3>
+        <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité</div>
+        <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Dénivelé hebdomadaire par activité</h3>
+        <div class="ls-chart-sub">Dénivelé positif et négatif, empilés par type d'activité</div>
+        <div class="ls-subchart-grid">
+          <div>
+            <div class="ls-subchart-label">D+ (m)</div>
+            <div class="ls-chart-wrap"><canvas id="chart-elevation-plus"></canvas></div>
+          </div>
+          <div>
+            <div class="ls-subchart-label">D- (m)</div>
+            <div class="ls-chart-wrap"><canvas id="chart-elevation-minus"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones de FC</h3>
+        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone</div>
+        <div class="ls-chart-wrap"><canvas id="chart-zones"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones de FC — historique complet</h3>
+        <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues</div>
+        <div class="ls-field" style="max-width:280px;">
+          <label>Activité</label>
+          <select id="zones-total-activity">
+            <option value="all" ${zonesTotalActivityFilter==="all"?"selected":""}>Toutes les activités</option>
+            ${Array.from(new Set(sess.map(s=>s.type))).sort((a,b)=>a.localeCompare(b,"fr")).map(t=>`<option value="${escapeHtml(t)}" ${zonesTotalActivityFilter===t?"selected":""}>${escapeHtml(t)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="ls-chart-wrap donut" id="zones-total-chart-wrap"><canvas id="chart-zones-total"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones d'allure</h3>
+        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — course à pied et trail uniquement</div>
+        <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Efficacité physiologique</h3>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
+        <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Profil terrain</h3>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(terrainCompareA.start)}–${fmtDateFr(terrainCompareA.end)} vs ${fmtDateFr(terrainCompareB.start)}–${fmtDateFr(terrainCompareB.end)}, corrigé de la technicité du terrain.</div>
+        <div class="ls-period-bar" style="margin-bottom:12px;">
+          <div class="ls-field">
+            <label>Référence — début</label>
+            <input type="date" id="terrain-a-start" value="${terrainCompareA.start}" max="${terrainCompareA.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Référence — fin</label>
+            <input type="date" id="terrain-a-end" value="${terrainCompareA.end}" min="${terrainCompareA.start}">
+          </div>
+          <div class="ls-period-arrow">vs</div>
+          <div class="ls-field">
+            <label>Récente — début</label>
+            <input type="date" id="terrain-b-start" value="${terrainCompareB.start}" max="${terrainCompareB.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Récente — fin</label>
+            <input type="date" id="terrain-b-end" value="${terrainCompareB.end}" min="${terrainCompareB.start}">
+          </div>
+        </div>
+        <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
+      </div>
+    </div>
+
+    <div class="ls-table-card">
+      <div class="ls-table-head">
+        <h3>Journal des séances (${sess.length})</h3>
+      </div>
+      <div class="ls-table-scroll">
+        <table class="ls-log">
+          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th>Charge</th><th>RPE</th><th>Source</th></tr></thead>
+          <tbody>${sess.map(rowHtml).join("")}</tbody>
+        </table>
+      </div>
+    </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) et de la technicité du terrain sur chaque séance Strava. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres sur terrain roulant, à titre indicatif. Tu peux renseigner ou corriger la technicité de chaque séance (montée / descente / plat) directement dans le tableau ci-dessous.</div>
+      <div class="ls-stat-grid" style="margin-bottom:18px;">
+        <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Température moyenne</div><div class="ls-stat-value">${envSummary.count? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Séances marquées (≥18%)</div><div class="ls-stat-value">${envSummary.count? envSummary.markedCount + "/" + envSummary.count : "—"}</div></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Durée réelle vs ajustée</h3>
+        <div class="ls-chart-sub">Durée de chaque séance Strava (ligne grise en pointillés) comparée à la durée qu'elle aurait donnée en conditions neutres sur terrain roulant (ligne pleine) — permet de comparer équitablement des séances faites dans des conditions différentes.</div>
+        <div class="ls-chart-wrap" id="env-chart-wrap"><canvas id="chart-env-trend"></canvas></div>
+      </div>
+      ${envSessions.length === 0
+        ? '<div class="ls-panel"><div class="ls-empty">Aucune séance Strava pour le moment.</div></div>'
+        : `<div class="ls-table-card">
+        <div class="ls-table-head">
+          <h3>Détail par séance (${envSessions.length})</h3>
+        </div>
+        <div class="ls-table-scroll">
+          <table class="ls-log">
+            <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Durée ajustée</th><th>Temp.</th><th>Humidité</th><th>Altitude</th><th>Vent</th><th>Chaleur</th><th>Altitude</th><th>Vent</th><th>Technicité montée</th><th>Technicité descente</th><th>Technicité plat</th><th>Terrain</th><th>Combiné</th></tr></thead>
+            <tbody>${envSessions.map(envRowHtml).join("")}</tbody>
+          </table>
+        </div>
+      </div>`}
+    </div>
+  `;
+
+  main.querySelectorAll("[data-tab]").forEach(b=> b.addEventListener("click", ()=>{
+    activeTab = b.getAttribute("data-tab");
+    renderMain();
+  }));
+  const periodStartEl = document.getElementById("period-start");
+  if(periodStartEl) periodStartEl.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
+    renderMain();
+  });
+  const periodEndEl = document.getElementById("period-end");
+  if(periodEndEl) periodEndEl.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    chartPeriod = { start: v < chartPeriod.start ? v : chartPeriod.start, end: v };
+    renderMain();
+  });
+  const periodResetEl = document.getElementById("btn-period-reset");
+  if(periodResetEl) periodResetEl.addEventListener("click", ()=>{
+    chartPeriod = defaultChartPeriod();
+    renderMain();
+  });
+  const zonesTotalSelect = document.getElementById("zones-total-activity");
+  if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
+    zonesTotalActivityFilter = e.target.value;
+    renderCharts();
+  });
+  const terrainAStart = document.getElementById("terrain-a-start");
+  const terrainAEnd = document.getElementById("terrain-a-end");
+  const terrainBStart = document.getElementById("terrain-b-start");
+  const terrainBEnd = document.getElementById("terrain-b-end");
+  if(terrainAStart) terrainAStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareA = { start: v, end: v > terrainCompareA.end ? v : terrainCompareA.end };
+    renderMain();
+  });
+  if(terrainAEnd) terrainAEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareA = { start: v < terrainCompareA.start ? v : terrainCompareA.start, end: v };
+    renderMain();
+  });
+  if(terrainBStart) terrainBStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareB = { start: v, end: v > terrainCompareB.end ? v : terrainCompareB.end };
+    renderMain();
+  });
+  if(terrainBEnd) terrainBEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    terrainCompareB = { start: v < terrainCompareB.start ? v : terrainCompareB.start, end: v };
+    renderMain();
+  });
+  main.querySelectorAll("[data-technicity-session]").forEach(sel=>{
+    sel.addEventListener("change", e=>{
+      updateTechnicity(e.target.getAttribute("data-technicity-session"), e.target.getAttribute("data-technicity-field"), e.target.value);
+    });
+  });
+
+  renderActiveTabCharts();
+}
+
+/* ---------------------------- graphiques (identiques à index.html) ---------------------------- */
+
+function baseChartOptions(extra){
+  const grid = cssVar("--grid"), axis = cssVar("--axis"), muted = cssVar("--text-muted"), surface = cssVar("--surface");
+  return Object.assign({
+    responsive:true, maintainAspectRatio:false,
+    interaction:{ mode:"index", intersect:false },
+    plugins:{
+      legend:{ labels:{ color: muted, font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+      tooltip:{ backgroundColor: surface, titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+        borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Manrope", weight:700}, bodyFont:{family:"IBM Plex Mono"} }
+    },
+    scales:{
+      x:{ grid:{ color: grid, drawTicks:false }, ticks:{ color: muted, font:{family:"IBM Plex Mono", size:10}, maxRotation:0, autoSkip:true } },
+      y:{ grid:{ color: grid, drawTicks:false }, ticks:{ color: muted, font:{family:"IBM Plex Mono", size:10} }, border:{ color: axis } }
+    }
+  }, extra||{});
+}
+const zoneDonutCenterTextPlugin = {
+  id: "zoneDonutCenterText",
+  afterDraw(chart){
+    const text = chart.options.plugins?.centerText?.text;
+    if(!text || chart.config.type !== "doughnut") return;
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.font = "700 19px Manrope, sans-serif";
+    ctx.fillStyle = cssVar("--text-primary");
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, (chartArea.left+chartArea.right)/2, (chartArea.top+chartArea.bottom)/2);
+    ctx.restore();
+  }
+};
+const zoneDonutLegendGapPlugin = {
+  id: "zoneDonutLegendGap",
+  afterInit(chart){
+    if(chart.config.type !== "doughnut") return;
+    const legend = chart.legend;
+    if(!legend || legend.__zoneDonutGapPatched) return;
+    legend.__zoneDonutGapPatched = true;
+    const originalFit = legend.fit;
+    legend.fit = function(){
+      originalFit.call(this);
+      this.height += 26;
+    };
+  }
+};
+const zoneDonutLeaderLabelsPlugin = {
+  id: "zoneDonutLeaderLabels",
+  afterDraw(chart){
+    if(chart.config.type !== "doughnut") return;
+    const meta = chart.getDatasetMeta(0);
+    if(!meta || !meta.data.length) return;
+    const values = chart.data.datasets[0].data;
+    const total = values.reduce((a,b)=>a+(b||0),0);
+    if(total <= 0) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = "600 11.5px 'IBM Plex Mono', ui-monospace, monospace";
+    ctx.strokeStyle = cssVar("--axis");
+    ctx.fillStyle = cssVar("--text-secondary");
+    ctx.lineWidth = 1;
+    meta.data.forEach((arc, i)=>{
+      const value = values[i];
+      if(!value) return;
+      const pct = value/total*100;
+      const angle = (arc.startAngle + arc.endAngle)/2;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      const cx = arc.x, cy = arc.y, rOuter = arc.outerRadius;
+      const x1 = cx + cos*rOuter, y1 = cy + sin*rOuter;
+      const x2 = cx + cos*(rOuter+18), y2 = cy + sin*(rOuter+18);
+      const side = cos >= -0.001 ? 1 : -1;
+      const x3 = x2 + side*12, y3 = y2;
+      ctx.beginPath();
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3);
+      ctx.stroke();
+      ctx.textAlign = side>0 ? "left" : "right";
+      ctx.textBaseline = "middle";
+      const pctTxt = pct.toFixed(2).replace(".",",");
+      ctx.fillText(`Zone ${i+1} (${pctTxt} %)`, x3 + side*4, y3);
+    });
+    ctx.restore();
+  }
+};
+function destroyCharts(){ Object.keys(charts).forEach(k=>{ if(charts[k]){ charts[k].destroy(); charts[k]=null; } }); }
+function renderCharts(){
+  if(!athlete || !document.getElementById("chart-load")) { return; }
+  destroyCharts();
+  if(typeof Chart === "undefined"){
+    document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphiques indisponibles (bibliothèque non chargée). Recharge la page.</div>';
+    });
+    return;
+  }
+  try{
+    renderChartsInner(athlete);
+  }catch(e){
+    console.error("Erreur lors de l'affichage des graphiques", e);
+    document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Impossible d\'afficher ce graphique.</div>';
+    });
+  }
+}
+function renderEnvChart(athleteObj, envSessions){
+  const wrap = document.getElementById("env-chart-wrap");
+  if(!wrap) return;
+  if(typeof Chart === "undefined"){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphique indisponible (bibliothèque non chargée). Recharge la page.</div>';
+    return;
+  }
+  const eligible = envSessions
+    .filter(s=>s.envAdjustedDuration!=null)
+    .slice()
+    .sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  if(eligible.length === 0){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec données environnementales pour le moment.</div>';
+    return;
+  }
+  wrap.innerHTML = '<canvas id="chart-env-trend"></canvas>';
+  const color = athleteColor(athleteObj);
+  const labels = eligible.map(s=> fmtDateFr(s.date).slice(0,5));
+  charts.envTrend = new Chart(document.getElementById("chart-env-trend"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"Durée réelle", data: eligible.map(s=>s.duration), borderColor: cssVar("--text-muted"), backgroundColor:"transparent", borderWidth:2, borderDash:[4,3], pointRadius:2, tension:.25 },
+      { label:"Durée ajustée (conditions neutres)", data: eligible.map(envAdjustedDurationWithTerrain), borderColor: color, backgroundColor: color+"22", borderWidth:2, pointRadius:3, tension:.25, fill:true }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:"index", intersect:false },
+      plugins:{
+        legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+        tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+          borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Manrope", weight:700}, bodyFont:{family:"IBM Plex Mono"},
+          callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${fmtHoursMinutes(ctx.parsed.y)}` } }
+      },
+      scales:{
+        x:{ grid:{ color: cssVar("--grid"), drawTicks:false }, ticks:{ color: cssVar("--text-muted"), font:{family:"IBM Plex Mono", size:10}, maxRotation:0, autoSkip:true } },
+        y:{ grid:{ color: cssVar("--grid"), drawTicks:false }, ticks:{ color: cssVar("--text-muted"), font:{family:"IBM Plex Mono", size:10}, callback:v=>fmtHoursMinutes(v) },
+          border:{ color: cssVar("--axis") }, title:{ display:true, text:"Durée", color: cssVar("--text-muted"), font:{size:10} } }
+      }
+    }
+  });
+}
+function renderActiveTabCharts(){
+  if(!athlete){ destroyCharts(); return; }
+  if(activeTab === "training"){
+    renderCharts();
+  } else if(activeTab === "env"){
+    destroyCharts();
+    const envSessions = sessions.filter(s=>s.source==="strava");
+    renderEnvChart(athlete, envSessions);
+  } else {
+    destroyCharts();
+  }
+}
+function renderChartsInner(athleteObj){
+  const sess = sessions;
+  const { dates, acute, chronic, acwr } = acwrSeries(sess);
+  const daily = dailySeries(sess);
+  const dailyVals = dates.map(d=>daily[d]||0);
+  const color = athleteColor(athleteObj);
+
+  ensureChartPeriod();
+  const periodStartStr = chartPeriod.start, periodEndStr = chartPeriod.end;
+  const periodStart = new Date(periodStartStr+"T00:00:00");
+  const periodEnd = new Date(periodEndStr+"T00:00:00");
+  const oldLabel = fmtDateFr(periodStart), newLabel = fmtDateFr(periodEnd);
+
+  let si = dates.findIndex(d=> d >= periodStartStr);
+  if(si === -1) si = dates.length;
+  let ei = dates.length - 1;
+  while(ei >= 0 && dates[ei] > periodEndStr) ei--;
+  const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
+  const labels = sl(dates).map(d=> d.slice(5));
+
+  const matrixWrap = document.getElementById("matrix-chart-wrap");
+  const matrixNote = document.getElementById("matrix-note");
+  const cmpWindowWeeks = comparisonWindowWeeksFor(periodStart, periodEnd);
+  const histories = buildMatrixHistories(sess, dates, chronic, acwr, cmpWindowWeeks);
+  const scoresNow = matrixScoresAt(sess, dates, chronic, acwr, periodEnd, histories, cmpWindowWeeks);
+  const scoresPast = matrixScoresAt(sess, dates, chronic, acwr, periodStart, histories, cmpWindowWeeks);
+  const hasAnyScore = scoresNow.some(v=>v!=null);
+  if(hasAnyScore && matrixWrap){
+    const missing = MATRIX_BRANCHES.filter((_,i)=>scoresNow[i]==null);
+    matrixNote.textContent = missing.length
+      ? `Historique encore insuffisant pour : ${missing.join(", ")} — ces branches s'affichent à 0 en attendant plus de séances Strava.`
+      : "";
+    charts.matrix = new Chart(document.getElementById("chart-matrix"), {
+      type:"radar",
+      data:{ labels: MATRIX_BRANCHES, datasets:[
+        { label: oldLabel, data: scoresPast.map(v=>v??0), borderColor: cssVar("--text-muted"), backgroundColor: cssVar("--text-muted")+"22", borderWidth:2, borderDash:[4,3], pointRadius:2, pointBackgroundColor: cssVar("--text-muted") },
+        { label: newLabel, data: scoresNow.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+          tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+            borderColor: cssVar("--border"), borderWidth:1, padding:10 } },
+        scales:{ r:{ min:0, max:100, ticks:{ display:false, stepSize:25 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
+          pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Manrope", size:11.5, weight:600} } } }
+      }
+    });
+  } else if(matrixWrap){
+    matrixWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite un historique de séances (idéalement importées depuis Strava).</div>';
+    if(matrixNote) matrixNote.textContent = "";
+  }
+
+  charts.load = new Chart(document.getElementById("chart-load"), {
+    type:"bar",
+    data:{ labels, datasets:[
+      { type:"bar", label:"Charge quotidienne", data: sl(dailyVals), backgroundColor: color+"55", borderRadius:3, order:3 },
+      { type:"line", label:"Aiguë (7j)", data: sl(acute), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
+      { type:"line", label:"Chronique (28j)", data: sl(chronic), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3], order:2 }
+    ]},
+    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  const acwrColors = sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
+  charts.acwr = new Chart(document.getElementById("chart-acwr"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"ACWR", data: sl(acwr), borderColor: cssVar("--accent"), backgroundColor:"transparent", borderWidth:2, pointRadius:2,
+        pointBackgroundColor: acwrColors, spanGaps:true,
+        segment:{ borderColor: ctx => {
+          const v = ctx.p1.parsed.y; if(v==null) return cssVar("--text-muted");
+          return cssVar(statusVar(classifyACWR(v).key));
+        }}
+      }
+    ]},
+    options: baseChartOptions({
+      plugins:{ legend:{display:false} },
+      scales:{ y:{ suggestedMin:0, suggestedMax:2, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+    })
+  });
+
+  const weeks = weeklyAggregates(sess, periodStartStr, periodEndStr);
+  const wkLabels = weeks.map(w=> w.week.slice(5));
+
+  const volByWeek = weeklyKmByCategory(sess, periodStartStr, periodEndStr);
+  charts.volume = new Chart(document.getElementById("chart-volume"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: VOLUME_CATEGORIES.map(c=>({
+      label: c.label,
+      data: weeks.map(w=> +((volByWeek[w.week]?.[c.key]||0).toFixed(1))),
+      backgroundColor: cssVar(c.colorVar), stack:"vol", borderRadius:2, maxBarThickness:26
+    }))},
+    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  const ELEVATION_CATEGORIES = VOLUME_CATEGORIES.filter(c => c.key==="course" || c.key==="velo");
+  const elevByWeek = weeklyElevationByCategory(sess, periodStartStr, periodEndStr);
+  const elevDatasets = (metric) => ELEVATION_CATEGORIES.map(c => ({
+    label: c.label,
+    data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.[metric] || 0)),
+    backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26
+  }));
+  const elevOptions = baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } });
+  charts.elevationPlus = new Chart(document.getElementById("chart-elevation-plus"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: elevDatasets("dPlus") },
+    options: elevOptions
+  });
+  charts.elevationMinus = new Chart(document.getElementById("chart-elevation-minus"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: elevDatasets("dMinus") },
+    options: elevOptions
+  });
+
+  const zoneColors = [cssVar("--z1"),cssVar("--z2"),cssVar("--z3"),cssVar("--z4"),cssVar("--z5")];
+  charts.zones = new Chart(document.getElementById("chart-zones"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: ZONE_LABELS.map((lab,i)=>({
+      label: lab, data: weeks.map(w=>w.zones[i]), backgroundColor: zoneColors[i], stack:"z", borderRadius:2, maxBarThickness:28
+    }))},
+    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  const zonesTotalWrap = document.getElementById("zones-total-chart-wrap");
+  if(zonesTotalWrap){
+    zonesTotalWrap.innerHTML = '<canvas id="chart-zones-total"></canvas>';
+    const zonesTotalSessions = zonesTotalActivityFilter === "all" ? sess : sess.filter(s=>s.type===zonesTotalActivityFilter);
+    const zonesTotalMinutes = [0,0,0,0,0];
+    zonesTotalSessions.forEach(s=> s.zones.forEach((m,i)=> zonesTotalMinutes[i]+=(m||0)));
+    const zonesTotalSum = zonesTotalMinutes.reduce((a,b)=>a+b,0);
+    if(zonesTotalSum > 0){
+      charts.zonesTotal = new Chart(document.getElementById("chart-zones-total"), {
+        type:"doughnut",
+        data:{ labels: ZONE_LABELS, datasets:[{ data: zonesTotalMinutes, backgroundColor: zoneColors, borderColor: cssVar("--surface"), borderWidth:2 }] },
+        options:{
+          responsive:true, maintainAspectRatio:false, cutout:"62%",
+          layout:{ padding:{ top:18, bottom:34, left:100, right:100 } },
+          plugins:{
+            legend:{ position:"top", labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+            tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+              borderColor: cssVar("--border"), borderWidth:1, padding:10,
+              callbacks:{ label: ctx => ` ${fmtHoursMinutes(ctx.parsed)} (${(ctx.parsed/zonesTotalSum*100).toFixed(2).replace(".",",")} %)` } },
+            centerText:{ text: fmtHoursMinutes(zonesTotalSum) }
+          }
+        },
+        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin, zoneDonutLegendGapPlugin]
+      });
+    } else {
+      zonesTotalWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec zones de FC renseignées pour cette activité.</div>';
+    }
+  }
+
+  const paceSessions = sess.filter(s => s.type === "Course à pied" || s.type === "Trail");
+  const paceWeeksRaw = weeklyAggregates(paceSessions, periodStartStr, periodEndStr);
+  const paceByWeek = {};
+  paceWeeksRaw.forEach(w => { paceByWeek[w.week] = w; });
+  const hasPaceData = weeks.some(w => paceByWeek[w.week]?.hasPaceData);
+  const paceWrap = document.getElementById("pace-chart-wrap");
+  if(hasPaceData && paceWrap){
+    const paceColors = PACE_ZONE_VARS.map(v=>cssVar(v));
+    charts.pace = new Chart(document.getElementById("chart-pace-zones"), {
+      type:"bar",
+      data:{ labels: wkLabels, datasets: [0,1,2,3,4,5,6].map(i=>({
+        label: paceZoneLabel(athleteObj, i), data: weeks.map(w=>paceByWeek[w.week]?.paceZones[i] || 0), backgroundColor: paceColors[i], stack:"p", borderRadius:2, maxBarThickness:28
+      }))},
+      options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+    });
+  } else if(paceWrap){
+    paceWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment.</div>';
+  }
+
+  const physioWrap = document.getElementById("physio-chart-wrap");
+  const physioMonths = monthsBetween(periodStart, periodEnd);
+  const physioMonthData = physioMonths.map(m=>{
+    const monthSessions = sess.filter(s=>{
+      if(s.date < periodStartStr || s.date > periodEndStr) return false;
+      const d = new Date(s.date+"T00:00:00");
+      return d.getFullYear() === m.year && d.getMonth() === m.month;
+    });
+    return { label: monthLabelFr(m.year, m.month), gapZ: gapZoneAverageOf(monthSessions) };
+  }).filter(m => m.gapZ.some(v=>v!=null));
+  const hasGapData = physioMonthData.length > 0;
+  if(hasGapData && physioWrap){
+    const mutedColor = cssVar("--text-muted");
+    const n = physioMonthData.length;
+    charts.physio = new Chart(document.getElementById("chart-physio"), {
+      type:"line",
+      data:{ labels: ZONE_LABELS, datasets: physioMonthData.map((m,i)=>{
+        const t = n>1 ? i/(n-1) : 1;
+        const lineColor = mixHexColors(mutedColor, color, t);
+        return {
+          label: m.label, data: m.gapZ, borderColor: lineColor, backgroundColor: lineColor,
+          borderWidth: n>1 ? 1.5+1.5*t : 2, tension: 0.3, spanGaps: true,
+          pointRadius: 3, pointHoverRadius: 5, fill: false
+        };
+      })},
+      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+    });
+  } else if(physioWrap){
+    physioWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment.</div>';
+  }
+
+  const terrainWrap = document.getElementById("terrain-chart-wrap");
+  const terrainAStartDate = new Date(terrainCompareA.start+"T00:00:00");
+  const terrainAEndDate = new Date(terrainCompareA.end+"T23:59:59");
+  const terrainBStartDate = new Date(terrainCompareB.start+"T00:00:00");
+  const terrainBEndDate = new Date(terrainCompareB.end+"T23:59:59");
+  const gradePast = gapGradeAverageInRange(sess, terrainAStartDate, terrainAEndDate);
+  const gradeNow = gapGradeAverageInRange(sess, terrainBStartDate, terrainBEndDate);
+  const terrainLabelA = "Référence (" + fmtDateFr(terrainCompareA.start) + "–" + fmtDateFr(terrainCompareA.end) + ")";
+  const terrainLabelB = "Récente (" + fmtDateFr(terrainCompareB.start) + "–" + fmtDateFr(terrainCompareB.end) + ")";
+  const hasGradeData = gradeNow.some(v=>v!=null) || gradePast.some(v=>v!=null);
+  if(hasGradeData && terrainWrap){
+    charts.terrain = new Chart(document.getElementById("chart-terrain"), {
+      type:"bar",
+      data:{ labels: GRADE_BUCKET_LABELS, datasets:[
+        { label: terrainLabelA, data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label: terrainLabelB, data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+      ]},
+      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} },
+        x:{ ticks:{ color:cssVar("--text-muted"), font:{size:10.5} } } } })
+    });
+  } else if(terrainWrap){
+    terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment sur ces deux périodes.</div>';
+  }
+}
+
+/* ---------------------------- technicité (seule écriture permise) ---------------------------- */
+
+async function updateTechnicity(sessionId, field, value){
+  const dbField = { climb:"technicity_climb", descent:"technicity_descent", flat:"technicity_flat" }[field];
+  if(!dbField) return;
+  const { error } = await sb.from("sessions").update({ [dbField]: value }).eq("id", sessionId);
+  if(error){
+    showToast("Erreur lors de l'enregistrement : " + error.message, "--critical");
+    return;
+  }
+  const s = sessions.find(x=>x.id===sessionId);
+  if(s){
+    if(field==="climb") s.technicityClimb = value;
+    else if(field==="descent") s.technicityDescent = value;
+    else if(field==="flat") s.technicityFlat = value;
+  }
+  showToast("Technicité enregistrée.", "--good");
+  renderMain();
+}
+
+/* ---------------------------- authentification & chargement des données ---------------------------- */
+
+function redirectUrl(){
+  return window.location.origin + window.location.pathname;
+}
+
+async function loadAthleteData(){
+  await sb.rpc("link_athlete_account");
+  const { data: athleteRows, error: aErr } = await sb.from("athletes").select("*").limit(1);
+  if(aErr){
+    showToast("Erreur de chargement : " + aErr.message, "--critical");
+    return;
+  }
+  if(!athleteRows || athleteRows.length === 0){
+    athlete = null;
+    sessions = [];
+    renderMain();
+    return;
+  }
+  athlete = athleteFromApi(athleteRows[0]);
+  const { data: sessionRows, error: sErr } = await sb.from("sessions").select("*").eq("athlete_id", athlete.id);
+  if(sErr){
+    showToast("Erreur de chargement des séances : " + sErr.message, "--critical");
+    sessions = [];
+  } else {
+    sessions = (sessionRows||[]).map(sessionFromApi);
+  }
+  renderMain();
+}
+
+function showLoggedInUI(){
+  document.getElementById("login-screen").hidden = true;
+  document.getElementById("main-panel").hidden = false;
+  document.getElementById("btn-logout").hidden = false;
+}
+function showLoggedOutUI(){
+  document.getElementById("login-screen").hidden = false;
+  document.getElementById("main-panel").hidden = true;
+  document.getElementById("btn-logout").hidden = true;
+  athlete = null; sessions = [];
+}
+
+async function init(){
+  applyTheme(currentThemeMode());
+  document.getElementById("btn-theme").addEventListener("click", cycleTheme);
+  document.getElementById("btn-logout").addEventListener("click", async ()=>{ await sb.auth.signOut(); });
+  document.getElementById("btn-send-link").addEventListener("click", async ()=>{
+    const emailEl = document.getElementById("login-email");
+    const statusEl = document.getElementById("login-status");
+    const email = (emailEl.value||"").trim();
+    if(!email){ statusEl.textContent = "Entre ton adresse email."; statusEl.className = "ls-login-status error"; return; }
+    statusEl.textContent = "Envoi en cours…"; statusEl.className = "ls-login-status";
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectUrl() } });
+    if(error){
+      statusEl.textContent = "Erreur : " + error.message;
+      statusEl.className = "ls-login-status error";
+    } else {
+      statusEl.textContent = "Vérifie ta boîte mail : un lien de connexion vient de t'être envoyé (pense à regarder les spams).";
+      statusEl.className = "ls-login-status ok";
+    }
+  });
+
+  sb.auth.onAuthStateChange((event, session)=>{
+    if(session){
+      showLoggedInUI();
+      loadAthleteData();
+    } else {
+      showLoggedOutUI();
+    }
+  });
+}
+
+init();
+</script>
+</body>
+</html>
