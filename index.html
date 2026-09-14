@@ -476,6 +476,8 @@ function sessionFromApi(s){
     envCombinedFactor: s.env_combined_factor!=null ? Number(s.env_combined_factor) : null,
     envAdjustedDuration: s.env_adjusted_duration!=null ? Number(s.env_adjusted_duration) : null,
     envGradeTimeShares: Array.isArray(s.env_grade_time_shares) ? s.env_grade_time_shares : null,
+    vamClimbProfile: Array.isArray(s.vam_climb_profile) ? s.vam_climb_profile : null,
+    vamDescentProfile: Array.isArray(s.vam_descent_profile) ? s.vam_descent_profile : null,
     technicityClimb: s.technicity_climb || "roulant",
     technicityDescent: s.technicity_descent || "roulant",
     technicityFlat: s.technicity_flat || "roulant",
@@ -488,6 +490,24 @@ function sessionToApi(s){
     technicity_descent: s.technicityDescent || "roulant",
     technicity_flat: s.technicityFlat || "roulant" };
   if(s.id) row.id = s.id;
+  return row;
+}
+
+// Tests de terrain périodiques (force plateforme, VMA, seuils S1/S2) — voir
+// table athlete_tests. force_membre_inf porte valueDroite/valueGauche (N) ;
+// vma/seuil1/seuil2 portent value (km/h).
+function athleteTestFromApi(t){
+  return { id:t.id, athleteId:t.athlete_id, testType:t.test_type, date:t.date,
+    valueDroite: t.value_droite!=null ? Number(t.value_droite) : null,
+    valueGauche: t.value_gauche!=null ? Number(t.value_gauche) : null,
+    value: t.value!=null ? Number(t.value) : null,
+    note: t.note || "" };
+}
+function athleteTestToApi(t){
+  const row = { athlete_id:t.athleteId, test_type:t.testType, date:t.date,
+    value_droite: t.valueDroite ?? null, value_gauche: t.valueGauche ?? null,
+    value: t.value ?? null, note: t.note || null };
+  if(t.id) row.id = t.id;
   return row;
 }
 
@@ -1068,6 +1088,103 @@ function sum7(sessions){
   return sessions.filter(s=>s.date >= cutoffStr).reduce((acc,s)=>{
     acc.km += s.distance; acc.dPlus += s.dPlus; acc.dMinus += s.dMinus; return acc;
   }, {km:0, dPlus:0, dMinus:0});
+}
+
+/* ---------------------------- Jumeau numérique : agrégation des 7 paramètres ---------------------------- */
+//
+// 1. Force max membre inférieur (N)  -> dernier test_type='force_membre_inf', valueDroite+valueGauche
+// 2. VMA (km/h)                      -> dernier test_type='vma', value
+// 3. Seuil 1 / aérobie (km/h)        -> dernier test_type='seuil1', value
+// 4. Seuil 2 / anaérobie (km/h)      -> dernier test_type='seuil2', value
+// 5. Montée  -> profil VAM (m/h) par zone FC (5) x tranche de pente montante
+//    (3 : 4-10/10-18/>18%), calculé côté serveur (vamClimbProfile, 15 valeurs,
+//    index = zone*3+tranche) et simplement moyenné ici entre séances de la
+//    fenêtre, case par case (même principe que gapZoneAverage).
+// 6. Descente -> même chose, profil VAM descente (10 valeurs, zone*2+tranche).
+// 7. Volume -> moyenne hebdomadaire glissante sur 6 mois, en km et en heures.
+
+// Dernier test en date d'un type donné pour un athlète (ou null si aucun).
+function latestAthleteTest(athleteId, testType){
+  const tests = (state.athleteTests || []).filter(t=>t.athleteId===athleteId && t.testType===testType);
+  if(!tests.length) return null;
+  return tests.reduce((latest,t)=> (!latest || t.date > latest.date) ? t : latest, null);
+}
+
+// Force max membre inférieur (N) = somme droite + gauche du dernier test,
+// ou null si l'un des deux membres n'a pas été saisi.
+function latestForceMax(athleteId){
+  const t = latestAthleteTest(athleteId, "force_membre_inf");
+  if(!t || t.valueDroite==null || t.valueGauche==null) return null;
+  return { value: Math.round((t.valueDroite + t.valueGauche)*10)/10, date: t.date, valueDroite:t.valueDroite, valueGauche:t.valueGauche };
+}
+// VMA / Seuil 1 / Seuil 2 (km/h) du dernier test, ou null.
+function latestSpeedTest(athleteId, testType){
+  const t = latestAthleteTest(athleteId, testType);
+  if(!t || t.value==null) return null;
+  return { value: t.value, date: t.date };
+}
+
+// Moyenne, entre séances Strava de la fenêtre, d'un profil VAM plat (climb:
+// 15 cases zone*3+tranche, descent: 10 cases zone*2+tranche) déjà moyenné par
+// séance côté serveur — même principe que gapZoneAverage : une séance sans
+// donnée pour une case donnée ne contribue simplement pas à cette case.
+function vamProfileAverage(sessions, endDate, weeks, field, cellCount){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  const sums = new Array(cellCount).fill(0), counts = new Array(cellCount).fill(0);
+  sessions.forEach(s=>{
+    const profile = s[field];
+    if(!Array.isArray(profile)) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    profile.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+  });
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+function vamClimbProfileAverage(sessions, endDate, weeks){
+  return vamProfileAverage(sessions, endDate, weeks, "vamClimbProfile", 15);
+}
+function vamDescentProfileAverage(sessions, endDate, weeks){
+  return vamProfileAverage(sessions, endDate, weeks, "vamDescentProfile", 10);
+}
+// Lecture d'une case du profil VAM montée/descente par zone de FC (0-4) et
+// tranche de pente (climb: 0=modérée/1=soutenue/2=forte, descent:
+// 0=forte/1=modérée) -- voir hrZoneIndex/climbBucketIndex/descentBucketIndex
+// côté serveur (strava-webhook) pour les bornes exactes.
+function vamProfileCell(profile, zoneIdx, bucketIdx, bucketsPerZone){
+  if(!Array.isArray(profile)) return null;
+  return profile[zoneIdx*bucketsPerZone + bucketIdx] ?? null;
+}
+
+// Volume hebdomadaire moyen (km et heures), moyenne glissante sur 6 mois
+// (26 semaines) se terminant à endDate -- somme des séances de la fenêtre
+// divisée par le nombre de semaines, pas seulement des semaines avec séance.
+const VOLUME_WINDOW_WEEKS = 26;
+function volumeWeeklyAverage(sessions, endDate){
+  const start = new Date(endDate); start.setDate(start.getDate() - VOLUME_WINDOW_WEEKS*7);
+  let km = 0, minutes = 0;
+  sessions.forEach(s=>{
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    km += s.distance || 0; minutes += s.duration || 0;
+  });
+  return { km: Math.round((km/VOLUME_WINDOW_WEEKS)*10)/10, hours: Math.round((minutes/60/VOLUME_WINDOW_WEEKS)*10)/10 };
+}
+
+// Les 7 paramètres du jumeau numérique pour un athlète, à une date de
+// référence donnée (par défaut aujourd'hui) -- rassemble les 4 tests de
+// terrain (dernière valeur) et les 3 paramètres calculés depuis Strava.
+function digitalTwinParams(athleteId, sessions, endDate){
+  endDate = endDate || new Date();
+  const stravaSessions = sessions.filter(s=>s.athleteId===athleteId && s.source==="strava");
+  return {
+    forceMax: latestForceMax(athleteId),
+    vma: latestSpeedTest(athleteId, "vma"),
+    seuil1: latestSpeedTest(athleteId, "seuil1"),
+    seuil2: latestSpeedTest(athleteId, "seuil2"),
+    vamClimbProfile: vamClimbProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
+    vamDescentProfile: vamDescentProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
+    volume: volumeWeeklyAverage(stravaSessions.concat(sessions.filter(s=>s.athleteId===athleteId && s.source!=="strava")), endDate),
+  };
 }
 
 /* ---------------------------- theme handling ---------------------------- */
@@ -2438,7 +2555,8 @@ function renderAll(){ renderAthleteList(); renderMain(); }
 async function refreshData(){
   const keepAthlete = activeAthleteId;
   const data = await fetchData();
-  state = { athletes: data.athletes.map(athleteFromApi), sessions: data.sessions.map(sessionFromApi) };
+  state = { athletes: data.athletes.map(athleteFromApi), sessions: data.sessions.map(sessionFromApi),
+    athleteTests: (data.athleteTests || []).map(athleteTestFromApi) };
   if(keepAthlete && state.athletes.some(a=>a.id===keepAthlete)) activeAthleteId = keepAthlete;
   else {
     const stored = localStorage.getItem(ACTIVE_ATHLETE_STORAGE);
