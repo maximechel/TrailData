@@ -356,6 +356,12 @@ let activeAthleteId = null;
 let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
+// Cases CAP / Vélo du Volume dans l'onglet Jumeau numérique — cumulables
+// (le volume affiché est la somme des types cochés). CAP seule par défaut :
+// mélanger avec le vélo fausserait sinon la charge de course estimée par le
+// simulateur et la fourchette de volume hebdo sûre.
+let twinVolumeIncludeRun = true;
+let twinVolumeIncludeBike = false;
 // Périodes de comparaison du graphique "Profil terrain" — { start, end } au
 // format "YYYY-MM-DD", choisies librement par le coach (indépendantes de la
 // période affichée plus haut). null tant qu'elles n'ont pas été initialisées.
@@ -1233,6 +1239,18 @@ function vamProfileCell(profile, zoneIdx, bucketIdx, bucketsPerZone){
   return profile[zoneIdx*bucketsPerZone + bucketIdx] ?? null;
 }
 
+// Types de séance retenus pour le Volume du jumeau numérique, selon les
+// cases CAP / Vélo cochées par le coach (twinVolumeIncludeRun/Bike ci-dessus).
+function twinVolumeSessionTypes(){
+  const types = [];
+  if(twinVolumeIncludeRun) types.push("Course à pied", "Trail");
+  if(twinVolumeIncludeBike) types.push("Cyclisme");
+  return types;
+}
+function isTwinVolumeSession(s){
+  return twinVolumeSessionTypes().includes(s.type);
+}
+
 // Volume hebdomadaire moyen (km et heures), moyenne glissante sur 6 mois
 // (26 semaines) se terminant à endDate -- somme des séances de la fenêtre
 // divisée par le nombre de semaines, pas seulement des semaines avec séance.
@@ -1254,6 +1272,7 @@ function volumeWeeklyAverage(sessions, endDate){
 function digitalTwinParams(athleteId, sessions, endDate){
   endDate = endDate || new Date();
   const stravaSessions = sessions.filter(s=>s.athleteId===athleteId && s.source==="strava");
+  const volumeSessions = stravaSessions.concat(sessions.filter(s=>s.athleteId===athleteId && s.source!=="strava")).filter(isTwinVolumeSession);
   return {
     forceMax: latestForceMax(athleteId),
     vma: latestSpeedTest(athleteId, "vma"),
@@ -1261,7 +1280,7 @@ function digitalTwinParams(athleteId, sessions, endDate){
     seuil2: latestSpeedTest(athleteId, "seuil2"),
     vamClimbProfile: vamClimbProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
     vamDescentProfile: vamDescentProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
-    volume: volumeWeeklyAverage(stravaSessions.concat(sessions.filter(s=>s.athleteId===athleteId && s.source!=="strava")), endDate),
+    volume: volumeWeeklyAverage(volumeSessions, endDate),
   };
 }
 
@@ -1338,7 +1357,7 @@ function simParamSeries(sessions, athleteTests, key){
   let d = new Date(rangeStart);
   while(d <= rangeEnd){
     let value = null;
-    if(key==="volume") value = simVolumeSnapshotKm(sessions, d, SIM_SNAPSHOT_WINDOW_WEEKS);
+    if(key==="volume") value = simVolumeSnapshotKm(sessions.filter(isTwinVolumeSession), d, SIM_SNAPSHOT_WINDOW_WEEKS);
     else if(key==="montee") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamClimbProfile", 15));
     else if(key==="descente") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamDescentProfile", 10));
     if(value!=null) out.push({ date:new Date(d), value });
@@ -1430,7 +1449,7 @@ function simComputeEffects(seriesCache, currentValues, movedKeys, movedValues){
 // contexte de risque -- pas une double contrainte, juste un repère de
 // prudence supplémentaire.
 function simVolumeSafeRange(athleteSessions){
-  const current = volumeWeeklyAverage(athleteSessions, new Date());
+  const current = volumeWeeklyAverage(athleteSessions.filter(isTwinVolumeSession), new Date());
   if(!current.km) return null;
   const { acute, chronic } = acuteChronicLatest(athleteSessions);
   const acwrNow = chronic > 0.5 ? acute/chronic : null;
@@ -1808,7 +1827,11 @@ function renderMain(){
       <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse de descente moyenne (m/h), même fenêtre.</div>
       ${vamProfileTableHtml(twin.vamDescentProfile, [0,1])}
 
-      <div class="ls-stat-grid" style="margin-top:22px;">
+      <div class="ls-field-row" style="margin-top:22px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;"><input type="checkbox" id="twin-volume-run" ${twinVolumeIncludeRun?"checked":""}> CAP</label>
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;"><input type="checkbox" id="twin-volume-bike" ${twinVolumeIncludeBike?"checked":""}> Vélo</label>
+      </div>
+      <div class="ls-stat-grid" style="margin-top:10px;">
         <div class="ls-stat"><div class="ls-stat-label">Volume hebdo moyen (6 mois)</div><div class="ls-stat-value">${twin.volume.km.toFixed(1)}<small>km/sem.</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Volume hebdo moyen (6 mois)</div><div class="ls-stat-value">${twin.volume.hours.toFixed(1)}<small>h/sem.</small></div></div>
       </div>
@@ -1870,6 +1893,16 @@ function renderMain(){
   if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
     zonesTotalActivityFilter = e.target.value;
     renderCharts();
+  });
+  const twinVolRunCb = document.getElementById("twin-volume-run");
+  if(twinVolRunCb) twinVolRunCb.addEventListener("change", e=>{
+    twinVolumeIncludeRun = e.target.checked;
+    renderMain();
+  });
+  const twinVolBikeCb = document.getElementById("twin-volume-bike");
+  if(twinVolBikeCb) twinVolBikeCb.addEventListener("change", e=>{
+    twinVolumeIncludeBike = e.target.checked;
+    renderMain();
   });
   const terrainAStart = document.getElementById("terrain-a-start");
   const terrainAEnd = document.getElementById("terrain-a-end");
