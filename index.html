@@ -339,6 +339,7 @@ function paceZoneLabel(athlete, i){
 const API_BASE = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/app-api";
 const STRAVA_CLIENT_ID = "277368";
 const STRAVA_REDIRECT_URI = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-callback";
+const STRAVA_IMPORT_HISTORY_URL = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-import-history";
 const COACH_KEY_STORAGE = "loadscope.coachkey";
 const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 // Espace athlète (client.html) : URL publique de la page et clé publique
@@ -631,6 +632,67 @@ function showStravaLinkModal(athlete, link, autoCopied){
       }
     }
   });
+}
+
+// Va chercher chez Strava les séances plus anciennes que l'import automatique
+// initial (strava-callback, côté serveur, ne remonte qu'un premier lot à la
+// connexion — voir son commentaire). Appelle la même fonction serveur que le
+// coach peut aussi déclencher en ligne de commande (strava-import-history) :
+// reprenable et idempotente (upsert sur strava_activity_id), donc on peut
+// relancer plusieurs lots d'affilée sans risque de doublons. Strava limite
+// les appels API à 100 toutes les 15 minutes, PARTAGÉS entre tous les
+// athlètes connectés à l'appli — un historique profond peut donc nécessiter
+// plusieurs lots ; la fonction serveur le signale (rate_limited) plutôt que
+// d'échouer, et on relance automatiquement tant qu'elle répond juste "pas
+// encore fini" (done:false) sans être bridée par Strava.
+async function importStravaHistory(athleteId, btn){
+  const key = localStorage.getItem(COACH_KEY_STORAGE) || "";
+  const originalLabel = btn ? btn.textContent : "";
+  if(btn) btn.disabled = true;
+  let totalImported = 0, totalSkipped = 0, round = 0;
+  try{
+    while(true){
+      round++;
+      if(btn) btn.textContent = round===1 ? "Import en cours…" : `Import en cours (lot ${round})…`;
+      let res;
+      try{
+        res = await fetch(STRAVA_IMPORT_HISTORY_URL, {
+          method: "POST",
+          headers: { "Content-Type":"application/json", "x-coach-key": key },
+          body: JSON.stringify({ athlete_id: athleteId }),
+        });
+      }catch(e){
+        throw new Error("Connexion au serveur impossible. Vérifiez votre connexion internet.");
+      }
+      if(res.status === 401){
+        localStorage.removeItem(COACH_KEY_STORAGE);
+        const err = new Error("Clé d'accès invalide ou expirée.");
+        err.unauthorized = true;
+        throw err;
+      }
+      let data = null;
+      try{ data = await res.json(); }catch(e){ /* réponse non-JSON */ }
+      if(!res.ok){
+        throw new Error((data && data.error) || ("Erreur serveur (" + res.status + ")"));
+      }
+      totalImported += (data && data.imported) || 0;
+      totalSkipped += (data && data.skipped) || 0;
+      if(data && data.done){
+        showToast("Historique Strava importé : " + totalImported + " séance(s)" + (totalSkipped ? ", " + totalSkipped + " ignorée(s)" : "") + ".", "--good");
+        break;
+      }
+      if(data && data.rate_limited){
+        showToast("Limite Strava atteinte pour l'instant (" + totalImported + " séance(s) importée(s) jusque-là) — recliquez dans ~15 minutes pour continuer.", "--warning");
+        break;
+      }
+      await new Promise(r=>setTimeout(r, 500));
+    }
+  }catch(err){
+    if(err.unauthorized) showKeyGate("Clé invalide, réessayez.");
+    else showToast("Import impossible : " + err.message, "--critical");
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = originalLabel; }
+  }
 }
 
 function handleStravaRedirectParam(){
@@ -1536,7 +1598,8 @@ function renderMain(){
       </div>
       <div class="ls-title-actions">
         ${athlete.stravaAthleteId
-          ? `<span class="ls-strava-pill" title="Séances importées automatiquement depuis Strava">● Strava connecté</span>`
+          ? `<span class="ls-strava-pill" title="Séances importées automatiquement depuis Strava">● Strava connecté</span>
+             <button class="ls-btn small ghost" id="btn-import-strava-history" title="Va chercher chez Strava les séances plus anciennes que l'import automatique initial">Importer l'historique complet</button>`
           : `<button class="ls-btn small ghost" id="btn-copy-strava-link" title="À envoyer à l'athlète : il l'ouvre sur son propre appareil, connecté à son propre compte Strava">Copier le lien Strava</button>
              <button class="ls-btn small strava" id="btn-connect-strava" title="À utiliser seulement si c'est ${escapeHtml(athlete.name)} qui est devant cet écran">Connecter ici</button>`}
         ${athlete.email ? `<button class="ls-btn small ghost" id="btn-send-portal-link" title="Envoie un email de connexion (lien magique) à ${escapeHtml(athlete.email)}">Envoyer le lien de connexion</button>` : ""}
@@ -1796,6 +1859,8 @@ function renderMain(){
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
   if(stravaCopyBtn) stravaCopyBtn.addEventListener("click", ()=>copyStravaLink(athlete.id));
+  const stravaImportHistoryBtn = document.getElementById("btn-import-strava-history");
+  if(stravaImportHistoryBtn) stravaImportHistoryBtn.addEventListener("click", ()=>importStravaHistory(athlete.id, stravaImportHistoryBtn));
   const sendPortalLinkBtn = document.getElementById("btn-send-portal-link");
   if(sendPortalLinkBtn) sendPortalLinkBtn.addEventListener("click", ()=>sendPortalLink(athlete));
   document.getElementById("btn-intensity-table").addEventListener("click", ()=>openIntensityModal(athlete));
