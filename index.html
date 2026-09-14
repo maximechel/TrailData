@@ -302,7 +302,7 @@ const TECHNICITY_LEVELS = [
   { value:"technique", label:"Technique" },
   { value:"tres_technique", label:"Très technique" },
 ];
-const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.00, normal:1.20, technique:1.35, tres_technique:1.60 };
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.35, tres_technique:1.60 };
 function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
 function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
 // Les 4 tests de terrain du jumeau numérique (voir table athlete_tests).
