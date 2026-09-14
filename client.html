@@ -68,6 +68,31 @@
   .ls-panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;}
   .ls-empty{padding:60px 20px;text-align:center;color:var(--text-muted);}
   .ls-athlete-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+  .ls-title-actions{display:flex;gap:6px;flex-wrap:wrap;}
+
+  /* ---------- modal ---------- */
+  .ls-modal-overlay{position:fixed;inset:0;background:rgba(11,11,11,0.45);display:flex;align-items:center;justify-content:center;
+    padding:20px;z-index:50;}
+  .ls-modal{background:var(--surface);border-radius:16px;border:1px solid var(--border);max-width:520px;width:100%;
+    max-height:88vh;overflow-y:auto;padding:22px;}
+  .ls-modal.wide{max-width:920px;}
+  .ls-modal h3{margin:0 0 4px;font-size:16px;font-weight:800;}
+  .ls-modal .ls-modal-sub{font-size:12px;color:var(--text-muted);margin-bottom:16px;}
+  .ls-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+
+  /* ---------- intensity table (lecture seule, espace athlète) ---------- */
+  table.ls-intensity{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed;}
+  table.ls-intensity col.ls-intensity-col-name{width:34%;}
+  table.ls-intensity th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);
+    padding:6px 8px;font-weight:700;}
+  table.ls-intensity td{padding:8px 8px;border-bottom:1px solid var(--border);}
+  table.ls-intensity .ls-intensity-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;flex:none;}
+  table.ls-intensity .ls-intensity-name{display:flex;align-items:center;}
+  .ls-intensity-note{font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;}
+  @media (max-width:640px){
+    .ls-modal.wide{max-width:96vw;}
+    table.ls-intensity{table-layout:auto;}
+  }
   .ls-athlete-title{display:flex;align-items:center;gap:12px;}
   .ls-avatar{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
     color:#fff;font-weight:800;font-size:16px;flex:none;}
@@ -175,6 +200,8 @@
   </div>
 
   <main id="main-panel" hidden></main>
+
+  <div id="modal-root"></div>
 
   <div class="ls-footer">DATAS Trail running — espace athlète. Les données affichées sont celles suivies par ton coach, synchronisées depuis Strava.</div>
 </div>
@@ -299,6 +326,49 @@ function showToast(text, cssVarName){
   </div>`;
   const close = document.getElementById("toast-close");
   if(close) close.addEventListener("click", ()=>{ root.innerHTML = ""; });
+}
+
+function closeModal(){ document.getElementById("modal-root").innerHTML = ""; }
+
+// Vue lecture seule de la table d'intensité (bornes km/h et FC par zone,
+// saisies par le coach depuis son tableau de bord — voir openIntensityModal
+// dans index.html, la version éditable). L'athlète peut la consulter mais
+// pas la modifier : aucun champ éditable, aucun bouton d'enregistrement,
+// seulement un bouton Fermer.
+function openIntensityModal(athlete){
+  const zones = intensityZonesOf(athlete);
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal wide">
+      <h3>Table d'intensité</h3>
+      <div class="ls-modal-sub">Bornes d'allure (km/h) et de fréquence cardiaque (bpm) par zone, définies par ton coach. Les zones Z6/Z7 (efforts anaérobies courts) n'ont pas de borne FC : la fréquence cardiaque n'a pas le temps de refléter l'effort réel.</div>
+      <table class="ls-intensity">
+        <colgroup>
+          <col class="ls-intensity-col-name">
+          <col><col><col><col>
+        </colgroup>
+        <thead><tr><th>Zone</th><th>km/h min</th><th>km/h max</th><th>FC min</th><th>FC max</th></tr></thead>
+        <tbody>
+          ${zones.map((z,i)=>`<tr class="ls-intensity-row">
+            <td class="ls-intensity-name">
+              <span class="ls-intensity-dot" style="background:${cssVar(PACE_ZONE_VARS[i])}"></span>
+              ${escapeHtml(z.name)}
+            </td>
+            <td>${z.kmh_min!=null? z.kmh_min : "—"}</td>
+            <td>${z.kmh_max!=null? z.kmh_max : "—"}</td>
+            <td>${i>=5? "—" : (z.hr_min!=null? z.hr_min : "—")}</td>
+            <td>${i>=5? "—" : (z.hr_max!=null? z.hr_max : "—")}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="ls-modal-actions">
+        <button type="button" class="ls-btn ghost" id="modal-cancel">Fermer</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
 }
 
 /* ---------------------------- snake_case -> camelCase ---------------------------- */
@@ -780,6 +850,9 @@ function renderMain(){
           <div class="ls-athlete-sub">${athleteMetaLine(athlete)}</div>
         </div>
       </div>
+      <div class="ls-title-actions">
+        <button class="ls-btn small ghost" id="btn-intensity-table" type="button">Table d'intensité</button>
+      </div>
     </div>
 
     <div class="ls-tabbar">
@@ -1002,6 +1075,8 @@ function renderMain(){
       updateTechnicity(e.target.getAttribute("data-technicity-session"), e.target.getAttribute("data-technicity-field"), e.target.value);
     });
   });
+  const intensityBtn = document.getElementById("btn-intensity-table");
+  if(intensityBtn) intensityBtn.addEventListener("click", ()=>openIntensityModal(athlete));
 
   renderActiveTabCharts();
 }
