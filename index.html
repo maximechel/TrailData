@@ -368,6 +368,7 @@ let activeTab = "training";
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
+function fmtDayMonth(iso){ return iso.slice(8,10) + "/" + iso.slice(5,7); }
 function fmtHoursMinutes(totalMinutes){
   const m = Math.max(0, Math.round(totalMinutes||0));
   return Math.floor(m/60) + "h" + String(m%60).padStart(2,"0") + "min";
@@ -1947,7 +1948,7 @@ function renderMain(){
 function rowHtml(s){
   const isStrava = s.source === "strava";
   return `<tr>
-    <td>${s.date}</td>
+    <td>${fmtDateFr(s.date)}</td>
     <td>${escapeHtml(s.type)}</td>
     <td class="ls-num">${s.duration} min</td>
     <td class="ls-num">${s.distance.toFixed(1)} km</td>
@@ -2229,7 +2230,7 @@ function renderChartsInner(athlete){
   let ei = dates.length - 1;
   while(ei >= 0 && dates[ei] > periodEndStr) ei--;
   const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
-  const labels = sl(dates).map(d=> d.slice(5));
+  const labels = sl(dates).map(d=> fmtDayMonth(d));
 
   const matrixWrap = document.getElementById("matrix-chart-wrap");
   const matrixNote = document.getElementById("matrix-note");
@@ -2292,7 +2293,7 @@ function renderChartsInner(athlete){
   });
 
   const weeks = weeklyAggregates(sessions, periodStartStr, periodEndStr);
-  const wkLabels = weeks.map(w=> w.week.slice(5));
+  const wkLabels = weeks.map(w=> fmtDayMonth(w.week));
 
   // Kilométrage hebdomadaire empilé par type d'activité — une barre par
   // semaine, un segment de couleur par catégorie ; la légende (cliquable)
