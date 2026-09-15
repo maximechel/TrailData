@@ -353,7 +353,7 @@ const CLIENT_PORTAL_URL = "https://maximechel.github.io/TrailData/client.html";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
+let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null, twinVam: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 // Cases CAP / Vélo du Volume dans l'onglet Jumeau numérique — cumulables
@@ -1339,6 +1339,29 @@ function simAggregateVamProfile(profile){
   const vals = profile.filter(v=>v!=null);
   return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
 }
+
+// Série mensuelle de la VAM moyenne (montée ou descente, m/h), un mois
+// calendaire à la fois sur `months` (voir monthsBetween) -- contrairement aux
+// tableaux VAM par zone de FC × pente ci-dessus (instantané sur les
+// MATRIX_WINDOW_WEEKS dernières semaines), sert à visualiser la tendance sur
+// tout l'historique Strava dans le graphique "Évolution mensuelle de la VAM"
+// de l'onglet Jumeau numérique. Un mois sans séance avec profil renseigné
+// vaut null (spanGaps:true au rendu plutôt qu'un 0 trompeur).
+function vamMonthlyAverage(stravaSessions, months, field, cellCount){
+  return months.map(m=>{
+    const monthSessions = stravaSessions.filter(s=>{
+      const d = new Date(s.date+"T00:00:00");
+      return !isNaN(d) && d.getFullYear()===m.year && d.getMonth()===m.month;
+    });
+    const sums = new Array(cellCount).fill(0), counts = new Array(cellCount).fill(0);
+    monthSessions.forEach(s=>{
+      const profile = s[field];
+      if(!Array.isArray(profile)) return;
+      profile.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+    });
+    return simAggregateVamProfile(sums.map((sum,i)=> counts[i]>0 ? sum/counts[i] : null));
+  });
+}
 // Série temporelle d'un paramètre pour un athlète : un point par test pour
 // les paramètres physio, des instantanés glissants tous les
 // SIM_SNAPSHOT_STEP_WEEKS pour Volume/Montée/Descente.
@@ -1827,6 +1850,10 @@ function renderMain(){
       <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse de descente moyenne (m/h), même fenêtre.</div>
       ${vamProfileTableHtml(twin.vamDescentProfile, [0,1])}
 
+      <h3 style="margin:18px 0 6px;">Évolution mensuelle de la VAM</h3>
+      <div class="ls-chart-sub" style="margin-bottom:8px;">Montée et descente, moyenne par mois calendaire, sur tout l'historique Strava.</div>
+      <div class="ls-chart-wrap" id="twin-vam-chart-wrap"><canvas id="chart-twin-vam"></canvas></div>
+
       <div class="ls-field-row" style="margin-top:22px; align-items:center;">
         <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;"><input type="checkbox" id="twin-volume-run" ${twinVolumeIncludeRun?"checked":""}> CAP</label>
         <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;"><input type="checkbox" id="twin-volume-bike" ${twinVolumeIncludeBike?"checked":""}> Vélo</label>
@@ -2224,10 +2251,47 @@ function renderEnvChart(athlete, envSessions){
   });
 }
 
+// Graphique "Évolution mensuelle de la VAM" de l'onglet Jumeau numérique —
+// montée et descente, une valeur par mois calendaire sur tout l'historique
+// Strava de l'athlète (voir vamMonthlyAverage ci-dessus).
+function renderTwinVamChart(stravaSessions){
+  const wrap = document.getElementById("twin-vam-chart-wrap");
+  if(!wrap) return;
+  if(typeof Chart === "undefined"){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphique indisponible (bibliothèque non chargée). Rechargez la page.</div>';
+    return;
+  }
+  const dated = stravaSessions.filter(s=>!isNaN(new Date(s.date+"T00:00:00")));
+  if(dated.length === 0){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance Strava pour le moment.</div>';
+    return;
+  }
+  const allDates = dated.map(s=>new Date(s.date+"T00:00:00"));
+  const months = monthsBetween(new Date(Math.min.apply(null, allDates)), new Date(Math.max.apply(null, allDates)));
+  const climb = vamMonthlyAverage(stravaSessions, months, "vamClimbProfile", 15);
+  const descent = vamMonthlyAverage(stravaSessions, months, "vamDescentProfile", 10);
+  if(!climb.some(v=>v!=null) && !descent.some(v=>v!=null)){
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Pas encore assez de séances Strava avec profil VAM pour ce graphique.</div>';
+    return;
+  }
+  // Réinsère un <canvas> propre : un rendu précédent (aucune donnée, ou lib
+  // absente) peut avoir remplacé ce wrap par un message texte.
+  wrap.innerHTML = '<canvas id="chart-twin-vam"></canvas>';
+  charts.twinVam = new Chart(document.getElementById("chart-twin-vam"), {
+    type:"line",
+    data:{ labels: months.map(m=>monthLabelFr(m.year, m.month)), datasets:[
+      { label:"Montée", data: climb.map(v=>v!=null?Math.round(v):null), borderColor: cssVar("--cat-2"), backgroundColor:"transparent", borderWidth:2, pointRadius:3, tension:.25, spanGaps:true },
+      { label:"Descente", data: descent.map(v=>v!=null?Math.round(v):null), borderColor: cssVar("--cat-1"), backgroundColor:"transparent", borderWidth:2, pointRadius:3, tension:.25, spanGaps:true }
+    ]},
+    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"VAM (m/h)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+}
+
 // Point d'entrée unique pour (re)construire les graphiques de l'onglet actif
-// (entraînement ou rapport environnemental) — utilisé au premier rendu, lors
-// d'un changement de thème et lors du basculement d'onglet, pour éviter de
-// dupliquer cette logique de dispatch à plusieurs endroits.
+// (entraînement, rapport environnemental ou jumeau numérique) — utilisé au
+// premier rendu, lors d'un changement de thème et lors du basculement
+// d'onglet, pour éviter de dupliquer cette logique de dispatch à plusieurs
+// endroits.
 function renderActiveTabCharts(){
   if(!state) return;
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
@@ -2238,6 +2302,10 @@ function renderActiveTabCharts(){
     destroyCharts();
     const envSessions = state.sessions.filter(s=>s.athleteId===athlete.id && s.source==="strava");
     renderEnvChart(athlete, envSessions);
+  } else if(activeTab === "twin"){
+    destroyCharts();
+    const stravaSessions = state.sessions.filter(s=>s.athleteId===athlete.id && s.source==="strava");
+    renderTwinVamChart(stravaSessions);
   } else {
     destroyCharts();
   }
