@@ -388,6 +388,30 @@ function defaultChartPeriod(){
 }
 function ensureChartPeriod(){ if(!chartPeriod) chartPeriod = defaultChartPeriod(); return chartPeriod; }
 
+// Sélecteur de période dupliqué sur chaque graphique de l'onglet
+// Entraînement qu'il pilote (Charge, ACWR, Volume, Dénivelé, Zones de FC
+// hebdo, Zones d'allure, Efficacité physiologique) : un seul état
+// `chartPeriod` partagé, mais une instance du contrôle sur chaque carte —
+// modifier l'une met à jour toutes les autres au prochain rendu, sans avoir
+// à remonter en haut de page. `suffix` distingue les id (uniques dans le
+// DOM) de chaque instance ; voir les écouteurs dans renderMain().
+function periodBarHtml(suffix, note){
+  return `
+        <div class="ls-period-bar">
+          <div class="ls-field">
+            <label>Période — début</label>
+            <input type="date" id="period-start-${suffix}" value="${chartPeriod.start}" max="${chartPeriod.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Période — fin</label>
+            <input type="date" id="period-end-${suffix}" value="${chartPeriod.end}" min="${chartPeriod.start}">
+          </div>
+          <button class="ls-btn small ghost" type="button" id="btn-period-reset-${suffix}">Réinitialiser (6 mois)</button>
+          <div class="ls-period-note">${note}</div>
+        </div>`;
+}
+
 // Même principe que defaultChartPeriod/ensureChartPeriod, mais pour le
 // graphe "Durée réelle vs ajustée" : sur un historique profond (des années
 // de séances), le tracer en entier le rend illisible — on affiche donc par
@@ -1560,18 +1584,12 @@ function renderMain(){
       <p>${buildInsight(sessions, lastACWR, cls)}</p>
     </div>
 
-    <div class="ls-period-bar">
-      <div class="ls-field">
-        <label>Période — début</label>
-        <input type="date" id="period-start" value="${chartPeriod.start}" max="${chartPeriod.end}">
-      </div>
-      <div class="ls-period-arrow">→</div>
-      <div class="ls-field">
-        <label>Période — fin</label>
-        <input type="date" id="period-end" value="${chartPeriod.end}" min="${chartPeriod.start}">
-      </div>
-      <button class="ls-btn small ghost" type="button" id="btn-period-reset">Réinitialiser (6 mois)</button>
-      <div class="ls-period-note">Filtre les graphes ci-dessous sur cette période, et sert de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).</div>
+    <div class="ls-chart-sub" style="margin:0 0 8px;">Derniers tests de terrain (voir l'onglet Jumeau numérique pour l'historique complet et en ajouter de nouveaux).</div>
+    <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${twin.forceMax? twin.forceMax.value.toFixed(0) : "—"}<small> N${twin.forceMax? " · "+fmtDateFr(twin.forceMax.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${twin.vma? twin.vma.value.toFixed(1) : "—"}<small> km/h${twin.vma? " · "+fmtDateFr(twin.vma.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
     </div>
 
     <div class="ls-charts">
@@ -1584,21 +1602,25 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
         <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
+        ${periodBarHtml("load", `Période partagée par les 7 graphiques de cet onglet qui en dépendent — modifiable depuis n'importe lequel d'entre eux. Sert aussi de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).`)}
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Ratio charge aiguë / chronique (ACWR)</h3>
         <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
+        ${periodBarHtml("acwr", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
       </div>
       <div class="ls-chart-card">
         <h3>Volume hebdomadaire</h3>
         <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité — survolez une semaine pour le détail</div>
+        ${periodBarHtml("volume", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Dénivelé hebdomadaire par activité</h3>
         <div class="ls-chart-sub">Dénivelé positif et négatif, empilés par type d'activité</div>
+        ${periodBarHtml("elevation", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-subchart-grid">
           <div>
             <div class="ls-subchart-label">D+ (m)</div>
@@ -1613,11 +1635,12 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC</h3>
         <div class="ls-chart-sub">Minutes cumulées par semaine et par zone</div>
+        ${periodBarHtml("zones", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap"><canvas id="chart-zones"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC — historique complet</h3>
-        <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues (indépendant de la période choisie plus haut)</div>
+        <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues (indépendant de la période choisie sur les graphiques ci-dessus)</div>
         <div class="ls-field pdf-hide" style="max-width:280px;">
           <label>Activité</label>
           <select id="zones-total-activity">
@@ -1630,11 +1653,13 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones d'allure</h3>
         <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — course à pied et trail uniquement, indicateur de contrainte mécanique, calculé depuis les séances Strava (nécessite la table d'intensité complète)</div>
+        ${periodBarHtml("pace", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Efficacité physiologique</h3>
         <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)} (dégradé : mois ancien en terne → mois récent en couleur pleine). Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
+        ${periodBarHtml("physio", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
       <div class="ls-chart-card full">
@@ -1793,19 +1818,27 @@ function renderMain(){
     activeTab = b.getAttribute("data-tab");
     renderMain();
   }));
-  document.getElementById("period-start").addEventListener("change", e=>{
-    const v = e.target.value; if(!v) return;
-    chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
-    renderMain();
-  });
-  document.getElementById("period-end").addEventListener("change", e=>{
-    const v = e.target.value; if(!v) return;
-    chartPeriod = { start: v < chartPeriod.start ? v : chartPeriod.start, end: v };
-    renderMain();
-  });
-  document.getElementById("btn-period-reset").addEventListener("click", ()=>{
-    chartPeriod = defaultChartPeriod();
-    renderMain();
+  // Une instance du sélecteur de période par graphique qu'il pilote (voir
+  // periodBarHtml) : toutes partagent le même état chartPeriod, donc changer
+  // l'une déclenche un renderMain() qui remet les 6 autres à jour aussi.
+  ["load","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
+    const startEl = document.getElementById("period-start-"+suffix);
+    const endEl = document.getElementById("period-end-"+suffix);
+    const resetBtn = document.getElementById("btn-period-reset-"+suffix);
+    if(startEl) startEl.addEventListener("change", e=>{
+      const v = e.target.value; if(!v) return;
+      chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
+      renderMain();
+    });
+    if(endEl) endEl.addEventListener("change", e=>{
+      const v = e.target.value; if(!v) return;
+      chartPeriod = { start: v < chartPeriod.start ? v : chartPeriod.start, end: v };
+      renderMain();
+    });
+    if(resetBtn) resetBtn.addEventListener("click", ()=>{
+      chartPeriod = defaultChartPeriod();
+      renderMain();
+    });
   });
   document.getElementById("env-period-start").addEventListener("change", e=>{
     const v = e.target.value; if(!v) return;
