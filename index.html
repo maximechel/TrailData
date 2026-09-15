@@ -2024,11 +2024,14 @@ const zoneDonutLeaderLabelsPlugin = {
     const total = values.reduce((a,b)=>a+(b||0),0);
     if(total <= 0) return;
     const { ctx } = chart;
-    ctx.save();
-    ctx.font = "600 11.5px 'IBM Plex Mono', ui-monospace, monospace";
-    ctx.strokeStyle = cssVar("--axis");
-    ctx.fillStyle = cssVar("--text-secondary");
-    ctx.lineWidth = 1;
+
+    // Position "idéale" de chaque étiquette (avant anti-chevauchement),
+    // regroupée par côté gauche/droite du donut -- deux petites tranches
+    // voisines (ex : Zone 4 et Zone 5 toutes deux faibles) donnent sinon des
+    // étiquettes quasiment à la même hauteur, qui se superposent. Voir
+    // resolveOverlaps ci-dessous.
+    const LABEL_MIN_GAP = 18; // écart vertical minimal entre deux étiquettes empilées
+    const leftLabels = [], rightLabels = [];
     meta.data.forEach((arc, i)=>{
       const value = values[i];
       if(!value) return;
@@ -2039,9 +2042,35 @@ const zoneDonutLeaderLabelsPlugin = {
       const x1 = cx + cos*rOuter, y1 = cy + sin*rOuter;
       const x2 = cx + cos*(rOuter+18), y2 = cy + sin*(rOuter+18);
       const side = cos >= -0.001 ? 1 : -1;
-      const x3 = x2 + side*12, y3 = y2;
+      (side>0 ? rightLabels : leftLabels).push({ i, pct, x1, y1, x2, y: y2, side });
+    });
+
+    // Écarte les étiquettes qui se chevaucheraient verticalement, côté par
+    // côté : une passe du haut vers le bas (repousse chaque étiquette sous
+    // la précédente), puis du bas vers le haut (rattrape le cas où la
+    // première passe a fait déborder la dernière étiquette) -- technique
+    // standard pour les libellés externes de donut/camembert.
+    function resolveOverlaps(labels){
+      labels.sort((a,b)=>a.y-b.y);
+      for(let k=1;k<labels.length;k++){
+        if(labels[k].y < labels[k-1].y + LABEL_MIN_GAP) labels[k].y = labels[k-1].y + LABEL_MIN_GAP;
+      }
+      for(let k=labels.length-2;k>=0;k--){
+        if(labels[k].y > labels[k+1].y - LABEL_MIN_GAP) labels[k].y = labels[k+1].y - LABEL_MIN_GAP;
+      }
+    }
+    resolveOverlaps(leftLabels);
+    resolveOverlaps(rightLabels);
+
+    ctx.save();
+    ctx.font = "600 11.5px 'IBM Plex Mono', ui-monospace, monospace";
+    ctx.strokeStyle = cssVar("--axis");
+    ctx.fillStyle = cssVar("--text-secondary");
+    ctx.lineWidth = 1;
+    leftLabels.concat(rightLabels).forEach(({ i, pct, x1, y1, x2, y, side })=>{
+      const x3 = x2 + side*12, y3 = y;
       ctx.beginPath();
-      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3);
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y); ctx.lineTo(x3,y3);
       ctx.stroke();
       ctx.textAlign = side>0 ? "left" : "right";
       ctx.textBaseline = "middle";
