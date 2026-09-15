@@ -282,7 +282,6 @@ function volumeCategoryOf(type){
 }
 const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
 const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)","Plat / roulant (±4%)","Montée modérée (4-10%)","Montée soutenue (10-18%)","Montée forte (>18%)"];
-const MATRIX_BRANCHES = ["Endurance","Montée","Descente","Vitesse","Résilience","Physiologie"];
 const MATRIX_WINDOW_WEEKS = 6;
 const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
 
@@ -353,7 +352,7 @@ const CLIENT_PORTAL_URL = "https://maximechel.github.io/TrailData/client.html";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null, twinVam: null };
+let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, twinRadar: null, envTrend: null, twinVam: null };
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 // Cases CAP / Vélo du Volume dans l'onglet Jumeau numérique — cumulables
@@ -839,44 +838,6 @@ function weeklyElevationByCategory(sessions, startISO, endISO){
   return byWeek;
 }
 
-// Vitesse ajustée à la pente (GAP) moyenne par zone de FC, sur une fenêtre de
-// `weeks` semaines se terminant à `endDate` — moyenne des séances Strava ayant
-// une valeur pour cette zone (null si aucune séance de la fenêtre n'en a).
-function gapZoneAverage(sessions, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
-  sessions.forEach(s=>{
-    if(!Array.isArray(s.gapByHrZone)) return;
-    const d = new Date(s.date+"T00:00:00");
-    if(isNaN(d) || d < start || d > endDate) return;
-    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
-  });
-  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
-}
-
-// Vitesse de pointe : moyenne, sur une fenêtre glissante de `weeks` semaines
-// se terminant à endDate, du meilleur segment de 30 secondes soutenues de
-// chaque séance, restreint au terrain plat/roulant (gapPeak30s, calculé côté
-// serveur depuis les flux Strava bruts, pente entre -4% et +4% — voir
-// strava-webhook). Contrairement à gapZoneAverage, cette valeur est
-// indépendante de la FC : elle ne rate pas les accélérations courtes
-// (fractionnés, relances techniques) que la fréquence cardiaque, plus lente
-// à réagir, ne voit pas toujours à temps. Se limiter au plat évite aussi de
-// dépendre du modèle de coût énergétique sur pentes fortes et de la prise de
-// risque propre à la descente (une séance sans segment plat de 30s ne
-// contribue simplement pas, plutôt que d'afficher une valeur trompeuse).
-function peakGapAverage(sessions, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  let sum = 0, count = 0;
-  sessions.forEach(s=>{
-    if(s.gapPeak30s == null) return;
-    const d = new Date(s.date+"T00:00:00");
-    if(isNaN(d) || d < start || d > endDate) return;
-    sum += s.gapPeak30s; count++;
-  });
-  return count > 0 ? Math.round((sum/count)*10)/10 : null;
-}
-
 /* ---------------------------- Rapport environnemental (réplique Enduraw) ---------------------------- */
 // Facteurs déjà calculés côté serveur (strava-webhook / strava-backfill-gap :
 // chaleur WBGT, altitude, vent — voir commentaires de colonnes sur
@@ -979,8 +940,8 @@ function envRowHtml(s){
   </tr>`;
 }
 
-// Même moyenne GAP par zone de FC que gapZoneAverage, mais sur un sous-
-// ensemble de séances déjà filtré (ex : un mois calendaire) plutôt que sur
+// Moyenne GAP par zone de FC sur un sous-ensemble de séances déjà filtré
+// (ex : un mois calendaire) plutôt que sur
 // une fenêtre glissante — sert au graphique "Efficacité physiologique", qui
 // trace une courbe par mois plutôt qu'un simple avant/après.
 function gapZoneAverageOf(sessionsSubset){
@@ -1024,25 +985,17 @@ function mixHexColors(hexA, hexB, t){
   return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
 }
 
-// Même principe que gapZoneAverage, mais par tranche de pente (6 tranches)
-// plutôt que par zone de FC — sert au graphe "Profil terrain".
-// Les 6 tranches de gapByGrade sont, dans l'ordre : descente forte, descente
-// modérée, plat, montée modérée, montée soutenue, montée forte (voir
-// GRADE_BUCKET_LABELS). On corrige chaque tranche par le coefficient de
-// technicité que le coach a saisi pour cette séance (montée / descente / plat
-// séparément) avant de moyenner entre séances — un terrain technique fait
-// naturellement baisser le GAP brut à effort égal, ce coefficient « rend » au
-// coureur la difficulté supplémentaire du terrain, en plus de la pente.
-function gapGradeAverage(sessions, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  return gapGradeAverageInRange(sessions, start, endDate);
-}
-
-// Même calcul que gapGradeAverage, mais sur un intervalle [startDate,endDate]
-// explicite plutôt qu'une fenêtre glissante de N semaines — sert au
-// graphique "Profil terrain", dont les deux périodes de comparaison sont
-// choisies librement par le coach plutôt que dérivées automatiquement de la
-// période affichée plus haut.
+// GAP moyen par tranche de pente (6 tranches), sur un intervalle
+// [startDate,endDate] explicite plutôt qu'une fenêtre glissante — sert au
+// graphe "Profil terrain", dont les deux périodes de comparaison sont
+// choisies librement par le coach. Les 6 tranches de gapByGrade sont, dans
+// l'ordre : descente forte, descente modérée, plat, montée modérée, montée
+// soutenue, montée forte (voir GRADE_BUCKET_LABELS). On corrige chaque
+// tranche par le coefficient de technicité que le coach a saisi pour cette
+// séance (montée / descente / plat séparément) avant de moyenner entre
+// séances — un terrain technique fait naturellement baisser le GAP brut à
+// effort égal, ce coefficient « rend » au coureur la difficulté
+// supplémentaire du terrain, en plus de la pente.
 function gapGradeAverageInRange(sessions, startDate, endDate){
   const sums = [0,0,0,0,0,0], counts = [0,0,0,0,0,0];
   sessions.forEach(s=>{
@@ -1058,58 +1011,6 @@ function gapGradeAverageInRange(sessions, startDate, endDate){
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
 
-/* ---------------------------- Runner Matrix : scores 0-100 ---------------------------- */
-//
-// Chaque branche est une métrique déjà calculée ailleurs dans l'app (charge
-// chronique, GAP par zone de FC, GAP par tranche de pente, stabilité de
-// l'ACWR), ramenée à une note 0-100 par rapport au propre historique de
-// l'athlète : 0 = la valeur la plus basse jamais observée sur une fenêtre
-// glissante de 6 semaines, 100 = la plus haute. Pas de barème absolu, pas de
-// comparaison à d'autres coureurs — uniquement la progression de l'athlète
-// face à lui-même.
-//
-//  Endurance   → charge chronique (28j) : capacité aérobie accumulée.
-//  Montée      → GAP moyen sur les tranches de pente ascendantes (4-10 / 10-18 / >18%).
-//  Descente    → GAP moyen sur les tranches de pente descendantes (>12% / 4-12%).
-//  Vitesse     → meilleur segment de 30 secondes soutenues sur terrain plat/roulant
-//                (pente entre -4% et +4%, même tranche que Profil terrain),
-//                indépendant de la FC : capte les accélérations courtes et
-//                techniques (fractionnés) que la fréquence cardiaque, trop lente à
-//                réagir, ne voit pas toujours à temps — sans le biais du modèle de
-//                coût énergétique sur pentes fortes ni la prise de risque en descente.
-//  Résilience  → % du temps passé en zone ACWR "optimale"/"prudence" (0.8-1.5) sur 12 semaines,
-//                plutôt qu'en sous-charge ou en risque élevé.
-//  Physiologie → GAP moyen toutes zones de FC confondues : efficacité aérobie globale.
-
-function seriesValueAt(dates, arr, endDate){
-  const endStr = fmtDate(endDate);
-  let idx = -1;
-  for(let i=0;i<dates.length;i++){ if(dates[i] <= endStr) idx = i; else break; }
-  return idx >= 0 ? arr[idx] : null;
-}
-
-function avgIgnoreNull(arr){
-  const v = arr.filter(x=>x!=null);
-  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
-}
-
-// % des jours de la fenêtre passés avec un ACWR en zone "optimale" ou "prudence"
-// (0.8-1.5) plutôt qu'en sous-charge ou en risque élevé — un entraînement stable,
-// sans à-coups dangereux, plutôt qu'une charge qui alterne excès et sous-régime.
-function resilienceRatioAt(dates, acwr, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  let total = 0, safe = 0;
-  dates.forEach((dStr, i) => {
-    const d = new Date(dStr+"T00:00:00");
-    if(d < start || d > endDate) return;
-    const v = acwr[i];
-    if(v == null) return;
-    total++;
-    if(v >= 0.8 && v < 1.5) safe++;
-  });
-  return total > 0 ? Math.round((safe/total)*1000)/10 : null;
-}
-
 // Fenêtre (en semaines) utilisée pour moyenner les métriques autour de
 // chaque date comparée, dérivée de la longueur de la période choisie par le
 // coach : jusqu'à MATRIX_WINDOW_WEEKS (6), mais jamais plus de la moitié de
@@ -1120,50 +1021,6 @@ function periodWeeksBetween(startDate, endDate){
 }
 function comparisonWindowWeeksFor(startDate, endDate){
   return Math.max(1, Math.min(MATRIX_WINDOW_WEEKS, Math.floor(periodWeeksBetween(startDate, endDate)/2)));
-}
-
-// Valeur brute de chacune des 6 branches à une date donnée (fenêtre de
-// `windowWeeks` semaines se terminant à endDate), dans l'ordre MATRIX_BRANCHES.
-function matrixRawValuesAt(sessions, dates, chronic, acwr, endDate, windowWeeks){
-  windowWeeks = windowWeeks || MATRIX_WINDOW_WEEKS;
-  const gapZ = gapZoneAverage(sessions, endDate, windowWeeks);
-  const gapG = gapGradeAverage(sessions, endDate, windowWeeks);
-  return [
-    seriesValueAt(dates, chronic, endDate),                    // Endurance
-    avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),                 // Montée
-    avgIgnoreNull([gapG[0], gapG[1]]),                          // Descente
-    peakGapAverage(sessions, endDate, windowWeeks),             // Vitesse
-    resilienceRatioAt(dates, acwr, endDate, windowWeeks*2),     // Résilience
-    avgIgnoreNull(gapZ),                                        // Physiologie
-  ];
-}
-
-// Historique hebdomadaire (une valeur par semaine sur toute l'histoire de
-// l'athlète) de chacune des 6 branches — sert de référentiel min/max pour
-// noter 0-100. Coûteux (une passe par semaine d'historique) mais l'échelle
-// reste petite pour un coach individuel.
-function buildMatrixHistories(sessions, dates, chronic, acwr, windowWeeks){
-  if(!sessions.length) return MATRIX_BRANCHES.map(()=>[]);
-  const firstDate = new Date(sessions.map(s=>s.date).sort()[0]+"T00:00:00");
-  const today = new Date();
-  const histories = MATRIX_BRANCHES.map(()=>[]);
-  for(let d = new Date(firstDate); d <= today; d.setDate(d.getDate()+7)){
-    const values = matrixRawValuesAt(sessions, dates, chronic, acwr, new Date(d), windowWeeks);
-    values.forEach((v,i)=>{ if(v!=null) histories[i].push(v); });
-  }
-  return histories;
-}
-
-function scoreFromHistory(history, value){
-  if(value == null || history.length < 6) return null;
-  const min = Math.min(...history), max = Math.max(...history);
-  if(max - min < 1e-9) return 50;
-  return Math.round(Math.max(0, Math.min(100, (value-min)/(max-min)*100)));
-}
-
-function matrixScoresAt(sessions, dates, chronic, acwr, endDate, histories, windowWeeks){
-  const raw = matrixRawValuesAt(sessions, dates, chronic, acwr, endDate, windowWeeks);
-  return raw.map((v,i)=> scoreFromHistory(histories[i], v));
 }
 
 function sum7(sessions){
@@ -1183,7 +1040,8 @@ function sum7(sessions){
 // 5. Montée  -> profil VAM (m/h) par zone FC (5) x tranche de pente montante
 //    (3 : 4-10/10-18/>18%), calculé côté serveur (vamClimbProfile, 15 valeurs,
 //    index = zone*3+tranche) et simplement moyenné ici entre séances de la
-//    fenêtre, case par case (même principe que gapZoneAverage).
+//    fenêtre, case par case (une séance sans valeur pour une case donnée
+//    ne contribue simplement pas à cette case).
 // 6. Descente -> même chose, profil VAM descente (10 valeurs, zone*2+tranche).
 // 7. Volume -> moyenne hebdomadaire glissante sur 6 mois, en km et en heures.
 
@@ -1210,7 +1068,7 @@ function latestSpeedTest(athleteId, testType){
 
 // Moyenne, entre séances Strava de la fenêtre, d'un profil VAM plat (climb:
 // 15 cases zone*3+tranche, descent: 10 cases zone*2+tranche) déjà moyenné par
-// séance côté serveur — même principe que gapZoneAverage : une séance sans
+// séance côté serveur : une séance sans
 // donnée pour une case donnée ne contribue simplement pas à cette case.
 function vamProfileAverage(sessions, endDate, weeks, field, cellCount){
   const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
@@ -1438,6 +1296,22 @@ function simFormatValue(key, value){
   if(key==="volume") return value.toFixed(1)+" km/sem.";
   if(key==="montee" || key==="descente") return value.toFixed(0)+" m/h";
   return String(value);
+}
+
+// Score 0-10 d'un paramètre du jumeau numérique par rapport à sa propre
+// plage observée chez cet athlète (0 = son plus bas, 10 = son plus haut) --
+// alimente le radar "Profil du coureur" (onglet Entraînement), qui a
+// remplacé l'ancien Runner Matrix basé sur l'historique GAP par zone/pente.
+// Réutilise directement les séries du simulateur (simParamSeries) : au
+// moins 2 points sont nécessaires pour établir une plage (un paramètre
+// jamais testé/observé deux fois renvoie null, affiché à 0 avec une note
+// dédiée plutôt qu'un score trompeur).
+function twinRadarScoreFromSeries(series, currentValue){
+  if(currentValue == null || series.length < 2) return null;
+  const vals = series.map(p=>p.value);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  if(max - min < 1e-9) return 5;
+  return Math.round(Math.max(0, Math.min(10, (currentValue-min)/(max-min)*10)));
 }
 // Pour chaque paramètre non déplacé, prédit sa valeur (moyenne des
 // prédictions si deux paramètres sont déplacés) via la régression sur
@@ -1684,15 +1558,15 @@ function renderMain(){
         <input type="date" id="period-end" value="${chartPeriod.end}" min="${chartPeriod.start}">
       </div>
       <button class="ls-btn small ghost" type="button" id="btn-period-reset">Réinitialiser (6 mois)</button>
-      <div class="ls-period-note">Filtre les graphes ci-dessous sur cette période, et sert de comparaison pour le Runner Matrix, l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).</div>
+      <div class="ls-period-note">Filtre les graphes ci-dessous sur cette période, et sert de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).</div>
     </div>
 
     <div class="ls-charts">
       <div class="ls-chart-card full">
-        <h3>Profil du coureur — Runner Matrix</h3>
-        <div class="ls-chart-sub">6 branches notées 0-100 par rapport au propre historique de l'athlète (0 = son plus bas niveau observé, 100 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}. Montée et Descente sont corrigées de la technicité du terrain saisie par séance.</div>
-        <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
-        <div class="ls-matrix-note" id="matrix-note"></div>
+        <h3>Profil du coureur — Jumeau numérique</h3>
+        <div class="ls-chart-sub">7 paramètres du jumeau numérique, notés de 0 à 10 par rapport à leur propre plage observée chez cet athlète (0 = son plus bas niveau, 10 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Instantané à la date du jour : Force/VMA/Seuils viennent du dernier test de terrain, Volume/Montée/Descente des séances Strava récentes.</div>
+        <div class="ls-chart-wrap radar" id="twin-radar-chart-wrap"><canvas id="chart-twin-radar"></canvas></div>
+        <div class="ls-matrix-note" id="twin-radar-note"></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
@@ -2322,7 +2196,6 @@ function renderChartsInner(athlete){
   const periodStartStr = chartPeriod.start, periodEndStr = chartPeriod.end;
   const periodStart = new Date(periodStartStr+"T00:00:00");
   const periodEnd = new Date(periodEndStr+"T00:00:00");
-  const oldLabel = fmtDateFr(periodStart), newLabel = fmtDateFr(periodEnd);
 
   // Slice les séries journalières (Charge / ACWR) sur la période choisie
   // plutôt que sur une fenêtre glissante fixe.
@@ -2333,36 +2206,36 @@ function renderChartsInner(athlete){
   const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
   const labels = sl(dates).map(d=> fmtDayMonth(d));
 
-  const matrixWrap = document.getElementById("matrix-chart-wrap");
-  const matrixNote = document.getElementById("matrix-note");
-  const cmpWindowWeeks = comparisonWindowWeeksFor(periodStart, periodEnd);
-  const histories = buildMatrixHistories(sessions, dates, chronic, acwr, cmpWindowWeeks);
-  const scoresNow = matrixScoresAt(sessions, dates, chronic, acwr, periodEnd, histories, cmpWindowWeeks);
-  const scoresPast = matrixScoresAt(sessions, dates, chronic, acwr, periodStart, histories, cmpWindowWeeks);
-  const hasAnyScore = scoresNow.some(v=>v!=null);
-  if(hasAnyScore && matrixWrap){
-    const missing = MATRIX_BRANCHES.filter((_,i)=>scoresNow[i]==null);
-    matrixNote.textContent = missing.length
-      ? `Historique encore insuffisant pour : ${missing.join(", ")} — ces branches s'affichent à 0 en attendant plus de séances Strava.`
+  const twinRadarWrap = document.getElementById("twin-radar-chart-wrap");
+  const twinRadarNote = document.getElementById("twin-radar-note");
+  const athleteTestsForRadar = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id);
+  const twinRadarSeries = SIM_PARAMS.map(p=> simParamSeries(sessions, athleteTestsForRadar, p.key));
+  const twinRadarCurrent = twinRadarSeries.map(s=> s.length ? s[s.length-1].value : null);
+  const twinRadarScores = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, twinRadarCurrent[i]));
+  const hasAnyTwinScore = twinRadarScores.some(v=>v!=null);
+  if(hasAnyTwinScore && twinRadarWrap){
+    const missing = SIM_PARAMS.filter((p,i)=>twinRadarScores[i]==null).map(p=>p.label);
+    twinRadarNote.textContent = missing.length
+      ? `Historique encore insuffisant pour : ${missing.join(", ")} — ces axes s'affichent à 0 en attendant plus de données.`
       : "";
-    charts.matrix = new Chart(document.getElementById("chart-matrix"), {
+    charts.twinRadar = new Chart(document.getElementById("chart-twin-radar"), {
       type:"radar",
-      data:{ labels: MATRIX_BRANCHES, datasets:[
-        { label: oldLabel, data: scoresPast.map(v=>v??0), borderColor: cssVar("--text-muted"), backgroundColor: cssVar("--text-muted")+"22", borderWidth:2, borderDash:[4,3], pointRadius:2, pointBackgroundColor: cssVar("--text-muted") },
-        { label: newLabel, data: scoresNow.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
+      data:{ labels: SIM_PARAMS.map(p=>p.label), datasets:[
+        { label:"Actuel", data: twinRadarScores.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+        plugins:{ legend:{ display:false },
           tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
-            borderColor: cssVar("--border"), borderWidth:1, padding:10 } },
-        scales:{ r:{ min:0, max:100, ticks:{ display:false, stepSize:25 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
+            borderColor: cssVar("--border"), borderWidth:1, padding:10,
+            callbacks:{ label: ctx => ` ${simFormatValue(SIM_PARAMS[ctx.dataIndex].key, twinRadarCurrent[ctx.dataIndex])} · ${twinRadarScores[ctx.dataIndex]??0}/10` } } },
+        scales:{ r:{ min:0, max:10, ticks:{ display:false, stepSize:2 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
           pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Manrope", size:11.5, weight:600} } } }
       }
     });
-  } else if(matrixWrap){
-    matrixWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite un historique de séances (idéalement importées depuis Strava) pour calculer les 6 branches.</div>';
-    if(matrixNote) matrixNote.textContent = "";
+  } else if(twinRadarWrap){
+    twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite au moins deux tests de terrain ou séances Strava par paramètre pour calculer un score.</div>';
+    if(twinRadarNote) twinRadarNote.textContent = "";
   }
 
   charts.load = new Chart(document.getElementById("chart-load"), {
@@ -2599,7 +2472,7 @@ function openSessionModal(athleteId, sessionId){
         </div>
         <div class="ls-field">
           <label>Technicité du terrain</label>
-          <div class="ls-modal-sub" style="margin:-2px 0 8px;">Corrige le GAP par tranche de pente (Profil terrain, branches Montée/Descente du Runner Matrix) — un terrain technique ralentit à effort égal.</div>
+          <div class="ls-modal-sub" style="margin:-2px 0 8px;">Corrige le GAP par tranche de pente (Profil terrain) — un terrain technique ralentit à effort égal.</div>
           <div class="ls-field-row3">
             <div class="ls-field"><label>Montée</label><select name="technicityClimb">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicityClimb:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select></div>
             <div class="ls-field"><label>Descente</label><select name="technicityDescent">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicityDescent:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select></div>
