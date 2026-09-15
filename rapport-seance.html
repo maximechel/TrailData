@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Analyse de séance — Ruthène Coach'in</title>
+<meta name="description" content="Dépose ta séance (fichier .fit) et reçois gratuitement une analyse de l'impact des conditions du jour (chaleur, altitude, vent, terrain) sur ta performance, comparée à ce que tu aurais fait dans des conditions neutres.">
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#f9f9f7; --surface:#fcfcfb; --surface-2:#f3f2ee;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --accent-ink:#ffffff;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --good-ink:#ffffff; --warning-ink:#2b1c00; --serious-ink:#341000; --critical-ink:#ffffff;
+    --z1:#5598e7; --z2:#1baf7a; --z3:#eda100; --z4:#eb6834; --z5:#d03b3b;
+    --font-ui:'Manrope',system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#222220;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5;
+    }
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text-primary);font-family:var(--font-ui);}
+  .wrap{max-width:760px;margin:0 auto;padding:24px 18px 64px;}
+  a{color:var(--accent);}
+
+  /* ---------- en-tête ---------- */
+  .rs-header{display:flex;align-items:center;gap:14px;padding:6px 2px 22px;}
+  .rs-header img{height:52px;width:auto;}
+  .rs-header h1{font-size:19px;margin:0;line-height:1.25;}
+  .rs-header p{margin:2px 0 0;color:var(--text-muted);font-size:13px;}
+
+  /* ---------- cartes / panneaux ---------- */
+  .rs-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:18px;}
+  .rs-card h2{font-size:16px;margin:0 0 6px;}
+  .rs-card .rs-sub{color:var(--text-muted);font-size:13px;margin:0 0 16px;line-height:1.5;}
+
+  /* ---------- formulaires ---------- */
+  .rs-field{margin-bottom:14px;}
+  .rs-field label{display:block;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.02em;margin-bottom:5px;}
+  .rs-field input, .rs-field select{
+    width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);
+    background:var(--surface-2);color:var(--text-primary);font-family:var(--font-ui);font-size:14px;
+  }
+  .rs-field .rs-hint{font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.45;}
+  .rs-row{display:flex;gap:12px;flex-wrap:wrap;}
+  .rs-row > .rs-field{flex:1;min-width:150px;}
+
+  .rs-btn{
+    font-family:var(--font-ui);font-size:14px;font-weight:700;border-radius:11px;padding:12px 20px;
+    border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);cursor:pointer;
+  }
+  .rs-btn.primary{background:var(--accent);color:#fff;border-color:transparent;width:100%;}
+  .rs-btn.primary:disabled{opacity:.5;cursor:not-allowed;}
+  .rs-btn.ghost{background:transparent;}
+
+  /* ---------- zone d'upload ---------- */
+  .rs-drop{
+    border:2px dashed var(--border);border-radius:14px;padding:28px 16px;text-align:center;cursor:pointer;
+    color:var(--text-muted);font-size:13.5px;transition:border-color .15s, background .15s;
+  }
+  .rs-drop.drag{border-color:var(--accent);background:var(--surface-2);}
+  .rs-drop strong{color:var(--text-primary);}
+  .rs-drop input{display:none;}
+  .rs-file-picked{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);font-size:13px;margin-top:12px;}
+  .rs-file-picked button{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;text-decoration:underline;}
+
+  /* ---------- résumé séance ---------- */
+  .rs-summary-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(110px,1fr));gap:10px;margin-top:14px;}
+  .rs-summary-tile{background:var(--surface-2);border-radius:10px;padding:10px 12px;}
+  .rs-summary-tile .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-muted);}
+  .rs-summary-tile .v{font-size:16px;font-weight:800;margin-top:2px;}
+
+  /* ---------- stat comparatif durée ---------- */
+  .rs-compare{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap;}
+  .rs-compare-box{flex:1;min-width:150px;background:var(--surface-2);border-radius:12px;padding:16px;text-align:center;}
+  .rs-compare-box .l{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.02em;}
+  .rs-compare-box .v{font-size:26px;font-weight:800;margin-top:6px;}
+  .rs-compare-arrow{align-self:center;color:var(--text-muted);font-size:20px;padding:0 2px;}
+  .rs-delta{text-align:center;margin-top:12px;font-size:13.5px;color:var(--text-secondary);}
+  .rs-delta strong{color:var(--text-primary);}
+
+  /* ---------- badges sévérité (mêmes couleurs que l'appli coach) ---------- */
+  .rs-badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:800;}
+  .rs-badge.good{background:var(--good);color:var(--good-ink);}
+  .rs-badge.warning{background:var(--warning);color:var(--warning-ink);}
+  .rs-badge.serious{background:var(--serious);color:var(--serious-ink);}
+  .rs-badge.critical{background:var(--critical);color:var(--critical-ink);}
+  .rs-badge.none{background:var(--surface-2);color:var(--text-muted);}
+
+  /* ---------- facteurs (barres) ---------- */
+  .rs-factor-row{margin-bottom:14px;}
+  .rs-factor-row .rs-factor-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px;}
+  .rs-factor-row .rs-factor-name{font-weight:700;}
+  .rs-factor-bar-wrap{height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden;}
+  .rs-factor-bar{height:100%;border-radius:999px;}
+
+  .rs-chart-wrap{position:relative;height:220px;margin-top:6px;}
+  .rs-chart-wrap.short{height:150px;}
+
+  .rs-meteo-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(120px,1fr));gap:10px;margin-top:8px;}
+  .rs-meteo-tile{text-align:center;padding:10px 6px;}
+  .rs-meteo-tile .l{font-size:10.5px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.02em;}
+  .rs-meteo-tile .v{font-size:15px;font-weight:800;margin-top:3px;}
+
+  /* ---------- pied de page contact ---------- */
+  .rs-cta{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px 22px;text-align:center;}
+  .rs-cta img{height:64px;width:auto;margin-bottom:12px;}
+  .rs-cta h2{margin:0 0 6px;font-size:17px;}
+  .rs-cta p{color:var(--text-secondary);font-size:13.5px;margin:0 0 16px;line-height:1.55;}
+  .rs-cta-links{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
+  .rs-cta-links a{
+    display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);
+    text-decoration:none;font-size:13px;font-weight:700;
+  }
+  .rs-cta-links a.primary{background:var(--accent);color:#fff;border-color:transparent;}
+
+  .rs-footer-note{text-align:center;color:var(--text-muted);font-size:11.5px;margin-top:18px;line-height:1.6;}
+
+  .rs-error{background:rgba(208,59,59,0.1);border:1px solid var(--critical);color:var(--text-primary);border-radius:10px;padding:12px 14px;font-size:13px;margin-top:12px;}
+  .rs-loading{display:flex;align-items:center;gap:10px;color:var(--text-muted);font-size:13.5px;padding:8px 2px;}
+  .rs-spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:rsspin .7s linear infinite;}
+  @keyframes rsspin{to{transform:rotate(360deg);}}
+
+  [hidden]{display:none!important;}
+
+  @media (max-width:480px){
+    .rs-compare{flex-direction:column;}
+    .rs-compare-arrow{transform:rotate(90deg);}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="rs-header">
+    <img src="logo-ruthene-icon.png" alt="Ruthène Coach'in">
+    <div>
+      <h1>Analyse de séance</h1>
+      <p>Dépose ta séance et découvre l'impact réel des conditions du jour — offert par Ruthène Coach'in</p>
+    </div>
+  </div>
+
+  <!-- ============ ÉTAPE 1 : upload + profil ============ -->
+  <div id="step-upload" class="rs-card">
+    <h2>1. Ta séance</h2>
+    <p class="rs-sub">Exporte ta séance depuis Strava, Garmin Connect (ou une autre plateforme) au format <strong>.fit</strong> — c'est le format le plus complet, celui qui contient vraiment ce que ta montre a enregistré. Rien n'est envoyé sur un serveur pendant l'analyse : tout est calculé directement dans ton navigateur.</p>
+
+    <div class="rs-drop" id="rs-drop">
+      <div id="rs-drop-label"><strong>Clique pour choisir un fichier</strong><br>ou dépose-le ici — .fit uniquement</div>
+      <input type="file" id="rs-file-input" accept=".fit">
+    </div>
+    <div id="rs-file-picked" class="rs-file-picked" hidden>
+      <span id="rs-file-name"></span>
+      <button type="button" id="rs-file-clear">Retirer</button>
+    </div>
+    <div id="rs-parse-status"></div>
+
+    <div id="rs-summary" hidden>
+      <div class="rs-summary-grid" id="rs-summary-grid"></div>
+    </div>
+
+    <div id="rs-profile-form" hidden style="margin-top:20px;">
+      <h2 style="font-size:14px;">Quelques infos pour affiner le calcul</h2>
+      <div class="rs-row">
+        <div class="rs-field">
+          <label>FC max (bpm)</label>
+          <input type="number" id="rs-fcmax" min="120" max="230" placeholder="ex : 188">
+          <div class="rs-hint">Sert à calculer tes zones de fréquence cardiaque. Si tu ne la connais pas précisément, une estimation courante est 220 − ton âge.</div>
+        </div>
+        <div class="rs-field">
+          <label>Poids (kg)</label>
+          <input type="number" id="rs-weight" min="30" max="150" value="70">
+          <div class="rs-hint">Utilisé pour estimer l'impact du vent (traînée aérodynamique).</div>
+        </div>
+      </div>
+      <div class="rs-field">
+        <label>Technicité du terrain</label>
+        <select id="rs-terrain">
+          <option value="route">Route (bitume, très roulant)</option>
+          <option value="roulant" selected>Chemin roulant</option>
+          <option value="normal">Sentier normal</option>
+          <option value="technique">Technique (racines, cailloux)</option>
+          <option value="tres_technique">Très technique (terrain accidenté)</option>
+        </select>
+        <div class="rs-hint">Estimation globale pour toute la séance — l'outil du coach permet un réglage plus fin (montée/plat/descente séparément).</div>
+      </div>
+      <button type="button" id="rs-btn-analyze" class="rs-btn primary" disabled>Voir mon rapport</button>
+    </div>
+  </div>
+
+  <!-- ============ ÉTAPE 2 : formulaire de contact ============ -->
+  <div id="step-contact" class="rs-card" hidden>
+    <h2>2. Où t'envoyer le lien vers ton rapport ?</h2>
+    <p class="rs-sub">Laisse ton prénom/nom et ton email pour débloquer ton analyse — Maxime pourra aussi te recontacter si tu le souhaites, sans aucune obligation.</p>
+    <div class="rs-field">
+      <label>Nom</label>
+      <input type="text" id="rs-lead-name" placeholder="Ton prénom et nom">
+    </div>
+    <div class="rs-field">
+      <label>Email</label>
+      <input type="email" id="rs-lead-email" placeholder="toi@exemple.fr">
+    </div>
+    <div id="rs-lead-error"></div>
+    <button type="button" id="rs-btn-unlock" class="rs-btn primary">Voir mon rapport</button>
+  </div>
+
+  <!-- ============ ÉTAPE 3 : rapport ============ -->
+  <div id="step-report" hidden>
+    <div id="rs-report-capture">
+
+      <div class="rs-card">
+        <h2 id="rs-report-title">Ta séance</h2>
+        <p class="rs-sub" id="rs-report-date"></p>
+        <div class="rs-summary-grid" id="rs-report-summary"></div>
+      </div>
+
+      <div class="rs-card">
+        <h2>Durée réelle vs conditions neutres</h2>
+        <p class="rs-sub">Ce qu'aurait duré ta séance sans chaleur, à basse altitude, sans vent et sur terrain roulant — pour comparer équitablement des séances faites dans des conditions différentes.</p>
+        <div class="rs-compare">
+          <div class="rs-compare-box">
+            <div class="l">Durée réelle</div>
+            <div class="v" id="rs-duration-real"></div>
+          </div>
+          <div class="rs-compare-arrow">→</div>
+          <div class="rs-compare-box">
+            <div class="l">En conditions neutres</div>
+            <div class="v" id="rs-duration-neutral"></div>
+          </div>
+        </div>
+        <div class="rs-delta" id="rs-duration-delta"></div>
+      </div>
+
+      <div class="rs-card">
+        <h2>Impact par facteur</h2>
+        <p class="rs-sub">Part de ralentissement estimée, attribuée à chaque facteur pris séparément.</p>
+        <div id="rs-factors"></div>
+        <div class="rs-meteo-grid" id="rs-meteo-grid"></div>
+      </div>
+
+      <div class="rs-card">
+        <h2>Zones de fréquence cardiaque</h2>
+        <div class="rs-chart-wrap"><canvas id="rs-chart-zones"></canvas></div>
+      </div>
+
+      <div class="rs-card">
+        <h2>Allure &amp; dénivelé</h2>
+        <div class="rs-summary-grid" id="rs-pace-summary"></div>
+      </div>
+
+    </div>
+
+    <div style="margin-bottom:18px;">
+      <button type="button" id="rs-btn-pdf" class="rs-btn ghost" style="width:100%;">Télécharger le rapport en PDF</button>
+    </div>
+
+    <div class="rs-cta">
+      <img src="logo-ruthene-coachin.png" alt="Ruthène Coach'in">
+      <h2>Envie d'aller plus loin ?</h2>
+      <p>Ce rapport n'est qu'un aperçu de ce qu'un vrai suivi personnalisé peut t'apporter. Parlons de tes objectifs.</p>
+      <div class="rs-cta-links">
+        <a class="primary" id="rs-cta-mail" href="#">M'écrire</a>
+        <a id="rs-cta-site" href="https://ruthene-coachin.fr" target="_blank" rel="noopener">Le site</a>
+        <a id="rs-cta-insta" href="https://www.instagram.com/ruthene_coachin/" target="_blank" rel="noopener">Instagram</a>
+      </div>
+    </div>
+  </div>
+
+  <p class="rs-footer-note">Analyse indicative, à but informatif — ne remplace pas un avis médical ou l'accompagnement d'un coach. Calculs inspirés de la littérature scientifique sur la chaleur (WBGT), l'altitude (Peronnet 1991) et le vent (traînée aérodynamique).</p>
+</div>
+
+<script src="chart.umd.min.js"></script>
+<script src="fit-sdk.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   Config
+   ============================================================ */
+const SUPABASE_URL = "https://ibhrdpzcrwofltleylxr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_DStzNIJ3htId_fsuFMpm2g_T1onYb-5";
+const COACH_SIGNATURE = { name: "Maxime Chelda", role: "Préparateur physique", email: "maxime@ruthene-coachin.fr" };
+
+/* ============================================================
+   Formules environnementales — dupliquées depuis la fonction
+   Supabase strava-webhook (mêmes constantes, mêmes seuils) pour
+   que le calcul d'un visiteur anonyme donne EXACTEMENT le même
+   résultat que celui que verrait le coach dans son tableau de
+   bord pour une séance importée depuis Strava.
+   ============================================================ */
+function vaporPressureHpa(tempC, rhPct){
+  return (rhPct/100) * 6.105 * Math.exp(17.27*tempC/(237.7+tempC));
+}
+function wbgtSimplified(tempC, rhPct){
+  const e = vaporPressureHpa(tempC, rhPct);
+  return 0.567*tempC + 0.393*e + 3.94;
+}
+const HEAT_ANCHORS = [[10,0],[15,0.085],[20,0.13],[27,0.275]];
+function heatSlowdownFraction(wbgtC){
+  if(wbgtC <= HEAT_ANCHORS[0][0]) return 0;
+  for(let i=1;i<HEAT_ANCHORS.length;i++){
+    const [x0,y0]=HEAT_ANCHORS[i-1], [x1,y1]=HEAT_ANCHORS[i];
+    if(wbgtC <= x1){ const t=(wbgtC-x0)/(x1-x0); return y0 + t*(y1-y0); }
+  }
+  const [x0,y0]=HEAT_ANCHORS[HEAT_ANCHORS.length-2];
+  const [x1,y1]=HEAT_ANCHORS[HEAT_ANCHORS.length-1];
+  const slope=(y1-y0)/(x1-x0);
+  return Math.min(0.5, y1 + slope*(wbgtC-x1));
+}
+const ALTITUDE_RATE_PER_1000M = 0.031;
+function altitudeSlowdownFraction(meanAltitudeM){
+  return Math.min(0.5, ALTITUDE_RATE_PER_1000M*(meanAltitudeM/1000));
+}
+function bearingDeg(lat1,lon1,lat2,lon2){
+  const toRad=d=>d*Math.PI/180;
+  const phi1=toRad(lat1), phi2=toRad(lat2), dLambda=toRad(lon2-lon1);
+  const y=Math.sin(dLambda)*Math.cos(phi2);
+  const x=Math.cos(phi1)*Math.sin(phi2)-Math.sin(phi1)*Math.cos(phi2)*Math.cos(dLambda);
+  return (Math.atan2(y,x)*180/Math.PI + 360)%360;
+}
+function windAlongTravel(windSpeedMs, windDirFromDeg, runnerBearingDeg){
+  const windBlowingToward=(windDirFromDeg+180)%360;
+  const diffRad=(windBlowingToward-runnerBearingDeg)*Math.PI/180;
+  return windSpeedMs*Math.cos(diffRad);
+}
+const AIR_DENSITY=1.225, DRAG_COEF=0.9, FRONTAL_AREA=0.45, G_ACCEL=9.81;
+function windCostFraction(runnerSpeedMs, windAlongMs, bodyMassKg){
+  const relativeAirSpeed=runnerSpeedMs-windAlongMs;
+  const dragWithWind=0.5*AIR_DENSITY*DRAG_COEF*FRONTAL_AREA*relativeAirSpeed*Math.abs(relativeAirSpeed);
+  const dragStillAir=0.5*AIR_DENSITY*DRAG_COEF*FRONTAL_AREA*runnerSpeedMs*runnerSpeedMs;
+  const deltaForceN=dragWithWind-dragStillAir;
+  const bodyWeightN=bodyMassKg*G_ACCEL;
+  return (deltaForceN/bodyWeightN)*6.13;
+}
+function windToUV(speedMs, dirFromDeg){
+  const toRad=d=>d*Math.PI/180;
+  const towardDeg=(dirFromDeg+180)%360;
+  const rad=toRad(towardDeg);
+  return { u: speedMs*Math.sin(rad), v: speedMs*Math.cos(rad) };
+}
+function uvToSpeedDirFrom(u,v){
+  const speed=Math.sqrt(u*u+v*v);
+  const towardDeg=(Math.atan2(u,v)*180/Math.PI+360)%360;
+  return { speed, dirFrom:(towardDeg+180)%360 };
+}
+function interpAtTimestamp(tsMs, hourlyTimesMs, values){
+  const n=hourlyTimesMs.length;
+  if(n===0) return null;
+  if(tsMs<=hourlyTimesMs[0]) return values[0];
+  if(tsMs>=hourlyTimesMs[n-1]) return values[n-1];
+  for(let i=1;i<n;i++){
+    if(hourlyTimesMs[i]>=tsMs){
+      const t0=hourlyTimesMs[i-1], t1=hourlyTimesMs[i];
+      const frac=(tsMs-t0)/(t1-t0);
+      return values[i-1] + frac*(values[i]-values[i-1]);
+    }
+  }
+  return values[n-1];
+}
+function interpWindAtTimestamp(tsMs, hourlyTimesMs, speeds, dirsFrom){
+  const uv = hourlyTimesMs.map((_,i)=>windToUV(speeds[i], dirsFrom[i]));
+  const us=uv.map(p=>p.u), vs=uv.map(p=>p.v);
+  const u = interpAtTimestamp(tsMs, hourlyTimesMs, us) ?? 0;
+  const v = interpAtTimestamp(tsMs, hourlyTimesMs, vs) ?? 0;
+  return uvToSpeedDirFrom(u,v);
+}
+async function fetchWeatherHourly(lat, lon, dateStr){
+  const start = new Date(dateStr+"T00:00:00Z");
+  const end = new Date(start.getTime()+24*3600*1000);
+  const endStr = end.toISOString().slice(0,10);
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${dateStr}&end_date=${endStr}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=UTC`;
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error("Impossible de récupérer la météo (code "+resp.status+")");
+  const data = await resp.json();
+  const h = data.hourly;
+  if(!h?.time?.length) throw new Error("Pas de données météo pour ce lieu/cette date.");
+  return {
+    timesMs: h.time.map(t=>Date.parse(t+":00Z")),
+    temp: h.temperature_2m, rh: h.relative_humidity_2m,
+    windSpeed: h.wind_speed_10m, windDir: h.wind_direction_10m,
+  };
+}
+
+// Technicité — mêmes coefficients que l'outil du coach (index.html).
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.35, tres_technique:1.60 };
+
+// Coût métabolique de la course en pente (Minetti et al. 2002) — vitesse
+// équivalent-plat (GAP), même formule que l'outil coach.
+function minettiCost(i){ return 155.4*i**5 - 30.4*i**4 - 43.3*i**3 + 46.3*i**2 + 19.5*i + 3.6; }
+const FLAT_COST = minettiCost(0);
+
+// Sévérité d'un facteur — mêmes seuils/couleurs que envSeverity (index.html).
+function envSeverity(f){
+  if(f==null) return {key:"none", label:"—"};
+  if(f<0.08) return {key:"good", label:"Faible"};
+  if(f<0.18) return {key:"warning", label:"Modéré"};
+  if(f<0.30) return {key:"serious", label:"Marqué"};
+  return {key:"critical", label:"Fort"};
+}
+function fmtPct(f){ return f==null ? "—" : (f>=0?"+":"") + Math.round(f*100) + " %"; }
+function fmtDateFr(d){
+  if(!d) return "—";
+  const dt = d instanceof Date ? d : new Date(d);
+  return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"long", year:"numeric" });
+}
+function fmtDuration(min){
+  if(min==null) return "—";
+  const h = Math.floor(min/60), m = Math.round(min%60);
+  return h>0 ? `${h} h ${String(m).padStart(2,"0")}` : `${m} min`;
+}
+// Le champ "sport" du FIT est un enum renvoyé en camelCase par le SDK
+// (ex: "trailRunning", "standUpPaddleboarding") — on insère un espace avant
+// chaque majuscule et on ne garde qu'une majuscule initiale, pour un rendu
+// lisible en français plutôt qu'un mot-valise brut.
+function formatSportLabel(s){
+  if(!s) return "Séance";
+  const spaced = String(s).replace(/_/g," ").replace(/([a-z0-9])([A-Z])/g,"$1 $2").toLowerCase();
+  return spaced.charAt(0).toUpperCase()+spaced.slice(1);
+}
+
+/* ============================================================
+   Parsing du fichier .fit (SDK officiel Garmin, vendorisé en
+   fit-sdk.min.js). Les coordonnées GPS sont stockées en
+   "semicircles" dans le FIT brut ; conversion standard :
+   degrés = semicircles * (180 / 2^31).
+   ============================================================ */
+function semicirclesToDeg(v){ return v==null ? null : v * (180/2147483648); }
+
+async function parseFitFile(file){
+  const buf = await file.arrayBuffer();
+  const stream = FitSDK.Stream.fromArrayBuffer(buf);
+  if(!FitSDK.Decoder.isFIT(stream)) throw new Error("Ce fichier ne semble pas être un .fit valide.");
+  const decoder = new FitSDK.Decoder(stream);
+  const { messages, errors } = decoder.read();
+  if(!messages.recordMesgs || messages.recordMesgs.length < 2){
+    throw new Error("Ce fichier .fit ne contient pas de flux d'enregistrement exploitable.");
+  }
+  const session = (messages.sessionMesgs && messages.sessionMesgs[0]) || {};
+  const records = messages.recordMesgs
+    .filter(r => r.timestamp)
+    .map(r => ({
+      t: r.timestamp.getTime(),
+      lat: semicirclesToDeg(r.positionLat),
+      lon: semicirclesToDeg(r.positionLong),
+      alt: (r.enhancedAltitude ?? r.altitude ?? null),
+      hr: (r.heartRate ?? null),
+      distance: (r.distance ?? null), // mètres, cumulé
+      speed: (r.enhancedSpeed ?? r.speed ?? null), // m/s
+      grade: (r.grade ?? null), // %, pas toujours présent
+    }))
+    .sort((a,b)=>a.t-b.t);
+
+  return { records, session };
+}
+
+/* ============================================================
+   Calculs dérivés du flux (zones FC, GAP, dénivelé, environnement)
+   — mêmes principes que strava-webhook / index.html, adaptés pour
+   travailler sur le flux { t, lat, lon, alt, hr, distance, speed, grade }
+   reconstruit depuis le .fit plutôt que depuis les streams Strava.
+   ============================================================ */
+function computeAll(records, session, profile){
+  const first = records[0], last = records[records.length-1];
+  const durationMin = ((last.t - first.t)/1000)/60;
+
+  // Vitesse : utilise le champ speed s'il existe, sinon delta distance/dt.
+  // Pente : utilise le champ grade s'il existe, sinon delta altitude / delta distance horizontale.
+  const enriched = [];
+  for(let i=1;i<records.length;i++){
+    const a=records[i-1], b=records[i];
+    const dt = (b.t-a.t)/1000;
+    if(dt<=0 || dt>30) continue; // ignore les trous (pause, perte GPS)
+    let v = b.speed;
+    let distDelta = (b.distance!=null && a.distance!=null) ? (b.distance-a.distance) : null;
+    if(v==null && distDelta!=null) v = distDelta/dt;
+    let grade = b.grade;
+    // En dessous de 1m parcouru sur l'intervalle, un delta d'altitude (bruit
+    // GPS/baromètre) peut donner un ratio délirant (ex: 2m de D+ sur 0.2m
+    // parcouru = 1000% de pente) — on n'estime la pente que sur un delta de
+    // distance assez grand pour être fiable.
+    if(grade==null && a.alt!=null && b.alt!=null && distDelta!=null && distDelta>1){
+      grade = ((b.alt-a.alt)/distDelta)*100;
+    }
+    // Le modèle de coût de Minetti n'est validé que sur des pentes réalistes
+    // (~±45%) : au-delà (glitch GPS/baromètre résiduel, y compris sur une
+    // pente fournie directement par l'appareil), le polynôme explose ou
+    // devient négatif — on plafonne pour rester dans le domaine physique.
+    if(grade!=null) grade = Math.max(-45, Math.min(45, grade));
+    enriched.push({ t:b.t, dt, hr:b.hr, v, grade, alt:b.alt, lat:b.lat, lon:b.lon });
+  }
+
+  // Zones FC (mêmes bornes que zonesFromHr : 60/70/80/90% FCmax)
+  const zonesMin = [0,0,0,0,0];
+  const maxHr = profile.fcmax;
+  if(maxHr){
+    enriched.forEach(p=>{
+      if(p.hr==null) return;
+      const pct = p.hr/maxHr;
+      let z = pct<0.60?0 : pct<0.70?1 : pct<0.80?2 : pct<0.90?3 : 4;
+      zonesMin[z] += p.dt/60;
+    });
+  }
+
+  // Dénivelé — priorité aux totaux du fichier .fit (session), sinon calculé
+  // depuis le flux altitude (somme des deltas positifs/négatifs).
+  let dPlus = session.totalAscent, dMinus = session.totalDescent;
+  if(dPlus==null || dMinus==null){
+    dPlus=0; dMinus=0;
+    for(let i=1;i<records.length;i++){
+      const d = records[i].alt - records[i-1].alt;
+      if(d>0) dPlus+=d; else dMinus+=-d;
+    }
+  }
+
+  // Vitesse ajustée à la pente (GAP) moyenne, pondérée par le temps.
+  let gapSum=0, gapTime=0;
+  enriched.forEach(p=>{
+    if(p.v==null || p.grade==null) return;
+    const vGap = p.v * (minettiCost(p.grade/100)/FLAT_COST);
+    gapSum += vGap*3.6*p.dt; gapTime += p.dt;
+  });
+  const avgGapKmh = gapTime>0 ? gapSum/gapTime : null;
+
+  // Vitesse moyenne réelle (km/h)
+  let distTotal = 0;
+  for(let i=1;i<records.length;i++){
+    if(records[i].distance!=null && records[i-1].distance!=null){
+      const d = records[i].distance - records[i-1].distance;
+      if(d>0 && d<50) distTotal += d;
+    }
+  }
+  if(distTotal===0 && records[records.length-1].distance!=null){
+    distTotal = records[records.length-1].distance - records[0].distance;
+  }
+  const avgSpeedKmh = durationMin>0 ? (distTotal/1000)/(durationMin/60) : null;
+
+  // Terrain — un seul coefficient de technicité pour toute la séance (vs 3
+  // séparés montée/plat/descente côté coach), pondéré par la part de temps
+  // passée hors terrain plat (même principe qu'envTerrainFactor, simplifié).
+  const terrainCoef = TECHNICITY_COEFFICIENTS[profile.terrain] ?? 1.00;
+  let flatTime=0, totalTimeForTerrain=0;
+  enriched.forEach(p=>{
+    if(p.grade==null) return;
+    totalTimeForTerrain += p.dt;
+    if(Math.abs(p.grade) < 4) flatTime += p.dt;
+  });
+  // Le coefficient ne s'applique qu'à la portion de temps hors terrain plat
+  // (le plat reste "roulant" quelle que soit la technicité déclarée) : la
+  // technicité pèse surtout en montée/descente, pas sur les faux-plats.
+  const nonFlatShare = totalTimeForTerrain>0 ? 1 - (flatTime/totalTimeForTerrain) : 0;
+  const terrainFactor = ((terrainCoef-1) * nonFlatShare);
+
+  return { enriched, zonesMin, dPlus:Math.round(dPlus||0), dMinus:Math.round(dMinus||0),
+    avgGapKmh, avgSpeedKmh, distTotal, durationMin, terrainFactor, first, last };
+}
+
+async function computeEnvironment(records, first, last, profile, durationMin){
+  if(first.lat==null || first.lon==null) throw new Error("Ce fichier .fit ne contient pas de position GPS — impossible de calculer l'impact météo/altitude.");
+  const dateStr = new Date(first.t).toISOString().slice(0,10);
+  const hourly = await fetchWeatherHourly(first.lat, first.lon, dateStr);
+
+  let altW=0, altSum=0, tempW=0, tempSum=0, rhSum=0, windW=0, windSum=0;
+  for(let i=1;i<records.length;i++){
+    const a=records[i-1], b=records[i];
+    const dt=(b.t-a.t)/1000;
+    if(dt<=0 || dt>30) continue;
+    if(b.alt!=null){ altSum += b.alt*dt; altW += dt; }
+    const temp = interpAtTimestamp(b.t, hourly.timesMs, hourly.temp);
+    const rh = interpAtTimestamp(b.t, hourly.timesMs, hourly.rh);
+    if(temp!=null && rh!=null){ tempSum += temp*dt; rhSum += rh*dt; tempW += dt; }
+    if(a.lat!=null && a.lon!=null && b.lat!=null && b.lon!=null && b.speed!=null && b.speed>0.5){
+      const bearing = bearingDeg(a.lat,a.lon,b.lat,b.lon);
+      const { speed:wSpeed, dirFrom:wDir } = interpWindAtTimestamp(b.t, hourly.timesMs, hourly.windSpeed, hourly.windDir);
+      const along = windAlongTravel(wSpeed, wDir, bearing);
+      const cost = windCostFraction(b.speed, along, profile.weight);
+      windSum += cost*dt; windW += dt;
+    }
+  }
+  if(tempW===0) throw new Error("Météo indisponible pour cette séance (pas assez de points GPS exploitables).");
+
+  const meanAltitudeM = altW>0 ? altSum/altW : 0;
+  const meanTempC = tempSum/tempW;
+  const meanRhPct = rhSum/tempW;
+  const windFactor = windW>0 ? windSum/windW : 0;
+  const wbgtC = wbgtSimplified(meanTempC, meanRhPct);
+  const heatFactor = heatSlowdownFraction(wbgtC);
+  const altitudeFactor = altitudeSlowdownFraction(meanAltitudeM);
+
+  return {
+    tempC: Math.round(meanTempC*10)/10, humidityPct: Math.round(meanRhPct*10)/10,
+    meanAltitudeM: Math.round(meanAltitudeM), wbgtC: Math.round(wbgtC*10)/10,
+    heatFactor, altitudeFactor, windFactor,
+  };
+}
+
+/* ============================================================
+   État applicatif
+   ============================================================ */
+let pickedFile = null;
+let parsedRecords = null, parsedSession = null;
+let computedResult = null;
+let leadInserted = false;
+
+const $ = id => document.getElementById(id);
+
+/* ---- étape 1 : upload ---- */
+const dropZone = $("rs-drop");
+const fileInput = $("rs-file-input");
+dropZone.addEventListener("click", ()=>fileInput.click());
+["dragover","dragenter"].forEach(ev=>dropZone.addEventListener(ev, e=>{ e.preventDefault(); dropZone.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev=>dropZone.addEventListener(ev, e=>{ e.preventDefault(); dropZone.classList.remove("drag"); }));
+dropZone.addEventListener("drop", e=>{
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if(f) handleFile(f);
+});
+fileInput.addEventListener("change", e=>{
+  const f = e.target.files && e.target.files[0];
+  if(f) handleFile(f);
+});
+$("rs-file-clear").addEventListener("click", ()=>{
+  pickedFile=null; parsedRecords=null; parsedSession=null;
+  fileInput.value="";
+  $("rs-file-picked").hidden=true;
+  $("rs-drop").hidden=false;
+  $("rs-summary").hidden=true;
+  $("rs-profile-form").hidden=true;
+  $("rs-parse-status").innerHTML="";
+});
+
+async function handleFile(f){
+  if(!/\.fit$/i.test(f.name)){
+    $("rs-parse-status").innerHTML = `<div class="rs-error">Ce fichier n'est pas un .fit. Exporte ta séance au format .fit depuis Strava ou Garmin Connect.</div>`;
+    return;
+  }
+  pickedFile = f;
+  $("rs-drop").hidden = true;
+  $("rs-file-name").textContent = f.name;
+  $("rs-file-picked").hidden = false;
+  $("rs-parse-status").innerHTML = `<div class="rs-loading"><div class="rs-spinner"></div>Lecture du fichier…</div>`;
+  $("rs-summary").hidden = true;
+  $("rs-profile-form").hidden = true;
+  try{
+    const { records, session } = await parseFitFile(f);
+    parsedRecords = records; parsedSession = session;
+    $("rs-parse-status").innerHTML = "";
+    renderFileSummary(records, session);
+    $("rs-summary").hidden = false;
+    $("rs-profile-form").hidden = false;
+    $("rs-btn-analyze").disabled = false;
+  }catch(err){
+    $("rs-parse-status").innerHTML = `<div class="rs-error">${escapeHtml(err.message || "Impossible de lire ce fichier.")}</div>`;
+  }
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+function renderFileSummary(records, session){
+  const first = records[0], last = records[records.length-1];
+  const durationMin = ((last.t-first.t)/1000)/60;
+  const dateStr = fmtDateFr(new Date(first.t));
+  let distKm = null;
+  if(last.distance!=null && first.distance!=null) distKm = (last.distance-first.distance)/1000;
+  const sport = formatSportLabel(session.sport);
+  $("rs-summary-grid").innerHTML = `
+    <div class="rs-summary-tile"><div class="l">Activité</div><div class="v">${escapeHtml(sport)}</div></div>
+    <div class="rs-summary-tile"><div class="l">Date</div><div class="v" style="font-size:13px;">${dateStr}</div></div>
+    <div class="rs-summary-tile"><div class="l">Durée</div><div class="v">${fmtDuration(durationMin)}</div></div>
+    <div class="rs-summary-tile"><div class="l">Distance</div><div class="v">${distKm!=null ? distKm.toFixed(1)+" km" : "—"}</div></div>
+  `;
+}
+
+/* ---- étape 1 → 2 ---- */
+$("rs-btn-analyze").addEventListener("click", async ()=>{
+  const fcmax = parseInt($("rs-fcmax").value, 10);
+  const weight = parseFloat($("rs-weight").value);
+  const terrain = $("rs-terrain").value;
+  if(!fcmax || fcmax<120 || fcmax>230){
+    $("rs-parse-status").innerHTML = `<div class="rs-error">Merci d'indiquer une FC max valide (entre 120 et 230 bpm).</div>`;
+    return;
+  }
+  const profile = { fcmax, weight: weight||70, terrain };
+  $("rs-btn-analyze").disabled = true;
+  $("rs-btn-analyze").textContent = "Calcul en cours…";
+  try{
+    const base = computeAll(parsedRecords, parsedSession, profile);
+    const env = await computeEnvironment(parsedRecords, base.first, base.last, profile, base.durationMin);
+    const combinedFactor = (1+env.heatFactor)*(1+env.altitudeFactor)*(1+env.windFactor)*(1+base.terrainFactor) - 1;
+    const adjustedDuration = base.durationMin/(1+combinedFactor);
+    computedResult = { ...base, env, combinedFactor, adjustedDuration, session: parsedSession, profile };
+    $("step-upload").hidden = true;
+    $("step-contact").hidden = false;
+    window.scrollTo({top:0, behavior:"smooth"});
+  }catch(err){
+    $("rs-parse-status").innerHTML = `<div class="rs-error">${escapeHtml(err.message || "Le calcul a échoué.")}</div>`;
+  }finally{
+    $("rs-btn-analyze").disabled = false;
+    $("rs-btn-analyze").textContent = "Voir mon rapport";
+  }
+});
+
+/* ---- étape 2 : capture du lead ---- */
+$("rs-btn-unlock").addEventListener("click", async ()=>{
+  const name = $("rs-lead-name").value.trim();
+  const email = $("rs-lead-email").value.trim();
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if(!name || !emailOk){
+    $("rs-lead-error").innerHTML = `<div class="rs-error">Merci d'indiquer ton nom et une adresse email valide.</div>`;
+    return;
+  }
+  $("rs-lead-error").innerHTML = "";
+  $("rs-btn-unlock").disabled = true;
+  $("rs-btn-unlock").textContent = "…";
+  try{
+    if(!leadInserted){
+      const r = computedResult;
+      const first = r.first;
+      let distKm = null;
+      if(r.last.distance!=null && first.distance!=null) distKm = (r.last.distance-first.distance)/1000;
+      await fetch(SUPABASE_URL+"/rest/v1/report_leads", {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization":"Bearer "+SUPABASE_ANON_KEY,
+          "Prefer":"return=minimal",
+        },
+        body: JSON.stringify({
+          name, email,
+          session_date: new Date(first.t).toISOString().slice(0,10),
+          session_type: r.session.sport || null,
+          session_duration_min: Math.round(r.durationMin),
+          session_distance_km: distKm!=null ? Math.round(distKm*10)/10 : null,
+        }),
+      });
+      leadInserted = true;
+    }
+  }catch(e){
+    // On n'empêche pas le visiteur de voir son rapport si l'enregistrement
+    // du lead échoue (réseau, etc.) — l'essentiel est de tenir la promesse
+    // faite ("laisse ton email, tu vois ton rapport").
+    console.error("Lead insert failed", e);
+  }
+  renderReport(computedResult);
+  $("step-contact").hidden = true;
+  $("step-report").hidden = false;
+  window.scrollTo({top:0, behavior:"smooth"});
+});
+
+/* ============================================================
+   Rendu du rapport
+   ============================================================ */
+let zonesChart = null;
+
+function renderReport(r){
+  const first = r.first;
+  let distKm = null;
+  if(r.last.distance!=null && first.distance!=null) distKm = (r.last.distance-first.distance)/1000;
+  const sport = formatSportLabel(r.session.sport);
+
+  $("rs-report-title").textContent = sport;
+  $("rs-report-date").textContent = fmtDateFr(new Date(first.t));
+  $("rs-report-summary").innerHTML = `
+    <div class="rs-summary-tile"><div class="l">Durée</div><div class="v">${fmtDuration(r.durationMin)}</div></div>
+    <div class="rs-summary-tile"><div class="l">Distance</div><div class="v">${distKm!=null?distKm.toFixed(1)+" km":"—"}</div></div>
+    <div class="rs-summary-tile"><div class="l">D+</div><div class="v">${r.dPlus} m</div></div>
+    <div class="rs-summary-tile"><div class="l">D-</div><div class="v">${r.dMinus} m</div></div>
+  `;
+
+  $("rs-duration-real").textContent = fmtDuration(r.durationMin);
+  $("rs-duration-neutral").textContent = fmtDuration(r.adjustedDuration);
+  const deltaMin = r.durationMin - r.adjustedDuration;
+  const deltaPct = Math.round((r.combinedFactor)*100);
+  if(Math.abs(deltaMin) < 1){
+    $("rs-duration-delta").innerHTML = "Conditions proches du neutre ce jour-là — peu d'écart.";
+  }else{
+    $("rs-duration-delta").innerHTML = deltaMin>0
+      ? `Les conditions du jour t'ont coûté environ <strong>${Math.round(deltaMin)} min</strong> (soit <strong>${deltaPct} %</strong>) par rapport à des conditions neutres.`
+      : `Les conditions du jour t'ont plutôt favorisé — environ <strong>${Math.round(-deltaMin)} min</strong> de mieux qu'en conditions neutres.`;
+  }
+
+  const factors = [
+    { label:"Chaleur", value:r.env.heatFactor },
+    { label:"Altitude", value:r.env.altitudeFactor },
+    { label:"Vent", value:r.env.windFactor },
+    { label:"Technicité du terrain", value:r.terrainFactor },
+  ];
+  $("rs-factors").innerHTML = factors.map(f=>{
+    const sev = envSeverity(f.value);
+    // Barre visuelle sur une échelle 0-50% (au-delà, on plafonne à 100% de
+    // la barre — un facteur >50% est de toute façon déjà classé "Fort").
+    const barWidth = Math.min(100, Math.max(2, Math.abs(f.value)/0.5*100));
+    return `<div class="rs-factor-row">
+      <div class="rs-factor-top">
+        <span class="rs-factor-name">${f.label}</span>
+        <span><span class="rs-badge ${sev.key}">${sev.label}</span> <span style="margin-left:6px;color:var(--text-secondary);">${fmtPct(f.value)}</span></span>
+      </div>
+      <div class="rs-factor-bar-wrap"><div class="rs-factor-bar" style="width:${barWidth}%;background:var(--${sev.key==="none"?"text-muted":sev.key});"></div></div>
+    </div>`;
+  }).join("");
+
+  $("rs-meteo-grid").innerHTML = `
+    <div class="rs-meteo-tile"><div class="l">Température</div><div class="v">${r.env.tempC} °C</div></div>
+    <div class="rs-meteo-tile"><div class="l">Humidité</div><div class="v">${r.env.humidityPct} %</div></div>
+    <div class="rs-meteo-tile"><div class="l">WBGT</div><div class="v">${r.env.wbgtC} °C</div></div>
+    <div class="rs-meteo-tile"><div class="l">Altitude moy.</div><div class="v">${r.env.meanAltitudeM} m</div></div>
+  `;
+
+  const zoneLabels = ["Z1 (< 60%)","Z2 (60-70%)","Z3 (70-80%)","Z4 (80-90%)","Z5 (> 90%)"];
+  const zoneColors = ["var(--z1)","var(--z2)","var(--z3)","var(--z4)","var(--z5)"];
+  const cssVar = c => getComputedStyle(document.documentElement).getPropertyValue(c.replace("var(","").replace(")","")).trim() || c;
+  if(zonesChart) zonesChart.destroy();
+  zonesChart = new Chart($("rs-chart-zones").getContext("2d"), {
+    type:"bar",
+    data:{ labels: zoneLabels, datasets:[{ data: r.zonesMin.map(m=>Math.round(m)), backgroundColor: zoneColors.map(cssVar), borderRadius:6 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ctx.parsed.y+" min" } } },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:"minutes"} } },
+    }
+  });
+
+  $("rs-pace-summary").innerHTML = `
+    <div class="rs-summary-tile"><div class="l">Vitesse moyenne</div><div class="v">${r.avgSpeedKmh!=null?r.avgSpeedKmh.toFixed(1)+" km/h":"—"}</div></div>
+    <div class="rs-summary-tile"><div class="l">Vitesse ajustée (GAP)</div><div class="v">${r.avgGapKmh!=null?r.avgGapKmh.toFixed(1)+" km/h":"—"}</div></div>
+    <div class="rs-summary-tile"><div class="l">D+</div><div class="v">${r.dPlus} m</div></div>
+    <div class="rs-summary-tile"><div class="l">D-</div><div class="v">${r.dMinus} m</div></div>
+  `;
+
+  $("rs-cta-mail").href = "mailto:"+COACH_SIGNATURE.email+"?subject="+encodeURIComponent("Mon rapport de séance — "+COACH_SIGNATURE.name);
+}
+
+/* ============================================================
+   Export PDF — même principe que l'outil coach (html2canvas + jsPDF)
+   ============================================================ */
+let scriptLoadPromises = {};
+function loadScript(src){
+  if(scriptLoadPromises[src]) return scriptLoadPromises[src];
+  scriptLoadPromises[src] = new Promise((resolve,reject)=>{
+    const s=document.createElement("script"); s.src=src; s.onload=resolve; s.onerror=reject;
+    document.head.appendChild(s);
+  });
+  return scriptLoadPromises[src];
+}
+
+$("rs-btn-pdf").addEventListener("click", async ()=>{
+  const btn = $("rs-btn-pdf");
+  btn.disabled = true; const originalText = btn.textContent; btn.textContent = "Génération du PDF…";
+  try{
+    if(!window.html2canvas) await loadScript("https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js");
+    if(!window.jspdf) await loadScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js");
+    const el = $("rs-report-capture");
+    const canvas = await window.html2canvas(el, { scale:2, backgroundColor:"#ffffff", useCORS:true });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit:"mm", format:"a4" });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const marginX = 12, marginTop = 12, marginBottom = 22;
+    const usableW = pageW - marginX*2;
+    const imgH = canvas.height * (usableW/canvas.width);
+    let heightLeft = imgH, position = marginTop;
+    const usablePageH = pageH - marginTop - marginBottom;
+    const imgData = canvas.toDataURL("image/png");
+
+    let page = 0;
+    while(heightLeft > 0){
+      if(page>0) pdf.addPage();
+      pdf.addImage(imgData, "PNG", marginX, position - page*usablePageH, usableW, imgH);
+      heightLeft -= usablePageH;
+      page++;
+    }
+    // pied de page signature sur chaque page
+    const totalPages = pdf.internal.getNumberOfPages();
+    for(let i=1;i<=totalPages;i++){
+      pdf.setPage(i);
+      pdf.setDrawColor(222,222,228); pdf.setLineWidth(0.3);
+      pdf.line(marginX, pageH-marginBottom+4, pageW-marginX, pageH-marginBottom+4);
+      pdf.setFont("helvetica","bold"); pdf.setFontSize(9); pdf.setTextColor(25,25,35);
+      pdf.text(COACH_SIGNATURE.name+" — "+COACH_SIGNATURE.role, marginX, pageH-marginBottom+10);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(8.5); pdf.setTextColor(115,115,125);
+      pdf.text(COACH_SIGNATURE.email, marginX, pageH-marginBottom+15);
+      pdf.text(i+" / "+totalPages, pageW-marginX, pageH-marginBottom+10, { align:"right" });
+    }
+    pdf.save("rapport-seance.pdf");
+  }catch(e){
+    console.error(e);
+    alert("La génération du PDF a échoué. Réessaie, ou contacte Maxime si le problème persiste.");
+  }finally{
+    btn.disabled = false; btn.textContent = originalText;
+  }
+});
+
+})();
+</script>
+</body>
+</html>
