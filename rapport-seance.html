@@ -279,7 +279,7 @@
 </div>
 
 <script src="chart.umd.min.js"></script>
-<script src="fit-sdk.min.js"></script>
+<script src="fit-parser.min.js"></script>
 <script>
 (function(){
 "use strict";
@@ -430,7 +430,7 @@ function formatSportLabel(s){
 
 /* ============================================================
    Parsing du fichier .fit (SDK officiel Garmin, vendorisé en
-   fit-sdk.min.js). Les coordonnées GPS sont stockées en
+   fit-parser.min.js). Les coordonnées GPS sont stockées en
    "semicircles" dans le FIT brut ; conversion standard :
    degrés = semicircles * (180 / 2^31).
    ============================================================ */
@@ -438,7 +438,7 @@ function semicirclesToDeg(v){ return v==null ? null : v * (180/2147483648); }
 
 async function parseFitFile(file){
   if(typeof FitSDK === "undefined"){
-    throw new Error("Le module d'analyse n'a pas pu se charger. Vérifie ta connexion, désactive un éventuel bloqueur de scripts pour ce site, puis recharge la page. Si le problème persiste, essaie avec un autre navigateur.");
+    throw new Error("Le module d'analyse n'a pas pu se charger. Si tu as un bloqueur de publicités ou de traceurs (AdGuard, 1Blocker, etc.), désactive-le pour ce site puis recharge la page. Vérifie aussi ta connexion. Si le problème persiste, essaie avec un autre navigateur.");
   }
   const buf = await file.arrayBuffer();
   const stream = FitSDK.Stream.fromArrayBuffer(buf);
