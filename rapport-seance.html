@@ -182,6 +182,17 @@
           <div class="rs-hint">Utilisé pour estimer l'impact du vent (traînée aérodynamique).</div>
         </div>
       </div>
+      <div class="rs-row">
+        <div class="rs-field">
+          <label>FC au seuil 1 — aérobie (bpm)</label>
+          <input type="number" id="rs-seuil1" min="80" max="220" placeholder="optionnel">
+        </div>
+        <div class="rs-field">
+          <label>FC au seuil 2 — anaérobie (bpm)</label>
+          <input type="number" id="rs-seuil2" min="80" max="220" placeholder="optionnel">
+        </div>
+      </div>
+      <div class="rs-hint" style="margin-top:-8px;margin-bottom:14px;">Si tu connais ta FC à tes seuils (test VMA/seuils, coach, etc.), renseigne-les : les zones seront calées dessus, ce qui est plus précis que de simples paliers de %FCmax. Si tu ne les connais pas, laisse ces champs vides — le calcul se fera par %FCmax, une estimation plus approximative (deux personnes avec la même FCmax peuvent avoir des seuils réels très différents).</div>
       <div class="rs-field">
         <label>Technicité du terrain</label>
         <select id="rs-terrain">
@@ -249,6 +260,7 @@
 
       <div class="rs-card">
         <h2>Zones de fréquence cardiaque</h2>
+        <p class="rs-sub" id="rs-zones-method"></p>
         <div class="rs-chart-wrap"><canvas id="rs-chart-zones"></canvas></div>
       </div>
 
@@ -515,15 +527,19 @@ function computeAll(records, session, profile){
     enriched.push({ t:b.t, dt, hr:b.hr, v, grade, alt:b.alt, lat:b.lat, lon:b.lon });
   }
 
-  // Zones FC (mêmes bornes que zonesFromHr : 60/70/80/90% FCmax)
+  // Zones FC — si les FC aux 2 seuils (aérobie/anaérobie) sont connues, les
+  // 5 zones sont calées dessus (zone 1 sous le seuil 1, zones 2-3-4 réparties
+  // en tiers égaux entre les deux seuils, zone 5 au-dessus du seuil 2) : plus
+  // précis qu'un simple pourcentage de FCmax, puisque deux personnes avec la
+  // même FCmax peuvent avoir leurs seuils réels à des %FCmax très différents.
+  // À défaut, repli sur les paliers classiques 60/70/80/90 %FCmax (mêmes
+  // bornes que zonesFromHr côté outil coach) — une estimation plus approximative.
+  const zoneBounds = hrZoneBounds(profile);
   const zonesMin = [0,0,0,0,0];
-  const maxHr = profile.fcmax;
-  if(maxHr){
+  if(profile.fcmax){
     enriched.forEach(p=>{
       if(p.hr==null) return;
-      const pct = p.hr/maxHr;
-      let z = pct<0.60?0 : pct<0.70?1 : pct<0.80?2 : pct<0.90?3 : 4;
-      zonesMin[z] += p.dt/60;
+      zonesMin[hrZoneIndexFor(p.hr, zoneBounds)] += p.dt/60;
     });
   }
 
@@ -576,8 +592,27 @@ function computeAll(records, session, profile){
   const nonFlatShare = totalTimeForTerrain>0 ? 1 - (flatTime/totalTimeForTerrain) : 0;
   const terrainFactor = ((terrainCoef-1) * nonFlatShare);
 
-  return { enriched, zonesMin, dPlus:Math.round(dPlus||0), dMinus:Math.round(dMinus||0),
+  return { enriched, zonesMin, zoneBounds, dPlus:Math.round(dPlus||0), dMinus:Math.round(dMinus||0),
     avgGapKmh, avgSpeedKmh, distTotal, durationMin, terrainFactor, first, last };
+}
+
+// Bornes des 5 zones de FC : calées sur les seuils si connus, sinon repli
+// sur les paliers %FCmax classiques (voir commentaire dans computeAll).
+function hrZoneBounds(profile){
+  if(profile.seuil1 && profile.seuil2){
+    const s1 = profile.seuil1, s2 = profile.seuil2, step = (s2-s1)/3;
+    return { method:"seuils", edges:[s1, s1+step, s1+2*step, s2] };
+  }
+  const m = profile.fcmax;
+  return { method:"pct", edges:[0.60*m, 0.70*m, 0.80*m, 0.90*m] };
+}
+function hrZoneIndexFor(hr, bounds){
+  const e = bounds.edges;
+  if(hr < e[0]) return 0;
+  if(hr < e[1]) return 1;
+  if(hr < e[2]) return 2;
+  if(hr < e[3]) return 3;
+  return 4;
 }
 
 async function computeEnvironment(records, first, last, profile, durationMin){
@@ -711,11 +746,17 @@ $("rs-btn-analyze").addEventListener("click", async ()=>{
   const fcmax = parseInt($("rs-fcmax").value, 10);
   const weight = parseFloat($("rs-weight").value);
   const terrain = $("rs-terrain").value;
+  const seuil1 = parseInt($("rs-seuil1").value, 10) || null;
+  const seuil2 = parseInt($("rs-seuil2").value, 10) || null;
   if(!fcmax || fcmax<120 || fcmax>230){
     $("rs-parse-status").innerHTML = `<div class="rs-error">Merci d'indiquer une FC max valide (entre 120 et 230 bpm).</div>`;
     return;
   }
-  const profile = { fcmax, weight: weight||70, terrain };
+  if(seuil1 && seuil2 && seuil1>=seuil2){
+    $("rs-parse-status").innerHTML = `<div class="rs-error">La FC au seuil 1 doit être inférieure à la FC au seuil 2.</div>`;
+    return;
+  }
+  const profile = { fcmax, weight: weight||70, terrain, seuil1, seuil2 };
   $("rs-btn-analyze").disabled = true;
   $("rs-btn-analyze").textContent = "Calcul en cours…";
   try{
@@ -843,7 +884,16 @@ function renderReport(r){
     <div class="rs-meteo-tile"><div class="l">Altitude moy.</div><div class="v">${r.env.meanAltitudeM} m</div></div>
   `;
 
-  const zoneLabels = ["Z1 (< 60%)","Z2 (60-70%)","Z3 (70-80%)","Z4 (80-90%)","Z5 (> 90%)"];
+  const zb = r.zoneBounds;
+  let zoneLabels;
+  if(zb.method === "seuils"){
+    const e = zb.edges.map(Math.round);
+    zoneLabels = ["Z1 (< "+e[0]+")","Z2 ("+e[0]+"-"+e[1]+")","Z3 ("+e[1]+"-"+e[2]+")","Z4 ("+e[2]+"-"+e[3]+")","Z5 (> "+e[3]+")"];
+    $("rs-zones-method").textContent = "Zones calées sur tes FC aux seuils 1 et 2 (renseignées) — la méthode la plus précise, plus fiable qu'un simple %FCmax.";
+  } else {
+    zoneLabels = ["Z1 (< 60%)","Z2 (60-70%)","Z3 (70-80%)","Z4 (80-90%)","Z5 (> 90%)"];
+    $("rs-zones-method").textContent = "Zones estimées par %FCmax (paliers 60/70/80/90 %) — une approximation : renseigne tes FC aux seuils 1 et 2 si tu les connais pour un calcul plus précis, propre à ta physiologie.";
+  }
   const zoneColors = ["var(--z1)","var(--z2)","var(--z3)","var(--z4)","var(--z5)"];
   const cssVar = c => getComputedStyle(document.documentElement).getPropertyValue(c.replace("var(","").replace(")","")).trim() || c;
   if(zonesChart) zonesChart.destroy();
