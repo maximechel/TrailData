@@ -674,7 +674,15 @@ async function handleFile(f){
     $("rs-profile-form").hidden = false;
     $("rs-btn-analyze").disabled = false;
   }catch(err){
-    $("rs-parse-status").innerHTML = `<div class="rs-error">${escapeHtml(err.message || "Impossible de lire ce fichier.")}</div>`;
+    let msg = err && err.message ? err.message : "Impossible de lire ce fichier.";
+    // Sur iOS/Safari, "Load failed" apparaît quand le fichier choisi n'est
+    // pas réellement présent sur l'appareil (ex. fichier iCloud Drive "en
+    // ligne uniquement", pas encore téléchargé) : Safari échoue à en lire
+    // le contenu depuis un <input type="file">.
+    if(/load failed/i.test(msg)){
+      msg = "Le navigateur n'a pas réussi à lire ce fichier depuis ton appareil (erreur « Load failed »). Si ce fichier vient d'iCloud Drive, d'une pièce jointe ou d'AirDrop, ouvre-le une fois dans l'app Fichiers pour t'assurer qu'il est bien téléchargé sur l'appareil, puis reviens l'importer ici. Tu peux aussi essayer de le déplacer d'abord dans « Sur mon iPhone/iPad ».";
+    }
+    $("rs-parse-status").innerHTML = `<div class="rs-error">${escapeHtml(msg)}</div>`;
   }
 }
 
