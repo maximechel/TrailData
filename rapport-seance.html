@@ -436,11 +436,24 @@ function formatSportLabel(s){
    ============================================================ */
 function semicirclesToDeg(v){ return v==null ? null : v * (180/2147483648); }
 
+// Safari a un bug connu où File.prototype.arrayBuffer() peut échouer avec
+// "Load failed" (voir bugs WebKit sur Blob.arrayBuffer()). L'API FileReader,
+// plus ancienne, est nettement plus fiable pour lire un fichier local.
+function readFileAsArrayBuffer(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Impossible de lire ce fichier depuis ton appareil. Réessaie, ou choisis-le à nouveau."));
+    reader.onabort = () => reject(new Error("Lecture du fichier interrompue."));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 async function parseFitFile(file){
   if(typeof FitSDK === "undefined"){
     throw new Error("Le module d'analyse n'a pas pu se charger. Si tu as un bloqueur de publicités ou de traceurs (AdGuard, 1Blocker, etc.), désactive-le pour ce site puis recharge la page. Vérifie aussi ta connexion. Si le problème persiste, essaie avec un autre navigateur.");
   }
-  const buf = await file.arrayBuffer();
+  const buf = await readFileAsArrayBuffer(file);
   const stream = FitSDK.Stream.fromArrayBuffer(buf);
   if(!FitSDK.Decoder.isFIT(stream)) throw new Error("Ce fichier ne semble pas être un .fit valide.");
   const decoder = new FitSDK.Decoder(stream);
