@@ -142,7 +142,7 @@
 <div class="wrap">
 
   <div class="rs-header">
-    <img src="logo-ruthene-coachin.png" alt="Ruthène Coach'in" style="height:56px;">
+    <img src="logo-ruthene-coachin.png" alt="Ruthène Coach'in" style="height:56px;" onerror="this.replaceWith(Object.assign(document.createElement('strong'),{textContent:'Ruthène Coach’in',style:'font-size:20px;letter-spacing:.02em;'}))">
     <div>
       <h1>Analyse de séance</h1>
       <p>Dépose ta séance et découvre l'impact réel des conditions du jour — offert par Ruthène Coach'in</p>
@@ -264,7 +264,7 @@
     </div>
 
     <div class="rs-cta">
-      <img src="logo-ruthene-coachin.png" alt="Ruthène Coach'in">
+      <img src="logo-ruthene-coachin.png" alt="Ruthène Coach'in" onerror="this.replaceWith(Object.assign(document.createElement('strong'),{textContent:'Ruthène Coach’in',style:'font-size:20px;letter-spacing:.02em;'}))">
       <h2>Envie d'aller plus loin ?</h2>
       <p>Ce rapport n'est qu'un aperçu de ce qu'un vrai suivi personnalisé peut t'apporter. Parlons de tes objectifs.</p>
       <div class="rs-cta-links">
@@ -437,6 +437,9 @@ function formatSportLabel(s){
 function semicirclesToDeg(v){ return v==null ? null : v * (180/2147483648); }
 
 async function parseFitFile(file){
+  if(typeof FitSDK === "undefined"){
+    throw new Error("Le module d'analyse n'a pas pu se charger. Vérifie ta connexion, désactive un éventuel bloqueur de scripts pour ce site, puis recharge la page. Si le problème persiste, essaie avec un autre navigateur.");
+  }
   const buf = await file.arrayBuffer();
   const stream = FitSDK.Stream.fromArrayBuffer(buf);
   if(!FitSDK.Decoder.isFIT(stream)) throw new Error("Ce fichier ne semble pas être un .fit valide.");
