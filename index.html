@@ -249,6 +249,11 @@
         <input class="ls-hidden" type="file" id="input-csv" accept=".csv,text/csv">
         <button class="ls-btn small" id="btn-download-template" type="button">Télécharger le modèle CSV</button>
       </div>
+      <div class="ls-side-divider"></div>
+      <div class="ls-side-actions">
+        <button class="ls-btn small ghost" id="btn-vam-backfill" type="button" title="Recalcule la VAM montée/descente des séances Strava déjà synchronisées avec le filtre anti-arrêt (fix du 17/09) — maintenance ponctuelle, à ne lancer qu'une fois.">Rattrapage VAM (montée/descente)</button>
+        <div class="ls-athlete-sub" id="vam-backfill-status" style="text-align:center;"></div>
+      </div>
     </aside>
 
     <main id="main-panel"></main>
@@ -347,6 +352,13 @@ const API_BASE = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/app-api"
 const STRAVA_CLIENT_ID = "277368";
 const STRAVA_REDIRECT_URI = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-callback";
 const STRAVA_IMPORT_HISTORY_URL = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-import-history";
+// Rattrapage ponctuel (17/09) : recalcule vam_climb_profile/vam_descent_profile
+// des séances Strava déjà synchronisées avec le filtre anti-arrêt ajouté à
+// vamProfiles côté strava-webhook (voir son commentaire) -- fonction Edge
+// séparée, protégée par la même clé coach, appelée par lots depuis le bouton
+// "Rattrapage VAM" (jamais automatiquement : c'est le coach qui déclenche).
+const VAM_BACKFILL_URL = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/vam-backfill";
+const VAM_BACKFILL_STATE_KEY = "loadscope.vamBackfillState";
 const COACH_KEY_STORAGE = "loadscope.coachkey";
 const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 // Espace athlète (client.html) : URL publique de la page et clé publique
@@ -484,6 +496,78 @@ async function apiFetch(path, options){
 }
 
 function fetchData(){ return apiFetch("/data"); }
+
+/* ---------------------------- Rattrapage VAM (maintenance ponctuelle) ---------------------------- */
+// Recalcule vam_climb_profile/vam_descent_profile des séances Strava déjà
+// synchronisées, par lots successifs (fonction Edge vam-backfill), tant que
+// le bouton reste actif et que la page est ouverte. Curseur + compteurs
+// cumulés persistés en localStorage pour pouvoir reprendre là où on s'était
+// arrêté (fermeture de la page, ou pause imposée par la limite Strava) sans
+// tout recompter depuis le début.
+let vamBackfillRunning = false;
+function loadVamBackfillState(){
+  try{
+    const s = JSON.parse(localStorage.getItem(VAM_BACKFILL_STATE_KEY));
+    if(s && typeof s === "object") return s;
+  }catch(e){}
+  return { afterId:"00000000-0000-0000-0000-000000000000", totalProcessed:0, totalUpdated:0, totalErrors:0, done:false };
+}
+function saveVamBackfillState(s){
+  try{ localStorage.setItem(VAM_BACKFILL_STATE_KEY, JSON.stringify(s)); }catch(e){}
+}
+async function runVamBackfillLoop(){
+  if(vamBackfillRunning) return;
+  const btn = document.getElementById("btn-vam-backfill");
+  const statusEl = document.getElementById("vam-backfill-status");
+  if(!btn || !statusEl) return;
+  const key = localStorage.getItem(COACH_KEY_STORAGE) || "";
+  let state = loadVamBackfillState();
+  if(state.done){
+    state = { afterId:"00000000-0000-0000-0000-000000000000", totalProcessed:0, totalUpdated:0, totalErrors:0, done:false };
+    saveVamBackfillState(state);
+  }
+  vamBackfillRunning = true;
+  btn.disabled = true;
+  btn.textContent = "Rattrapage en cours… (cliquer pour arrêter)";
+  const render = (extra) => {
+    statusEl.textContent = state.totalProcessed + " séance(s) vérifiée(s), " + state.totalUpdated + " mise(s) à jour, " + state.totalErrors + " erreur(s)" + (extra ? " — " + extra : "");
+  };
+  render();
+  try{
+    while(!state.done && vamBackfillRunning){
+      let res;
+      try{
+        res = await fetch(VAM_BACKFILL_URL + "?limit=30&after=" + encodeURIComponent(state.afterId), { headers: { "x-coach-key": key } });
+      }catch(e){
+        render("connexion impossible, nouvelle tentative dans 30s");
+        await new Promise(r=>setTimeout(r, 30000));
+        continue;
+      }
+      if(res.status === 401){ render("clé d'accès invalide"); break; }
+      let data;
+      try{ data = await res.json(); }catch(e){ render("réponse serveur invalide"); break; }
+      if(data.error){ render("erreur : " + data.error); break; }
+      state.totalProcessed += data.processed || 0;
+      state.totalUpdated += data.updated || 0;
+      state.totalErrors += (data.errors ? data.errors.length : 0);
+      if(data.lastId) state.afterId = data.lastId;
+      state.done = !!data.done;
+      saveVamBackfillState(state);
+      if(data.rateLimited){
+        render("limite Strava atteinte, reprise dans 15 min");
+        await new Promise(r=>setTimeout(r, 15*60*1000));
+        continue;
+      }
+      render();
+      if(!state.done) await new Promise(r=>setTimeout(r, 1500));
+    }
+  } finally {
+    vamBackfillRunning = false;
+    btn.disabled = false;
+    btn.textContent = "Rattrapage VAM (montée/descente)";
+    render(state.done ? "terminé ✓" : "arrêté — recliquer pour reprendre");
+  }
+}
 
 function apiSaveAthlete(athlete){
   return apiFetch("/athletes", { method:"POST", body: JSON.stringify(athleteToApi(athlete)) });
@@ -3341,6 +3425,17 @@ function init(){
   document.getElementById("btn-export").addEventListener("click", exportJSON);
   document.getElementById("btn-export-pdf").addEventListener("click", exportPDF);
   document.getElementById("btn-download-template").addEventListener("click", downloadCsvTemplate);
+  document.getElementById("btn-vam-backfill").addEventListener("click", ()=>{
+    if(vamBackfillRunning){ vamBackfillRunning = false; return; }
+    runVamBackfillLoop();
+  });
+  (function initVamBackfillStatus(){
+    const s = loadVamBackfillState();
+    const statusEl = document.getElementById("vam-backfill-status");
+    if(statusEl && (s.totalProcessed > 0 || s.done)){
+      statusEl.textContent = s.totalProcessed + " séance(s) vérifiée(s), " + s.totalUpdated + " mise(s) à jour, " + s.totalErrors + " erreur(s)" + (s.done ? " — terminé ✓" : " — en pause, recliquer pour reprendre");
+    }
+  })();
   document.getElementById("input-csv").addEventListener("change", e=>{
     if(e.target.files[0] && activeAthleteId) importCSV(e.target.files[0], activeAthleteId);
     else if(!activeAthleteId) alert("Sélectionnez d'abord un athlète.");
