@@ -127,6 +127,37 @@
   .ls-subchart-label{font-size:11.5px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;}
   .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:center;}
 
+  /* ---------- VAM heatmap (onglet Jumeau numérique) ---------- */
+  .ls-heat-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px 18px;}
+  .ls-heat-grid{display:grid;gap:6px;}
+  .ls-heat-head{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);text-align:center;padding-bottom:2px;}
+  .ls-heat-row-label{font-size:11.5px;font-weight:700;color:var(--text-secondary);display:flex;align-items:center;line-height:1.25;}
+  .ls-heat-cell{border-radius:10px;padding:10px 6px;text-align:center;min-height:52px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:2px;border:1px solid var(--border);font-family:var(--font-mono);
+    font-size:13px;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums;}
+  .ls-heat-cell.empty{background:var(--surface-2);color:var(--text-muted);font-weight:600;}
+
+  /* ---------- curseurs modernes (simulateur) ---------- */
+  .ls-slider-wrap{position:relative;padding-top:30px;}
+  .ls-slider-pill{position:absolute;top:0;transform:translateX(-50%);background:var(--text-primary);color:var(--bg);
+    font-family:var(--font-mono);font-size:11.5px;font-weight:600;padding:3px 8px;border-radius:7px;white-space:nowrap;
+    box-shadow:0 4px 10px -4px rgba(0,0,0,0.35);pointer-events:none;}
+  .ls-slider-pill:after{content:"";position:absolute;bottom:-4px;left:50%;transform:translateX(-50%) rotate(45deg);
+    width:7px;height:7px;background:var(--text-primary);}
+  .ls-slider-wrap input[type=range].ls-slider-modern{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:999px;
+    background:var(--surface-2);margin:0;cursor:pointer;accent-color:unset;padding:0;border:none;}
+  .ls-slider-wrap input[type=range].ls-slider-modern::-webkit-slider-runnable-track{height:8px;border-radius:999px;background:transparent;}
+  .ls-slider-wrap input[type=range].ls-slider-modern::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-7px;
+    border-radius:999px;background:#fff;border:4px solid var(--accent);box-shadow:0 4px 10px -4px rgba(0,0,0,0.35);cursor:grab;}
+  .ls-slider-wrap input[type=range].ls-slider-modern.orange::-webkit-slider-thumb{border-color:var(--cat-2);}
+  .ls-slider-wrap input[type=range].ls-slider-modern::-moz-range-track{height:8px;border-radius:999px;background:var(--surface-2);}
+  .ls-slider-wrap input[type=range].ls-slider-modern::-moz-range-thumb{width:14px;height:14px;border-radius:999px;background:#fff;
+    border:4px solid var(--accent);box-shadow:0 4px 10px -4px rgba(0,0,0,0.35);cursor:grab;}
+  .ls-slider-wrap input[type=range].ls-slider-modern.orange::-moz-range-thumb{border-color:var(--cat-2);}
+  .ls-slider-wrap input[type=range].ls-slider-modern:disabled{opacity:.5;cursor:default;}
+  .ls-slider-scale{display:flex;justify-content:space-between;margin-top:5px;}
+  .ls-slider-scale span{font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);}
+
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
   .ls-table-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
   .ls-table-head h3{font-size:13px;font-weight:700;margin:0;}
@@ -1128,6 +1159,10 @@ function mixHexColors(hexA, hexB, t){
   const mix = a.map((v,i)=> Math.round(v + (b[i]-v)*t));
   return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
 }
+function hexToRgba(hex, alpha){
+  const [r,g,b] = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 // GAP moyen par tranche de pente (6 tranches), sur un intervalle
 // [startDate,endDate] explicite plutôt qu'une fenêtre glissante — sert au
@@ -1440,6 +1475,14 @@ function simFormatValue(key, value){
   if(key==="volume") return value.toFixed(1)+" km/sem.";
   if(key==="montee" || key==="descente") return value.toFixed(0)+" m/h";
   return String(value);
+}
+// Position (%) de la bulle de valeur au-dessus du curseur moderne du
+// simulateur, calée sur la position réelle du pouce du <input type=range>
+// (clampée pour que la bulle ne déborde jamais de sa carte).
+function simSliderPct(value, min, max){
+  if(max===min) return 50;
+  const p = (Number(value)-min)/(max-min)*100;
+  return Math.max(4, Math.min(96, p));
 }
 
 // Score 0-10 d'un paramètre du jumeau numérique par rapport à sa propre
@@ -1960,11 +2003,11 @@ function renderMain(){
 
       <h3 style="margin:0 0 6px;">Montée — VAM par zone de FC × pente</h3>
       <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse ascensionnelle moyenne (m/h), moyenne des ${MATRIX_WINDOW_WEEKS} dernières semaines, calculée depuis les séances Strava.</div>
-      ${vamProfileTableHtml(twin.vamClimbProfile, [3,4,5])}
+      ${vamProfileHeatmapHtml(twin.vamClimbProfile, [3,4,5], "--cat-2")}
 
       <h3 style="margin:18px 0 6px;">Descente — VAM par zone de FC × pente</h3>
       <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse de descente moyenne (m/h), même fenêtre.</div>
-      ${vamProfileTableHtml(twin.vamDescentProfile, [0,1])}
+      ${vamProfileHeatmapHtml(twin.vamDescentProfile, [0,1], "--cat-1")}
 
       <h3 style="margin:18px 0 6px;">Évolution mensuelle de la VAM</h3>
       <div class="ls-chart-sub" style="margin-bottom:8px;">Montée et descente, moyenne par mois calendaire, sur tout l'historique Strava.</div>
@@ -1988,14 +2031,20 @@ function renderMain(){
         <div class="ls-field">
           <label>Paramètre 1</label>
           <select id="sim-param-1">${simOptionsHtml(simDefaultKey1)}</select>
-          <input type="range" id="sim-slider-1" min="${simMin1}" max="${simMax1}" step="${simStep1}" value="${simDefault1!=null?simDefault1:0}" ${simDefault1==null?"disabled":""}>
-          <div class="ls-chart-sub" id="sim-value-1">${simDefault1!=null? simFormatValue(simDefaultKey1, simDefault1) : "—"}</div>
+          <div class="ls-slider-wrap">
+            <div class="ls-slider-pill" id="sim-value-1" style="left:${simDefault1!=null? simSliderPct(simDefault1, simMin1, simMax1) : 50}%;">${simDefault1!=null? simFormatValue(simDefaultKey1, simDefault1) : "—"}</div>
+            <input class="ls-slider-modern" type="range" id="sim-slider-1" min="${simMin1}" max="${simMax1}" step="${simStep1}" value="${simDefault1!=null?simDefault1:0}" ${simDefault1==null?"disabled":""}>
+          </div>
+          <div class="ls-slider-scale"><span id="sim-min-1">${simDefault1!=null? simFormatValue(simDefaultKey1, simMin1) : "—"}</span><span id="sim-max-1">${simDefault1!=null? simFormatValue(simDefaultKey1, simMax1) : "—"}</span></div>
         </div>
         <div class="ls-field">
           <label>Paramètre 2 (optionnel)</label>
           <select id="sim-param-2"><option value="none" selected>Aucun</option>${simOptionsHtml("")}</select>
-          <input type="range" id="sim-slider-2" min="0" max="1" step="1" value="0" disabled>
-          <div class="ls-chart-sub" id="sim-value-2"></div>
+          <div class="ls-slider-wrap">
+            <div class="ls-slider-pill" id="sim-value-2" style="left:50%; display:none;"></div>
+            <input class="ls-slider-modern orange" type="range" id="sim-slider-2" min="0" max="1" step="1" value="0" disabled>
+          </div>
+          <div class="ls-slider-scale"><span id="sim-min-2"></span><span id="sim-max-2"></span></div>
         </div>
       </div>
       <div id="sim-results"></div>
@@ -2104,36 +2153,60 @@ function renderMain(){
   const simSel2 = document.getElementById("sim-param-2");
   const simSlider1 = document.getElementById("sim-slider-1");
   const simSlider2 = document.getElementById("sim-slider-2");
-  function simSetupSlider(paramKey, sliderEl, labelEl){
+  // Positionne/actualise la bulle de valeur flottante au-dessus du curseur
+  // moderne (voir .ls-slider-pill) pour qu'elle reste alignée avec le pouce
+  // pendant le glisser, en plus du texte qu'elle affiche.
+  function simUpdatePill(paramKey, sliderEl, pillEl){
+    if(!pillEl) return;
+    if(!sliderEl || sliderEl.disabled){ pillEl.style.display = "none"; return; }
+    pillEl.style.display = "";
+    pillEl.style.left = simSliderPct(sliderEl.value, sliderEl.min, sliderEl.max) + "%";
+    pillEl.textContent = simFormatValue(paramKey, Number(sliderEl.value));
+  }
+  function simSetupSlider(paramKey, sliderEl, pillEl, minEl, maxEl){
     if(!sliderEl) return;
     const cur = simCurrentValues[paramKey];
-    if(cur==null){ sliderEl.disabled = true; if(labelEl) labelEl.textContent = "—"; return; }
+    if(cur==null){
+      sliderEl.disabled = true;
+      if(pillEl) pillEl.style.display = "none";
+      if(minEl) minEl.textContent = "—"; if(maxEl) maxEl.textContent = "—";
+      return;
+    }
     const min = cur*0.7, max = cur*1.3;
     sliderEl.min = min; sliderEl.max = max; sliderEl.step = Math.max((max-min)/100, 0.01);
     sliderEl.value = cur; sliderEl.disabled = false;
-    if(labelEl) labelEl.textContent = simFormatValue(paramKey, cur);
+    if(minEl) minEl.textContent = simFormatValue(paramKey, min);
+    if(maxEl) maxEl.textContent = simFormatValue(paramKey, max);
+    simUpdatePill(paramKey, sliderEl, pillEl);
   }
   function twinSimUpdate(){
     if(!simSel1 || !simSlider1) return;
     const key1 = simSel1.value, key2 = simSel2 ? simSel2.value : "none";
     const movedKeys = [key1], movedValues = [Number(simSlider1.value)];
     if(key2 !== "none" && key2 !== key1){ movedKeys.push(key2); movedValues.push(Number(simSlider2.value)); }
-    const label1 = document.getElementById("sim-value-1");
-    if(label1) label1.textContent = simFormatValue(key1, Number(simSlider1.value));
-    const label2 = document.getElementById("sim-value-2");
-    if(label2) label2.textContent = (key2!=="none") ? simFormatValue(key2, Number(simSlider2.value)) : "";
+    simUpdatePill(key1, simSlider1, document.getElementById("sim-value-1"));
+    if(key2!=="none") simUpdatePill(key2, simSlider2, document.getElementById("sim-value-2"));
+    else { const p2 = document.getElementById("sim-value-2"); if(p2) p2.style.display = "none"; }
     const effects = simComputeEffects(simSeriesCache, simCurrentValues, movedKeys, movedValues);
     const out = document.getElementById("sim-results");
     if(out) out.innerHTML = simResultsHtml(effects);
   }
   if(simSel1 && simSlider1){
-    simSel1.addEventListener("change", e=>{ simSetupSlider(e.target.value, simSlider1, document.getElementById("sim-value-1")); twinSimUpdate(); });
+    simSel1.addEventListener("change", e=>{
+      simSetupSlider(e.target.value, simSlider1, document.getElementById("sim-value-1"), document.getElementById("sim-min-1"), document.getElementById("sim-max-1"));
+      twinSimUpdate();
+    });
     simSlider1.addEventListener("input", twinSimUpdate);
   }
   if(simSel2 && simSlider2){
     simSel2.addEventListener("change", e=>{
-      if(e.target.value !== "none") simSetupSlider(e.target.value, simSlider2, document.getElementById("sim-value-2"));
-      else { simSlider2.disabled = true; const lbl2 = document.getElementById("sim-value-2"); if(lbl2) lbl2.textContent = ""; }
+      if(e.target.value !== "none") simSetupSlider(e.target.value, simSlider2, document.getElementById("sim-value-2"), document.getElementById("sim-min-2"), document.getElementById("sim-max-2"));
+      else {
+        simSlider2.disabled = true;
+        const lbl2 = document.getElementById("sim-value-2"); if(lbl2) lbl2.style.display = "none";
+        const min2 = document.getElementById("sim-min-2"); if(min2) min2.textContent = "";
+        const max2 = document.getElementById("sim-max-2"); if(max2) max2.textContent = "";
+      }
       twinSimUpdate();
     });
     simSlider2.addEventListener("input", twinSimUpdate);
@@ -2187,17 +2260,39 @@ function athleteTestRowHtml(test){
 // Petit tableau VAM (m/h) par zone de FC (lignes, ZONE_LABELS) x tranche de
 // pente (colonnes, gradeLabelIndices = indices dans GRADE_BUCKET_LABELS ;
 // [3,4,5] pour la montée, [0,1] pour la descente) -- voir vamProfileCell.
-function vamProfileTableHtml(profile, gradeLabelIndices){
+// Grille couleur (heatmap) remplaçant l'ancien tableau brut : l'intensité de
+// fond de chaque case est calculée par rapport au maximum observé dans CE
+// profil (montée et descente ont chacune leur propre échelle), pour que les
+// zones/pentes les plus rapides ressortent visuellement même quand les
+// valeurs absolues diffèrent beaucoup entre athlètes. colorVar reprend la
+// couleur déjà utilisée pour cette série sur le graphique d'évolution
+// mensuelle juste en dessous (--cat-2 pour la montée, --cat-1 pour la
+// descente), pour que les deux visualisations restent cohérentes entre elles.
+function vamProfileHeatmapHtml(profile, gradeLabelIndices, colorVar){
   const bucketsPerZone = gradeLabelIndices.length;
-  const headers = gradeLabelIndices.map(gi=>`<th>${escapeHtml(GRADE_BUCKET_LABELS[gi])}</th>`).join("");
+  const headers = gradeLabelIndices.map(gi=>`<div class="ls-heat-head">${escapeHtml(GRADE_BUCKET_LABELS[gi])}</div>`).join("");
+  const cellsGrid = [];
+  let maxV = 0;
+  ZONE_LABELS.forEach((label,zi)=>{
+    gradeLabelIndices.forEach((_,bi)=>{
+      const v = vamProfileCell(profile, zi, bi, bucketsPerZone);
+      if(v!=null && v>maxV) maxV = v;
+    });
+  });
+  const color = cssVar(colorVar);
   const rows = ZONE_LABELS.map((label,zi)=>{
+    const rowLabel = `<div class="ls-heat-row-label">${escapeHtml(label.split(" · ")[0])}</div>`;
     const cells = gradeLabelIndices.map((_,bi)=>{
       const v = vamProfileCell(profile, zi, bi, bucketsPerZone);
-      return `<td class="ls-num">${v!=null? Math.round(v)+" m/h" : "—"}</td>`;
+      if(v==null) return `<div class="ls-heat-cell empty">—</div>`;
+      const alpha = maxV>0 ? 0.10 + (v/maxV)*0.38 : 0.10;
+      return `<div class="ls-heat-cell" style="background:${hexToRgba(color, alpha)};" title="${escapeHtml(label)}">${Math.round(v)}</div>`;
     }).join("");
-    return `<tr><td>${escapeHtml(label)}</td>${cells}</tr>`;
+    return rowLabel + cells;
   }).join("");
-  return `<div class="ls-table-scroll"><table class="ls-log"><thead><tr><th>Zone de FC</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="ls-heat-card"><div class="ls-heat-grid" style="grid-template-columns:78px repeat(${bucketsPerZone},1fr);">
+    <div></div>${headers}${rows}
+  </div><div class="ls-matrix-note">Valeurs en m/h — case vide : moins de 60 s cumulées sur la fenêtre de ${MATRIX_WINDOW_WEEKS} semaines.</div></div>`;
 }
 
 function acuteChronicLatest(sessions){
@@ -2445,11 +2540,25 @@ function renderTwinVamChart(stravaSessions){
   // Réinsère un <canvas> propre : un rendu précédent (aucune donnée, ou lib
   // absente) peut avoir remplacé ce wrap par un message texte.
   wrap.innerHTML = '<canvas id="chart-twin-vam"></canvas>';
-  charts.twinVam = new Chart(document.getElementById("chart-twin-vam"), {
+  const ctx = document.getElementById("chart-twin-vam").getContext("2d");
+  // Dégradé vertical sous chaque courbe (aspect plus moderne que le simple
+  // trait) — createLinearGradient a besoin de la hauteur réelle du canvas,
+  // recalculée à chaque (re)rendu du graphique.
+  const chartFill = (colorVar, topAlpha) => {
+    const g = ctx.createLinearGradient(0, 0, 0, ctx.canvas.clientHeight || 220);
+    g.addColorStop(0, hexToRgba(cssVar(colorVar), topAlpha));
+    g.addColorStop(1, hexToRgba(cssVar(colorVar), 0));
+    return g;
+  };
+  charts.twinVam = new Chart(ctx, {
     type:"line",
     data:{ labels: months.map(m=>monthLabelFr(m.year, m.month)), datasets:[
-      { label:"Montée", data: climb.map(v=>v!=null?Math.round(v):null), borderColor: cssVar("--cat-2"), backgroundColor:"transparent", borderWidth:2, pointRadius:3, tension:.25, spanGaps:true },
-      { label:"Descente", data: descent.map(v=>v!=null?Math.round(v):null), borderColor: cssVar("--cat-1"), backgroundColor:"transparent", borderWidth:2, pointRadius:3, tension:.25, spanGaps:true }
+      { label:"Montée", data: climb.map(v=>v!=null?Math.round(v):null), borderColor: cssVar("--cat-2"), backgroundColor: chartFill("--cat-2", .28),
+        borderWidth:3, pointRadius:3, pointBackgroundColor: cssVar("--surface"), pointBorderColor: cssVar("--cat-2"), pointBorderWidth:2,
+        pointHoverRadius:6, fill:true, tension:.3, spanGaps:true },
+      { label:"Descente", data: descent.map(v=>v!=null?Math.round(v):null), borderColor: cssVar("--cat-1"), backgroundColor: chartFill("--cat-1", .22),
+        borderWidth:3, pointRadius:3, pointBackgroundColor: cssVar("--surface"), pointBorderColor: cssVar("--cat-1"), pointBorderWidth:2,
+        pointHoverRadius:6, fill:true, tension:.3, spanGaps:true }
     ]},
     options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"VAM (m/h)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
