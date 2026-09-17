@@ -234,6 +234,13 @@
 
   <div class="ls-layout">
     <aside class="ls-panel">
+      <button class="ls-athlete-card" id="btn-view-leads" type="button" style="margin-bottom:12px;">
+        <span class="ls-athlete-meta">
+          <div class="ls-athlete-name">Demandes de rapport</div>
+          <div class="ls-athlete-sub" id="leads-nav-sub">Outil public</div>
+        </span>
+      </button>
+      <div class="ls-side-divider"></div>
       <h2>Athlètes</h2>
       <div class="ls-athlete-list" id="athlete-list"></div>
       <div class="ls-side-divider"></div>
@@ -371,6 +378,14 @@ let terrainCompareB = null;
 // "env" (rapport environnemental — chaleur/altitude/vent). Partagé entre
 // athlètes (pas remis à zéro au changement d'athlète).
 let activeTab = "training";
+// Vue affichée dans #main-panel : "athlete" (tableau de bord de activeAthleteId,
+// comportement historique) ou "leads" (liste des demandes de contact laissées
+// sur l'outil public rapport-seance.html, indépendante de tout athlète).
+let activeView = "athlete";
+// Période affichée sur la vue "Demandes de rapport" — même forme et même
+// sélecteur date-à-date que chartPeriod, mais état indépendant.
+let reportLeadsPeriod = null;
+function ensureReportLeadsPeriod(){ if(!reportLeadsPeriod) reportLeadsPeriod = defaultChartPeriod(); return reportLeadsPeriod; }
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
@@ -560,6 +575,15 @@ function athleteTestFromApi(t){
     valueGauche: t.value_gauche!=null ? Number(t.value_gauche) : null,
     value: t.value!=null ? Number(t.value) : null,
     note: t.note || "" };
+}
+// Demandes de contact laissées sur l'outil public rapport-seance.html
+// (table report_leads, écriture seule pour un visiteur anonyme — lue ici via
+// app-api + x-coach-key, comme le reste des données du tableau de bord).
+function reportLeadFromApi(l){
+  return { id:l.id, createdAt:l.created_at, name:l.name, email:l.email,
+    sessionDate:l.session_date, sessionType:l.session_type,
+    sessionDurationMin: l.session_duration_min!=null ? Number(l.session_duration_min) : null,
+    sessionDistanceKm: l.session_distance_km!=null ? Number(l.session_distance_km) : null };
 }
 function athleteTestToApi(t){
   const row = { athlete_id:t.athleteId, test_type:t.testType, date:t.date,
@@ -1466,7 +1490,7 @@ function renderAthleteList(){
     const last = acwr.length ? acwr[acwr.length-1] : null;
     const cls = classifyACWR(last);
     const wk = sum7(sessions);
-    const active = a.id === activeAthleteId ? "active" : "";
+    const active = (activeView==="athlete" && a.id === activeAthleteId) ? "active" : "";
     return `<button class="ls-athlete-card ${active}" data-athlete="${a.id}">
       <span class="ls-dot" style="background:${athleteColor(a)}"></span>
       <span class="ls-athlete-meta">
@@ -1477,8 +1501,14 @@ function renderAthleteList(){
     </button>`;
   }).join("");
   list.querySelectorAll("[data-athlete]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{ activeAthleteId = btn.getAttribute("data-athlete"); renderAll(); });
+    btn.addEventListener("click", ()=>{ activeAthleteId = btn.getAttribute("data-athlete"); activeView = "athlete"; renderAll(); });
   });
+  const leadsBtn = document.getElementById("btn-view-leads");
+  if(leadsBtn){
+    leadsBtn.classList.toggle("active", activeView==="leads");
+    const nb = (state.reportLeads||[]).length;
+    document.getElementById("leads-nav-sub").textContent = nb + " demande" + (nb!==1?"s":"") + " reçue" + (nb!==1?"s":"");
+  }
 }
 
 function statusVar(key){
@@ -1503,8 +1533,85 @@ function athleteMetaLine(athlete){
 
 /* ---------------------------- rendering: main panel ---------------------------- */
 
+// Vue "Demandes de rapport" : liste (nom/email/date de demande) des visiteurs
+// ayant débloqué leur analyse sur l'outil public rapport-seance.html, classée
+// par date de demande décroissante, filtrable par une période date-à-date
+// (même contrôle que chartPeriod/envChartPeriod, état indépendant).
+function renderLeadsView(main){
+  const period = ensureReportLeadsPeriod();
+  const allLeads = (state.reportLeads || []).slice().sort((a,b)=> a.createdAt < b.createdAt ? 1 : -1);
+  const leads = allLeads.filter(l => {
+    const d = (l.createdAt || "").slice(0,10);
+    return d && d >= period.start && d <= period.end;
+  });
+  const rowHtml = (l) => `<tr>
+    <td>${l.createdAt ? fmtDateFr(l.createdAt.slice(0,10)) : "—"}</td>
+    <td>${escapeHtml(l.name || "—")}</td>
+    <td>${l.email ? `<a href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : "—"}</td>
+    <td>${l.sessionType ? escapeHtml(l.sessionType) + (l.sessionDate ? " · " + fmtDateFr(l.sessionDate) : "") : "—"}</td>
+  </tr>`;
+  main.innerHTML = `
+    <div class="ls-athlete-header">
+      <div class="ls-athlete-title">
+        <div>
+          <h2>Demandes de rapport</h2>
+          <div class="ls-athlete-sub">Coordonnées laissées sur l'outil public d'analyse de séance, pour te recontacter</div>
+        </div>
+      </div>
+    </div>
+    <div class="ls-stat-grid" style="grid-template-columns:repeat(2,1fr);max-width:420px;margin-bottom:18px;">
+      <div class="ls-stat"><div class="ls-stat-label">Demandes sur la période</div><div class="ls-stat-value">${leads.length}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Total enregistré</div><div class="ls-stat-value">${allLeads.length}</div></div>
+    </div>
+    <div class="ls-period-bar">
+      <div class="ls-field">
+        <label>Période — début</label>
+        <input type="date" id="leads-period-start" value="${period.start}" max="${period.end}">
+      </div>
+      <div class="ls-period-arrow">→</div>
+      <div class="ls-field">
+        <label>Période — fin</label>
+        <input type="date" id="leads-period-end" value="${period.end}" min="${period.start}">
+      </div>
+      <button class="ls-btn small ghost" type="button" id="btn-leads-period-reset">Réinitialiser (6 mois)</button>
+      <div class="ls-period-note">Filtre le tableau ci-dessous sur la date de demande.</div>
+    </div>
+    ${allLeads.length === 0
+      ? '<div class="ls-panel"><div class="ls-empty">Aucune demande enregistrée pour le moment.</div></div>'
+      : leads.length === 0
+        ? '<div class="ls-panel"><div class="ls-empty">Aucune demande sur cette période.</div></div>'
+        : `<div class="ls-table-card">
+      <div class="ls-table-head"><h3>Demandes (${leads.length})</h3></div>
+      <div class="ls-table-scroll">
+        <table class="ls-log">
+          <thead><tr><th>Date de la demande</th><th>Nom</th><th>Email</th><th>Séance</th></tr></thead>
+          <tbody>${leads.map(rowHtml).join("")}</tbody>
+        </table>
+      </div>
+    </div>`}
+  `;
+  document.getElementById("leads-period-start").addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    reportLeadsPeriod = { start: v, end: v > reportLeadsPeriod.end ? v : reportLeadsPeriod.end };
+    renderMain();
+  });
+  document.getElementById("leads-period-end").addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    reportLeadsPeriod = { start: v < reportLeadsPeriod.start ? v : reportLeadsPeriod.start, end: v };
+    renderMain();
+  });
+  document.getElementById("btn-leads-period-reset").addEventListener("click", ()=>{
+    reportLeadsPeriod = defaultChartPeriod();
+    renderMain();
+  });
+}
+
 function renderMain(){
   const main = document.getElementById("main-panel");
+  if(activeView === "leads"){
+    renderLeadsView(main);
+    return;
+  }
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
   if(!athlete){
     main.innerHTML = '<div class="ls-panel"><div class="ls-empty">Sélectionnez un athlète, ou créez-en un nouveau pour commencer le suivi.</div></div>';
@@ -3032,6 +3139,7 @@ function paginateCanvas(canvasHeightPx, rowsPx, pageCapacityPx){
 }
 
 async function exportPDF(){
+  if(activeView === "leads"){ showToast("L'export PDF n'est pas disponible sur la vue « Demandes de rapport ».", "--serious"); return; }
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
   if(!athlete){ showToast("Sélectionnez un athlète avant d'exporter un PDF.", "--serious"); return; }
   const main = document.getElementById("main-panel");
@@ -3152,7 +3260,8 @@ async function refreshData(){
   const keepAthlete = activeAthleteId;
   const data = await fetchData();
   state = { athletes: data.athletes.map(athleteFromApi), sessions: data.sessions.map(sessionFromApi),
-    athleteTests: (data.athleteTests || []).map(athleteTestFromApi) };
+    athleteTests: (data.athleteTests || []).map(athleteTestFromApi),
+    reportLeads: (data.reportLeads || []).map(reportLeadFromApi) };
   if(keepAthlete && state.athletes.some(a=>a.id===keepAthlete)) activeAthleteId = keepAthlete;
   else {
     const stored = localStorage.getItem(ACTIVE_ATHLETE_STORAGE);
@@ -3227,6 +3336,7 @@ function init(){
   applyTheme(currentThemeMode());
 
   document.getElementById("btn-theme").addEventListener("click", cycleTheme);
+  document.getElementById("btn-view-leads").addEventListener("click", ()=>{ activeView = "leads"; renderAll(); });
   document.getElementById("btn-add-athlete").addEventListener("click", ()=>openAthleteModal(null));
   document.getElementById("btn-export").addEventListener("click", exportJSON);
   document.getElementById("btn-export-pdf").addEventListener("click", exportPDF);
