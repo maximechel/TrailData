@@ -171,6 +171,37 @@
   .ls-login-status{margin-top:10px;font-size:12.5px;line-height:1.5;}
   .ls-login-status.error{color:var(--critical);}
   .ls-login-status.ok{color:var(--good);}
+
+  /* ---------- onglet Santé ---------- */
+  .ls-sante-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin-bottom:16px;}
+  .ls-sante-card h3{font-size:14px;font-weight:800;margin:0 0 2px;}
+  .ls-sante-hint{font-size:11.5px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;}
+  .ls-sante-row{padding:14px 0;border-top:1px solid var(--border);}
+  .ls-sante-row:first-of-type{border-top:none;padding-top:2px;}
+  .ls-sante-row-label{font-size:13.5px;font-weight:700;margin-bottom:2px;}
+  .ls-sante-row-desc{font-size:11.5px;color:var(--text-muted);font-weight:500;margin-bottom:10px;}
+  .ls-sante-scale{display:flex;gap:6px;flex-wrap:wrap;}
+  .ls-sante-scale-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);
+    font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;}
+  .ls-sante-scale-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .ls-sante-scale-caption{display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-muted);margin-top:6px;}
+  .ls-sante-toggle-group{display:inline-flex;background:var(--surface-2);border-radius:10px;padding:3px;gap:2px;}
+  .ls-sante-toggle-btn{font-family:var(--font-ui);font-size:12.5px;font-weight:700;border:none;background:transparent;color:var(--text-muted);padding:8px 18px;border-radius:8px;cursor:pointer;}
+  .ls-sante-toggle-btn.active{background:var(--surface);color:var(--text-primary);box-shadow:0 1px 2px rgba(11,11,11,.08);}
+  .ls-sante-sev-pill{font-family:var(--font-ui);font-size:12.5px;font-weight:700;border:1.5px solid var(--border);background:var(--surface);color:var(--text-secondary);
+    padding:8px 14px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;}
+  .ls-sante-sev-pill.active{border-color:var(--accent);color:var(--text-primary);}
+  .ls-sante-sev-dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .ls-sante-zone-hint{font-size:11px;color:var(--text-muted);margin-top:10px;text-align:center;}
+  .ls-sante-bodies{display:flex;gap:32px;justify-content:center;flex-wrap:wrap;}
+  .ls-sante-body-label{font-size:11px;font-weight:700;color:var(--text-muted);}
+  .ls-sante-note{width:100%;font-family:var(--font-ui);font-size:13px;border:1px solid var(--border);border-radius:10px;
+    background:var(--surface-2);padding:10px 12px;resize:vertical;color:var(--text-primary);}
+  .ls-sante-submit{width:100%;font-family:var(--font-ui);font-size:14px;font-weight:800;border:none;border-radius:11px;
+    background:var(--accent);color:#fff;padding:14px;cursor:pointer;}
+  .ls-sante-submit[disabled]{opacity:.6;cursor:default;}
+  .ls-sante-status{font-size:12px;color:var(--text-muted);margin-bottom:14px;}
+  .ls-sante-status.ok{color:var(--good);}
 </style>
 </head>
 <body>
@@ -284,12 +315,92 @@ function paceZoneLabel(athleteObj, i){
 
 let athlete = null;
 let sessions = [];
+let hooperResponses = [];
+let injuryReports = [];
+let santeDraft = null;
+let santeSaving = false;
 let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
 let chartPeriod = null;
 let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
 let terrainCompareB = null;
 let activeTab = "training";
+
+/* ---------- onglet Santé : questionnaire de Hooper + avatar de gênes ----------
+   Échelle Hooper 1-7 par item : 1 = très mauvais/très élevé, 7 = très bien/très
+   faible (convention choisie par le coach, inversée par rapport au Hooper Index
+   classique). Zones du corps identiques à la maquette Design "Onglet Santé". */
+const SANTE_FRONT_ZONES = [
+  { id: "epaule_g", x: 60, y: 82, label: "Épaule gauche" },
+  { id: "epaule_d", x: 160, y: 82, label: "Épaule droite" },
+  { id: "bras_g", x: 53, y: 121, label: "Bras gauche" },
+  { id: "bras_d", x: 167, y: 121, label: "Bras droit" },
+  { id: "coude_g", x: 44, y: 168, label: "Coude gauche" },
+  { id: "coude_d", x: 176, y: 168, label: "Coude droit" },
+  { id: "avantbras_g", x: 40, y: 204, label: "Avant-bras gauche" },
+  { id: "avantbras_d", x: 180, y: 204, label: "Avant-bras droit" },
+  { id: "poignet_g", x: 36, y: 248, label: "Poignet gauche" },
+  { id: "poignet_d", x: 184, y: 248, label: "Poignet droit" },
+  { id: "adducteur_g", x: 100, y: 205, label: "Adducteur gauche" },
+  { id: "adducteur_d", x: 120, y: 205, label: "Adducteur droit" },
+  { id: "cuisse_av_g", x: 88, y: 241, label: "Cuisse gauche" },
+  { id: "cuisse_av_d", x: 132, y: 241, label: "Cuisse droite" },
+  { id: "genou_g", x: 85, y: 290, label: "Genou gauche" },
+  { id: "genou_d", x: 135, y: 290, label: "Genou droit" },
+  { id: "jambier_g", x: 84, y: 334, label: "Jambier gauche" },
+  { id: "jambier_d", x: 136, y: 334, label: "Jambier droit" },
+  { id: "cheville_g", x: 83, y: 388, label: "Cheville gauche" },
+  { id: "cheville_d", x: 137, y: 388, label: "Cheville droite" },
+  { id: "pied_g", x: 81, y: 408, label: "Pied gauche" },
+  { id: "pied_d", x: 139, y: 408, label: "Pied droit" },
+];
+const SANTE_BACK_ZONES = [
+  { id: "cervicales", x: 110, y: 58, label: "Cervicales" },
+  { id: "haut_dos", x: 110, y: 95, label: "Haut du dos" },
+  { id: "milieu_dos", x: 110, y: 128, label: "Milieu du dos" },
+  { id: "bas_dos", x: 110, y: 160, label: "Bas du dos" },
+  { id: "fessier_g", x: 95, y: 192, label: "Fessier gauche" },
+  { id: "fessier_d", x: 125, y: 192, label: "Fessier droit" },
+  { id: "cuisse_ar_g", x: 88, y: 241, label: "Cuisse gauche" },
+  { id: "cuisse_ar_d", x: 132, y: 241, label: "Cuisse droite" },
+  { id: "creuxgenou_g", x: 85, y: 290, label: "Creux du genou gauche" },
+  { id: "creuxgenou_d", x: 135, y: 290, label: "Creux du genou droit" },
+  { id: "mollet_g", x: 84, y: 334, label: "Mollet gauche" },
+  { id: "mollet_d", x: 136, y: 334, label: "Mollet droit" },
+  { id: "talon_g", x: 83, y: 400, label: "Talon gauche" },
+  { id: "talon_d", x: 137, y: 400, label: "Talon droit" },
+];
+const SANTE_SEVERITY_OPTIONS = [
+  { key: "peu", label: "Peu inquiet", varName: "--warning" },
+  { key: "inquiet", label: "Inquiet", varName: "--serious" },
+  { key: "tres", label: "Très inquiet", varName: "--critical" },
+];
+const SANTE_BODY_SVG_STATIC = `
+  <line x1="92" y1="184" x2="85" y2="290" stroke="var(--axis)" stroke-width="33" stroke-linecap="round"></line>
+  <line x1="128" y1="184" x2="135" y2="290" stroke="var(--axis)" stroke-width="33" stroke-linecap="round"></line>
+  <line x1="85" y1="290" x2="83" y2="388" stroke="var(--axis)" stroke-width="23" stroke-linecap="round"></line>
+  <line x1="135" y1="290" x2="137" y2="388" stroke="var(--axis)" stroke-width="23" stroke-linecap="round"></line>
+  <line x1="92" y1="184" x2="85" y2="290" stroke="var(--surface-2)" stroke-width="29" stroke-linecap="round"></line>
+  <line x1="128" y1="184" x2="135" y2="290" stroke="var(--surface-2)" stroke-width="29" stroke-linecap="round"></line>
+  <line x1="85" y1="290" x2="83" y2="388" stroke="var(--surface-2)" stroke-width="19" stroke-linecap="round"></line>
+  <line x1="135" y1="290" x2="137" y2="388" stroke="var(--surface-2)" stroke-width="19" stroke-linecap="round"></line>
+  <ellipse cx="81" cy="408" rx="16" ry="9" transform="rotate(-12 81 408)" fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></ellipse>
+  <ellipse cx="139" cy="408" rx="16" ry="9" transform="rotate(12 139 408)" fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></ellipse>
+  <line x1="60" y1="82" x2="44" y2="168" stroke="var(--axis)" stroke-width="25" stroke-linecap="round"></line>
+  <line x1="160" y1="82" x2="176" y2="168" stroke="var(--axis)" stroke-width="25" stroke-linecap="round"></line>
+  <line x1="44" y1="168" x2="36" y2="248" stroke="var(--axis)" stroke-width="19" stroke-linecap="round"></line>
+  <line x1="176" y1="168" x2="184" y2="248" stroke="var(--axis)" stroke-width="19" stroke-linecap="round"></line>
+  <line x1="60" y1="82" x2="44" y2="168" stroke="var(--surface-2)" stroke-width="21" stroke-linecap="round"></line>
+  <line x1="160" y1="82" x2="176" y2="168" stroke="var(--surface-2)" stroke-width="21" stroke-linecap="round"></line>
+  <line x1="44" y1="168" x2="36" y2="248" stroke="var(--surface-2)" stroke-width="15" stroke-linecap="round"></line>
+  <line x1="176" y1="168" x2="184" y2="248" stroke="var(--surface-2)" stroke-width="15" stroke-linecap="round"></line>
+  <ellipse cx="34" cy="258" rx="10" ry="14" fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></ellipse>
+  <ellipse cx="186" cy="258" rx="10" ry="14" fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></ellipse>
+  <path d="M60,74 C54,104 63,134 80,157 C70,166 68,174 74,182 L146,182 C152,174 150,166 140,157 C157,134 166,104 160,74 C140,66 80,66 60,74 Z"
+    fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></path>
+  <path d="M99,58 L121,58 L124,74 L96,74 Z" fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></path>
+  <ellipse cx="110" cy="38" rx="21" ry="23" fill="var(--surface-2)" stroke="var(--axis)" stroke-width="1.5"></ellipse>
+`;
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function fmtDateFr(d){ const dt = typeof d === "string" ? new Date(d+"T00:00:00") : d; return dt.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" }); }
@@ -410,6 +521,211 @@ function sessionFromApi(s){
     technicityDescent: s.technicity_descent || "roulant",
     technicityFlat: s.technicity_flat || "roulant",
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
+}
+function hooperFromApi(h){
+  return { id:h.id, athleteId:h.athlete_id, weekStart:h.week_start,
+    sommeil:h.sommeil, fatigue:h.fatigue, stress:h.stress, douleur:h.douleur,
+    note: h.note||"", submittedAt: h.submitted_at };
+}
+function injuryFromApi(r){
+  return { id:r.id, athleteId:r.athlete_id, weekStart:r.week_start, view:r.view,
+    zoneId:r.zone_id, zoneLabel:r.zone_label, severity:r.severity, note:r.note||"", reportedAt:r.reported_at };
+}
+
+/* ---------------------------- onglet Santé : état du brouillon et rendu ---------------------------- */
+
+function currentWeekStartISO(){ return isoMonday(fmtDate(new Date())); }
+function santeSeverityVar(key){ const o = SANTE_SEVERITY_OPTIONS.find(s=>s.key===key); return o ? o.varName : "--warning"; }
+function santeSeverityLabel(key){ const o = SANTE_SEVERITY_OPTIONS.find(s=>s.key===key); return o ? o.label : key; }
+
+function buildSanteDraft(week){
+  const existingHooper = hooperResponses.find(h=>h.weekStart===week) || null;
+  const existingInjuries = injuryReports.filter(r=>r.weekStart===week);
+  const markedFront = {}, markedBack = {};
+  existingInjuries.forEach(r=>{
+    if(r.view === "face") markedFront[r.zoneId] = r.severity;
+    else markedBack[r.zoneId] = r.severity;
+  });
+  return {
+    week,
+    hooper: {
+      sommeil: existingHooper ? existingHooper.sommeil : 4,
+      fatigue: existingHooper ? existingHooper.fatigue : 4,
+      stress: existingHooper ? existingHooper.stress : 4,
+      douleur: existingHooper ? existingHooper.douleur : 4,
+    },
+    hasPain: existingInjuries.length > 0,
+    severity: existingInjuries.length ? existingInjuries[0].severity : "peu",
+    markedFront, markedBack,
+    note: existingInjuries.length ? (existingInjuries[0].note||"") : "",
+    alreadySubmitted: !!existingHooper,
+  };
+}
+function ensureSanteDraft(){
+  const week = currentWeekStartISO();
+  if(santeDraft && santeDraft.week === week) return;
+  santeDraft = buildSanteDraft(week);
+}
+function setSanteHooperValue(item, value){
+  if(!santeDraft) return;
+  santeDraft.hooper[item] = value;
+  renderMain();
+}
+function setSanteHasPain(val){
+  if(!santeDraft) return;
+  santeDraft.hasPain = val;
+  renderMain();
+}
+function setSanteSeverity(key){
+  if(!santeDraft) return;
+  santeDraft.severity = key;
+  renderMain();
+}
+function toggleSanteZone(view, zoneId){
+  if(!santeDraft) return;
+  const bucket = view === "face" ? santeDraft.markedFront : santeDraft.markedBack;
+  if(bucket[zoneId] === santeDraft.severity){ delete bucket[zoneId]; }
+  else { bucket[zoneId] = santeDraft.severity; }
+  renderMain();
+}
+function renderSanteBodySvg(view, zones, marks){
+  const circles = zones.map(z=>{
+    const sev = marks[z.id];
+    const fill = sev ? `var(${santeSeverityVar(sev)})` : "var(--surface)";
+    const fillOpacity = sev ? "0.9" : "0.5";
+    const stroke = sev ? "#ffffff" : "var(--axis)";
+    return `<circle cx="${z.x}" cy="${z.y}" r="8" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="1.4"
+      data-zone-view="${view}" data-zone-id="${z.id}" style="cursor:pointer;"><title>${escapeHtml(z.label)}</title></circle>`;
+  }).join("");
+  return `<svg width="187" height="391" viewBox="0 0 220 460">${SANTE_BODY_SVG_STATIC}${circles}</svg>`;
+}
+function santeHooperRowHtml(item, label, desc, captionBad, captionGood){
+  const current = santeDraft.hooper[item];
+  const btns = [1,2,3,4,5,6,7].map(n=>
+    `<button type="button" class="ls-sante-scale-btn ${current===n?"active":""}" data-hooper-item="${item}" data-hooper-value="${n}">${n}</button>`
+  ).join("");
+  return `
+    <div class="ls-sante-row">
+      <div class="ls-sante-row-label">${label}</div>
+      <div class="ls-sante-row-desc">${desc}</div>
+      <div class="ls-sante-scale">${btns}</div>
+      <div class="ls-sante-scale-caption"><span>${captionBad}</span><span>${captionGood}</span></div>
+    </div>`;
+}
+function renderSanteTab(){
+  if(!santeDraft) return "";
+  const week = santeDraft.week;
+  const weekEnd = new Date(week+"T00:00:00"); weekEnd.setDate(weekEnd.getDate()+6);
+  const statusHtml = santeDraft.alreadySubmitted
+    ? `<div class="ls-sante-status ok">Déjà envoyé pour cette semaine — modifiable jusqu'à dimanche.</div>`
+    : `<div class="ls-sante-status">Pas encore envoyé pour cette semaine.</div>`;
+  const severityPills = SANTE_SEVERITY_OPTIONS.map(o=>
+    `<button type="button" class="ls-sante-sev-pill ${santeDraft.severity===o.key?"active":""}" data-severity="${o.key}">
+      <span class="ls-sante-sev-dot" style="background:var(${o.varName});"></span>${o.label}
+    </button>`).join("");
+  return `
+    <div class="ls-sante-card">
+      <h3>Questionnaire santé — semaine du ${fmtDateFr(week)} au ${fmtDateFr(fmtDate(weekEnd))}</h3>
+      ${statusHtml}
+    </div>
+    <div class="ls-sante-card">
+      <h3>Indice de Hooper</h3>
+      <div class="ls-sante-hint">Pour chaque item, 1 = très mauvais / très élevé, 7 = très bien / très faible.</div>
+      ${santeHooperRowHtml("sommeil","Sommeil","Qualité de votre sommeil cette semaine","Très mauvais","Très bien")}
+      ${santeHooperRowHtml("fatigue","Fatigue","Niveau de fatigue ressenti","Très élevée","Très faible")}
+      ${santeHooperRowHtml("stress","Stress","Niveau de stress ressenti","Très élevé","Très faible")}
+      ${santeHooperRowHtml("douleur","Douleur","Courbatures / douleurs musculaires générales","Très intense","Aucune")}
+    </div>
+    <div class="ls-sante-card">
+      <h3>Gêne ou blessure localisée</h3>
+      <div class="ls-sante-hint">Avez-vous une gêne, douleur ou blessure en ce moment ?</div>
+      <div class="ls-sante-toggle-group">
+        <button type="button" class="ls-sante-toggle-btn ${santeDraft.hasPain?"active":""}" data-pain="yes">Oui</button>
+        <button type="button" class="ls-sante-toggle-btn ${!santeDraft.hasPain?"active":""}" data-pain="no">Non</button>
+      </div>
+      ${santeDraft.hasPain ? `
+      <div style="margin-top:18px;">
+        <div style="font-size:12.5px;font-weight:700;margin-bottom:8px;">1. Choisissez un niveau d'inquiétude</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">${severityPills}</div>
+        <div style="font-size:12.5px;font-weight:700;margin:16px 0 6px;">2. Touchez les zones concernées</div>
+        <div class="ls-sante-bodies">
+          <div style="text-align:center;">
+            ${renderSanteBodySvg("face", SANTE_FRONT_ZONES, santeDraft.markedFront)}
+            <div class="ls-sante-body-label">FACE</div>
+          </div>
+          <div style="text-align:center;">
+            ${renderSanteBodySvg("dos", SANTE_BACK_ZONES, santeDraft.markedBack)}
+            <div class="ls-sante-body-label">DOS</div>
+          </div>
+        </div>
+        <div class="ls-sante-zone-hint">Touchez une zone pour la marquer avec le niveau choisi ci-dessus. Touchez à nouveau pour l'effacer.</div>
+        <div style="margin-top:16px;">
+          <div style="font-size:12.5px;font-weight:700;margin-bottom:6px;">3. Précisions (optionnel)</div>
+          <textarea class="ls-sante-note" id="sante-note" rows="3" placeholder="Depuis quand, contexte d'apparition, sensation...">${escapeHtml(santeDraft.note)}</textarea>
+        </div>
+      </div>` : ""}
+    </div>
+    <button type="button" class="ls-sante-submit" id="btn-sante-submit" ${santeSaving?"disabled":""}>${santeSaving?"Envoi…":"Envoyer mon questionnaire"}</button>
+  `;
+}
+function bindSanteEvents(main){
+  main.querySelectorAll("[data-hooper-item]").forEach(b=> b.addEventListener("click", ()=>
+    setSanteHooperValue(b.getAttribute("data-hooper-item"), parseInt(b.getAttribute("data-hooper-value"),10))));
+  main.querySelectorAll("[data-pain]").forEach(b=> b.addEventListener("click", ()=>
+    setSanteHasPain(b.getAttribute("data-pain")==="yes")));
+  main.querySelectorAll("[data-severity]").forEach(b=> b.addEventListener("click", ()=>
+    setSanteSeverity(b.getAttribute("data-severity"))));
+  main.querySelectorAll("[data-zone-id]").forEach(c=> c.addEventListener("click", ()=>
+    toggleSanteZone(c.getAttribute("data-zone-view"), c.getAttribute("data-zone-id"))));
+  const noteEl = document.getElementById("sante-note");
+  if(noteEl) noteEl.addEventListener("input", e=>{ if(santeDraft) santeDraft.note = e.target.value; });
+  const submitBtn = document.getElementById("btn-sante-submit");
+  if(submitBtn) submitBtn.addEventListener("click", submitSanteQuestionnaire);
+}
+async function submitSanteQuestionnaire(){
+  if(!athlete || !santeDraft || santeSaving) return;
+  santeSaving = true; renderMain();
+  const week = santeDraft.week;
+  const hooperRow = {
+    athlete_id: athlete.id, week_start: week,
+    sommeil: santeDraft.hooper.sommeil, fatigue: santeDraft.hooper.fatigue,
+    stress: santeDraft.hooper.stress, douleur: santeDraft.hooper.douleur,
+  };
+  const { data: savedHooper, error: hErr } = await sb.from("hooper_responses")
+    .upsert(hooperRow, { onConflict: "athlete_id,week_start" }).select().single();
+  if(hErr){ santeSaving=false; showToast("Erreur d'enregistrement : "+hErr.message, "--critical"); renderMain(); return; }
+
+  // Une nouvelle soumission remplace les gênes de la semaine : on supprime les
+  // anciennes lignes puis on réinsère l'état courant (vide si "Non" est sélectionné).
+  const { error: delErr } = await sb.from("injury_reports").delete().eq("athlete_id", athlete.id).eq("week_start", week);
+  if(delErr){ santeSaving=false; showToast("Erreur d'enregistrement : "+delErr.message, "--critical"); renderMain(); return; }
+
+  let savedInjuries = [];
+  if(santeDraft.hasPain){
+    const rows = [];
+    Object.entries(santeDraft.markedFront).forEach(([zoneId, sev])=>{
+      const z = SANTE_FRONT_ZONES.find(f=>f.id===zoneId); if(!z) return;
+      rows.push({ athlete_id: athlete.id, week_start: week, view:"face", zone_id: zoneId, zone_label: z.label, severity: sev, note: santeDraft.note || null });
+    });
+    Object.entries(santeDraft.markedBack).forEach(([zoneId, sev])=>{
+      const z = SANTE_BACK_ZONES.find(f=>f.id===zoneId); if(!z) return;
+      rows.push({ athlete_id: athlete.id, week_start: week, view:"dos", zone_id: zoneId, zone_label: z.label, severity: sev, note: santeDraft.note || null });
+    });
+    if(rows.length){
+      const { data, error: iErr } = await sb.from("injury_reports").insert(rows).select();
+      if(iErr){ santeSaving=false; showToast("Erreur d'enregistrement : "+iErr.message, "--critical"); renderMain(); return; }
+      savedInjuries = data||[];
+    }
+  }
+
+  hooperResponses = hooperResponses.filter(h=>h.weekStart!==week);
+  hooperResponses.push(hooperFromApi(savedHooper));
+  injuryReports = injuryReports.filter(r=>r.weekStart!==week).concat(savedInjuries.map(injuryFromApi));
+
+  santeSaving = false;
+  showToast("Questionnaire envoyé — merci !", "--good");
+  ensureSanteDraft();
+  renderMain();
 }
 
 /* ---------------------------- domain calculations (identiques à index.html) ---------------------------- */
@@ -840,6 +1156,7 @@ function renderMain(){
   ensureChartPeriod();
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
   ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
+  ensureSanteDraft();
 
   main.innerHTML = `
     <div class="ls-athlete-header">
@@ -858,6 +1175,7 @@ function renderMain(){
     <div class="ls-tabbar">
       <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
+      <button class="ls-tab-btn ${activeTab==="sante"?"active":""}" data-tab="sante" type="button">Santé</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
@@ -1018,6 +1336,10 @@ function renderMain(){
         </div>
       </div>`}
     </div>
+
+    <div class="ls-tab-panel" id="tab-panel-sante" ${activeTab!=="sante"?"hidden":""}>
+      ${renderSanteTab()}
+    </div>
   `;
 
   main.querySelectorAll("[data-tab]").forEach(b=> b.addEventListener("click", ()=>{
@@ -1077,6 +1399,7 @@ function renderMain(){
   });
   const intensityBtn = document.getElementById("btn-intensity-table");
   if(intensityBtn) intensityBtn.addEventListener("click", ()=>openIntensityModal(athlete));
+  bindSanteEvents(main);
 
   renderActiveTabCharts();
 }
@@ -1499,6 +1822,8 @@ async function loadAthleteData(){
   if(!athleteRows || athleteRows.length === 0){
     athlete = null;
     sessions = [];
+    hooperResponses = [];
+    injuryReports = [];
     renderMain();
     return;
   }
@@ -1510,6 +1835,11 @@ async function loadAthleteData(){
   } else {
     sessions = (sessionRows||[]).map(sessionFromApi);
   }
+  const { data: hooperRows, error: hErr } = await sb.from("hooper_responses").select("*").eq("athlete_id", athlete.id);
+  hooperResponses = hErr ? [] : (hooperRows||[]).map(hooperFromApi);
+  const { data: injuryRows, error: iErr } = await sb.from("injury_reports").select("*").eq("athlete_id", athlete.id);
+  injuryReports = iErr ? [] : (injuryRows||[]).map(injuryFromApi);
+  santeDraft = null;
   renderMain();
 }
 
@@ -1522,7 +1852,7 @@ function showLoggedOutUI(){
   document.getElementById("login-screen").hidden = false;
   document.getElementById("main-panel").hidden = true;
   document.getElementById("btn-logout").hidden = true;
-  athlete = null; sessions = [];
+  athlete = null; sessions = []; hooperResponses = []; injuryReports = []; santeDraft = null;
 }
 
 async function init(){
