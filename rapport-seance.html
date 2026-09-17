@@ -201,6 +201,7 @@
           <option value="normal">Sentier normal</option>
           <option value="technique">Technique (racines, cailloux)</option>
           <option value="tres_technique">Très technique (terrain accidenté)</option>
+          <option value="extreme">Technicité extrême (éboulis, gros blocs, neige…)</option>
         </select>
         <div class="rs-hint">Estimation globale pour toute la séance — l'outil du coach permet un réglage plus fin (montée/plat/descente séparément).</div>
       </div>
@@ -404,7 +405,7 @@ async function fetchWeatherHourly(lat, lon, dateStr){
 }
 
 // Technicité — mêmes coefficients que l'outil du coach (index.html).
-const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.35, tres_technique:1.60 };
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.35, tres_technique:1.60, extreme:1.90 };
 
 // Coût métabolique de la course en pente (Minetti et al. 2002) — vitesse
 // équivalent-plat (GAP), même formule que l'outil coach.
