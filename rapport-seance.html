@@ -234,9 +234,15 @@
   <div id="step-contact" class="rs-card" hidden>
     <h2>2. Où t'envoyer le lien vers ton rapport ?</h2>
     <p class="rs-sub">Laisse ton prénom/nom et ton email pour débloquer ton analyse — Maxime pourra aussi te recontacter si tu le souhaites, sans aucune obligation.</p>
-    <div class="rs-field">
-      <label>Nom</label>
-      <input type="text" id="rs-lead-name" placeholder="Ton prénom et nom">
+    <div class="rs-row">
+      <div class="rs-field">
+        <label>Prénom</label>
+        <input type="text" id="rs-lead-firstname" placeholder="Ton prénom">
+      </div>
+      <div class="rs-field">
+        <label>Nom</label>
+        <input type="text" id="rs-lead-lastname" placeholder="Ton nom">
+      </div>
     </div>
     <div class="rs-field">
       <label>Email</label>
@@ -271,7 +277,7 @@
           </div>
         </div>
         <div class="rs-delta" id="rs-duration-delta"></div>
-        <div class="rs-hint" style="margin-top:10px;">Comment lire ce chiffre : on estime la durée qu'aurait prise cette séance dans des conditions neutres (terrain roulant, air frais, sans vent, basse altitude), à partir de la météo du jour, de l'altitude et de la technicité du terrain indiquée. Ces effets se combinent entre eux : une séance qui cumule plusieurs facteurs difficiles en même temps (chaleur ET terrain technique, par exemple) peut afficher un écart important, même si chaque facteur pris séparément reste modéré. C'est une estimation indicative, pas une mesure exacte.</div>
+        <div class="rs-hint" style="margin-top:10px;">Comment lire ce chiffre : on estime la durée qu'aurait prise cette séance dans des conditions neutres (terrain roulant, air frais, sans vent, basse altitude), à partir de la météo du jour, de l'altitude et de la technicité du terrain indiquée. Ces effets se combinent entre eux : une séance qui cumule plusieurs facteurs difficiles en même temps (chaleur ET terrain technique, par exemple) peut afficher un écart important, même si chaque facteur pris séparément reste modéré. Calculs basés sur des modèles reconnus : indice WBGT pour la chaleur, formule de Peronnet (1991) pour l'altitude, traînée aérodynamique pour le vent, et coût métabolique en terrain irrégulier (Voloshina et al.) pour la technicité — une estimation indicative, pas une mesure exacte.</div>
       </div>
 
       <div class="rs-card" id="rs-rpe-card" hidden>
@@ -851,11 +857,13 @@ $("rs-btn-analyze").addEventListener("click", async ()=>{
 
 /* ---- étape 2 : capture du lead ---- */
 $("rs-btn-unlock").addEventListener("click", async ()=>{
-  const name = $("rs-lead-name").value.trim();
+  const firstName = $("rs-lead-firstname").value.trim();
+  const lastName = $("rs-lead-lastname").value.trim();
+  const name = [firstName, lastName].filter(Boolean).join(" ");
   const email = $("rs-lead-email").value.trim();
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  if(!name || !emailOk){
-    $("rs-lead-error").innerHTML = `<div class="rs-error">Merci d'indiquer ton nom et une adresse email valide.</div>`;
+  if(!firstName || !lastName || !emailOk){
+    $("rs-lead-error").innerHTML = `<div class="rs-error">Merci d'indiquer ton prénom, ton nom et une adresse email valide.</div>`;
     return;
   }
   $("rs-lead-error").innerHTML = "";
