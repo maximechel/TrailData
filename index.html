@@ -358,7 +358,7 @@ const TECHNICITY_LEVELS = [
   { value:"tres_technique", label:"Très technique" },
   { value:"extreme", label:"Technicité extrême (éboulis, gros blocs, neige…)" },
 ];
-const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.35, tres_technique:1.60, extreme:1.90 };
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.25, tres_technique:1.48, extreme:1.68 };
 function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
 function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
 // Les 4 tests de terrain du jumeau numérique (voir table athlete_tests).

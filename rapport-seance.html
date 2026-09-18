@@ -271,6 +271,7 @@
           </div>
         </div>
         <div class="rs-delta" id="rs-duration-delta"></div>
+        <div class="rs-hint" style="margin-top:10px;">Comment lire ce chiffre : on estime la durée qu'aurait prise cette séance dans des conditions neutres (terrain roulant, air frais, sans vent, basse altitude), à partir de la météo du jour, de l'altitude et de la technicité du terrain indiquée. Ces effets se combinent entre eux : une séance qui cumule plusieurs facteurs difficiles en même temps (chaleur ET terrain technique, par exemple) peut afficher un écart important, même si chaque facteur pris séparément reste modéré. C'est une estimation indicative, pas une mesure exacte.</div>
       </div>
 
       <div class="rs-card" id="rs-rpe-card" hidden>
@@ -432,7 +433,7 @@ async function fetchWeatherHourly(lat, lon, dateStr){
 }
 
 // Technicité — mêmes coefficients que l'outil du coach (index.html).
-const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.35, tres_technique:1.60, extreme:1.90 };
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.25, tres_technique:1.48, extreme:1.68 };
 
 // Coût métabolique de la course en pente (Minetti et al. 2002) — vitesse
 // équivalent-plat (GAP), même formule que l'outil coach.
