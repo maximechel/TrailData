@@ -94,6 +94,10 @@
   .rs-badge.serious{background:var(--serious);color:var(--serious-ink);}
   .rs-badge.critical{background:var(--critical);color:var(--critical-ink);}
   .rs-badge.none{background:var(--surface-2);color:var(--text-muted);}
+  .rs-rpe-scale{display:flex;flex-wrap:wrap;gap:6px;}
+  .rs-rpe-btn{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-weight:700;font-size:13px;cursor:pointer;}
+  .rs-rpe-btn:hover{border-color:var(--accent);}
+  .rs-rpe-btn.active{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
 
   /* ---------- facteurs (barres) ---------- */
   .rs-factor-row{margin-bottom:14px;}
@@ -205,6 +209,23 @@
         </select>
         <div class="rs-hint">Estimation globale pour toute la séance — l'outil du coach permet un réglage plus fin (montée/plat/descente séparément).</div>
       </div>
+      <div class="rs-field">
+        <label>Ressenti de l'effort — RPE (optionnel)</label>
+        <div class="rs-rpe-scale" id="rs-rpe-scale">
+          <button type="button" class="rs-rpe-btn" data-rpe="0">0</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="1">1</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="2">2</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="3">3</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="4">4</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="5">5</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="6">6</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="7">7</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="8">8</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="9">9</button>
+          <button type="button" class="rs-rpe-btn" data-rpe="10">10</button>
+        </div>
+        <div class="rs-hint">0 = repos, 10 = effort maximal (échelle de Borg). Sert uniquement à comparer ton ressenti aux conditions du jour — n'a aucun impact sur le calcul de durée ajustée.</div>
+      </div>
       <button type="button" id="rs-btn-analyze" class="rs-btn primary" disabled>Voir mon rapport</button>
     </div>
   </div>
@@ -250,6 +271,12 @@
           </div>
         </div>
         <div class="rs-delta" id="rs-duration-delta"></div>
+      </div>
+
+      <div class="rs-card" id="rs-rpe-card" hidden>
+        <h2>Ton ressenti</h2>
+        <p class="rs-sub">RPE <strong id="rs-rpe-score"></strong>/10 <span class="rs-badge" id="rs-rpe-badge"></span></p>
+        <p id="rs-rpe-narrative"></p>
       </div>
 
       <div class="rs-card">
@@ -661,6 +688,50 @@ async function computeEnvironment(records, first, last, profile, durationMin){
 let pickedFile = null;
 let parsedRecords = null, parsedSession = null;
 let computedResult = null;
+let selectedRpe = null;
+document.querySelectorAll("#rs-rpe-scale .rs-rpe-btn").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    const v = parseInt(btn.dataset.rpe, 10);
+    selectedRpe = (selectedRpe === v) ? null : v;
+    document.querySelectorAll("#rs-rpe-scale .rs-rpe-btn").forEach(b=>{
+      b.classList.toggle("active", parseInt(b.dataset.rpe, 10) === selectedRpe);
+    });
+  });
+});
+// Sévérité du RPE ressenti, sur la même échelle à 4 niveaux que envSeverity
+// (chaleur/altitude/vent/technicité) — permet de comparer ressenti et objectif
+// avec le même vocabulaire (Faible/Modéré/Marqué/Fort).
+function rpeSeverity(rpe){
+  if(rpe==null) return {key:"none", label:"—"};
+  if(rpe<=2) return {key:"good", label:"Faible"};
+  if(rpe<=4) return {key:"warning", label:"Modéré"};
+  if(rpe<=7) return {key:"serious", label:"Marqué"};
+  return {key:"critical", label:"Fort"};
+}
+const SEVERITY_RANK = {good:0, warning:1, serious:2, critical:3};
+// Comparaison narrative ressenti (RPE) vs impact objectif (combinedFactor) —
+// ne modifie jamais le calcul de durée ajustée, sert uniquement de commentaire.
+function renderRpeCard(r){
+  const card = document.getElementById("rs-rpe-card");
+  if(r.profile.rpe==null){ card.hidden = true; return; }
+  card.hidden = false;
+  const objSev = envSeverity(r.combinedFactor);
+  const rpeSev = rpeSeverity(r.profile.rpe);
+  document.getElementById("rs-rpe-score").textContent = r.profile.rpe;
+  const badge = document.getElementById("rs-rpe-badge");
+  badge.className = "rs-badge " + rpeSev.key;
+  badge.textContent = rpeSev.label;
+  const objPct = Math.round(r.combinedFactor*100);
+  let msg;
+  if(SEVERITY_RANK[rpeSev.key] === SEVERITY_RANK[objSev.key]){
+    msg = `Cohérent avec les conditions du jour, classées <strong>${objSev.label}</strong> (~${objPct}% de ralentissement estimé).`;
+  }else if(SEVERITY_RANK[rpeSev.key] > SEVERITY_RANK[objSev.key]){
+    msg = `Tu as trouvé cette séance plus dure que ce que les conditions expliquent à elles seules (conditions classées <strong>${objSev.label}</strong>, ~${objPct}%). Ça peut venir d'un effort plus soutenu que d'habitude, d'une fatigue accumulée, ou d'un facteur non mesuré ici (sommeil, stress…).`;
+  }else{
+    msg = `Tu as plutôt bien encaissé des conditions classées <strong>${objSev.label}</strong> (~${objPct}%) — bon signe de forme, ou allure restée en dessous du potentiel du jour.`;
+  }
+  document.getElementById("rs-rpe-narrative").innerHTML = msg;
+}
 let leadInserted = false;
 let visitorName = "";
 
@@ -757,7 +828,7 @@ $("rs-btn-analyze").addEventListener("click", async ()=>{
     $("rs-parse-status").innerHTML = `<div class="rs-error">La FC au seuil 1 doit être inférieure à la FC au seuil 2.</div>`;
     return;
   }
-  const profile = { fcmax, weight: weight||70, terrain, seuil1, seuil2 };
+  const profile = { fcmax, weight: weight||70, terrain, seuil1, seuil2, rpe: selectedRpe };
   $("rs-btn-analyze").disabled = true;
   $("rs-btn-analyze").textContent = "Calcul en cours…";
   try{
@@ -848,6 +919,7 @@ function renderReport(r){
 
   $("rs-duration-real").textContent = fmtDuration(r.durationMin);
   $("rs-duration-neutral").textContent = fmtDuration(r.adjustedDuration);
+  renderRpeCard(r);
   const deltaMin = r.durationMin - r.adjustedDuration;
   const deltaPct = Math.round((r.combinedFactor)*100);
   if(Math.abs(deltaMin) < 1){
