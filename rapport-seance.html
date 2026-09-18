@@ -277,7 +277,7 @@
           </div>
         </div>
         <div class="rs-delta" id="rs-duration-delta"></div>
-        <div class="rs-hint" style="margin-top:10px;">⚠️ <strong>Comment lire ce chiffre</strong><br>On estime la durée qu'aurait prise cette séance dans des conditions neutres (terrain roulant, air frais, sans vent, basse altitude), à partir de la météo du jour (données historiques Open-Meteo), de l'altitude et de la technicité du terrain indiquée. Ces effets se combinent entre eux : une séance qui cumule plusieurs facteurs difficiles en même temps (chaleur ET terrain technique, par exemple) peut afficher un écart important, même si chaque facteur pris séparément reste modéré. Calculs basés sur des modèles reconnus : indice WBGT pour la chaleur, formule de Peronnet (1991) pour l'altitude, traînée aérodynamique pour le vent. Pour la technicité, un coefficient de pondération est appliqué en fonction de la technicité du parcours.</div>
+        <div class="rs-hint" style="margin-top:10px;">⚠️ <strong>Comment lire ce chiffre</strong><br>On estime la durée qu'aurait prise cette séance dans des conditions neutres (terrain roulant, air frais, sans vent, basse altitude), à partir de la météo du jour (données historiques Open-Meteo), de l'altitude et de la technicité du terrain indiquée. Ces effets se combinent entre eux : une séance qui cumule plusieurs facteurs difficiles en même temps (chaleur ET terrain technique, par exemple) peut afficher un écart important, même si chaque facteur pris séparément reste modéré. Calculs basés sur des modèles reconnus : indice WBGT pour la chaleur, formule de Peronnet (1991) pour l'altitude, traînée aérodynamique pour le vent. Pour le terrain, le coût énergétique réel de chaque pente du parcours est estimé à partir des travaux de Minetti et al. (2002), puis un coefficient de pondération lié à la technicité de la surface (cailloux, racines, éboulis...) s'applique par-dessus.</div>
       </div>
 
       <div class="rs-card" id="rs-rpe-card" hidden>
@@ -322,7 +322,7 @@
     </div>
   </div>
 
-  <p class="rs-footer-note">Analyse indicative, à but informatif — ne remplace pas un avis médical ou l'accompagnement d'un coach. Calculs inspirés de la littérature scientifique sur la chaleur (WBGT), l'altitude (Peronnet 1991) et le vent (traînée aérodynamique), à partir des données météo historiques d'Open-Meteo (open-meteo.com).</p>
+  <p class="rs-footer-note">Analyse indicative, à but informatif — ne remplace pas un avis médical ou l'accompagnement d'un coach. Calculs inspirés de la littérature scientifique sur la chaleur (WBGT), l'altitude (Peronnet 1991), le vent (traînée aérodynamique) et le coût énergétique en pente (Minetti et al. 2002), à partir des données météo historiques d'Open-Meteo (open-meteo.com).</p>
 </div>
 
 <script src="chart.umd.min.js"></script>
@@ -438,13 +438,82 @@ async function fetchWeatherHourly(lat, lon, dateStr){
   };
 }
 
-// Technicité — mêmes coefficients que l'outil du coach (index.html).
-const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.25, tres_technique:1.48, extreme:1.68 };
+// Technicité — représente uniquement l'irrégularité de la surface (cailloux,
+// racines, éboulis...), PAS la pente : celle-ci est désormais calculée
+// précisément point par point via les courbes de coût Minetti ci-dessous.
+// Ne plus garder en phase avec les coefficients de l'outil coach (index.html/
+// client.html), qui eux mélangent encore pente + surface dans un seul chiffre.
+// Recalibrés à partir de Voloshina et al. (surcoût mesuré jusqu'à ~+27 % sur
+// terrain irrégulier), "extrême" étant une extrapolation prudente au-delà de
+// ce qui a été testé dans cette étude.
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.03, normal:1.08, technique:1.15, tres_technique:1.22, extreme:1.30 };
 
-// Coût métabolique de la course en pente (Minetti et al. 2002) — vitesse
-// équivalent-plat (GAP), même formule que l'outil coach.
+// Coût métabolique de la course en pente (Minetti et al. 2002, J Appl
+// Physiol 93:1039-1046) — polynôme du 5e degré, validé de -45 % à +45 %.
+// Sert à la fois au calcul de la vitesse équivalent-plat (GAP) et, plus bas,
+// au calcul du facteur terrain.
 function minettiCost(i){ return 155.4*i**5 - 30.4*i**4 - 43.3*i**3 + 46.3*i**2 + 19.5*i + 3.6; }
 const FLAT_COST = minettiCost(0);
+
+// Coût métabolique de la MARCHE en pente — la formule polynomiale exacte de
+// Minetti et al. (2002) n'étant pas accessible publiquement (article payant),
+// on interpole une courbe lisse (spline cubique monotone) à travers les
+// valeurs mesurées que l'article rapporte explicitement : à plat 1.64
+// J/kg/m, minimum à -10 % (0.81), -45 % (3.46) et +45 % (17.33). Cette
+// interpolation respecte la forme connue de la courbe (creux vers -10 %,
+// remontée des deux côtés) sans prétendre reproduire la formule publiée au
+// coefficient près.
+const MINETTI_WALK_GRADES = [-0.45, -0.10, 0, 0.45];
+const MINETTI_WALK_COSTS  = [3.46, 0.81, 1.64, 17.33];
+function pchipTangents(xs, ys){
+  const n = xs.length, d = [];
+  for(let k=0;k<n-1;k++) d.push((ys[k+1]-ys[k])/(xs[k+1]-xs[k]));
+  const m = new Array(n);
+  m[0] = d[0]; m[n-1] = d[n-2];
+  for(let k=1;k<n-1;k++){
+    if(d[k-1]*d[k] <= 0) m[k] = 0;
+    else{
+      const w1 = 2*(xs[k+1]-xs[k]) + (xs[k]-xs[k-1]);
+      const w2 = (xs[k+1]-xs[k]) + 2*(xs[k]-xs[k-1]);
+      m[k] = (w1+w2) / (w1/d[k-1] + w2/d[k]);
+    }
+  }
+  return m;
+}
+const MINETTI_WALK_TANGENTS = pchipTangents(MINETTI_WALK_GRADES, MINETTI_WALK_COSTS);
+function minettiCostWalk(i){
+  const xs = MINETTI_WALK_GRADES, ys = MINETTI_WALK_COSTS, ms = MINETTI_WALK_TANGENTS;
+  let x = Math.max(xs[0], Math.min(xs[xs.length-1], i));
+  let k = 0;
+  while(k < xs.length-2 && x > xs[k+1]) k++;
+  const h = xs[k+1]-xs[k], t = (x-xs[k])/h;
+  const h00 = 2*t**3 - 3*t**2 + 1, h10 = t**3 - 2*t**2 + t;
+  const h01 = -2*t**3 + 3*t**2, h11 = t**3 - t**2;
+  return h00*ys[k] + h10*h*ms[k] + h01*ys[k+1] + h11*h*ms[k+1];
+}
+
+// Au-delà de ces pentes, on suppose que le coureur adopte progressivement le
+// geste le plus économique (course ou marche) plutôt que de courir "coûte
+// que coûte" — en deçà, on reste sur la course, qui reste le geste naturel
+// même si la marche serait, sur le papier, un peu moins chère au mètre. La
+// bascule est lissée sur une plage de pente plutôt que d'être un seuil net
+// (un seuil brutal créait une petite discontinuité, le coût pouvant
+// paradoxalement baisser en passant juste au-dessus du seuil — repéré et
+// corrigé lors des tests). Plage montée alignée sur la transition préférée
+// observée en conditions réelles (~12-13 % de pente, cf. source citée dans
+// l'app) ; plage descente en l'absence d'étude équivalente, estimation
+// prudente pour ne couvrir que les descentes vraiment raides où
+// marcher/désescalader est courant.
+const WALK_BLEND_UP_START = 0.10, WALK_BLEND_UP_END = 0.20;
+const WALK_BLEND_DOWN_START = -0.15, WALK_BLEND_DOWN_END = -0.30;
+function smoothstep(a, b, x){ const t = Math.max(0, Math.min(1, (x-a)/(b-a))); return t*t*(3-2*t); }
+function minettiCostOptimal(i){
+  const run = minettiCost(i), walk = minettiCostWalk(i);
+  let w = 0;
+  if(i > 0) w = smoothstep(WALK_BLEND_UP_START, WALK_BLEND_UP_END, i);
+  else if(i < 0) w = smoothstep(WALK_BLEND_DOWN_START, WALK_BLEND_DOWN_END, i);
+  return (1-w)*run + w*Math.min(run, walk);
+}
 
 // Sévérité d'un facteur — mêmes seuils/couleurs que envSeverity (index.html).
 function envSeverity(f){
@@ -611,21 +680,31 @@ function computeAll(records, session, profile){
   }
   const avgSpeedKmh = durationMin>0 ? (distTotal/1000)/(durationMin/60) : null;
 
-  // Terrain — un seul coefficient de technicité pour toute la séance (vs 3
-  // séparés montée/plat/descente côté coach), pondéré par la part de temps
-  // passée hors terrain plat (même principe qu'envTerrainFactor, simplifié).
+  // Terrain — deux composantes multipliées entre elles :
+  // 1) la pente réelle, point par point : à chaque instant on prend le coût
+  //    énergétique le plus économique entre courir et marcher à cette pente
+  //    (cf. minettiCostOptimal ci-dessus), rapporté au coût de référence en
+  //    course sur plat. Moyenné sur toute la séance, PONDÉRÉ PAR LA DISTANCE
+  //    (et non le temps) : le facteur terrain doit refléter le profil du
+  //    parcours lui-même (comme la chaleur/l'altitude/le vent, qui ne
+  //    dépendent que des conditions du jour), pas la façon dont le coureur a
+  //    géré son effort. Une pondération par le temps sur-représenterait les
+  //    portions lentes (les montées) par rapport à ce qu'elles représentent
+  //    réellement dans le parcours, et gonflerait artificiellement l'écart.
+  // 2) la technicité déclarée par le coureur (irrégularité de la surface),
+  //    appliquée sur l'ensemble de la séance — elle ne représente plus que
+  //    la surface, la pente étant déjà comptée précisément par la courbe.
   const terrainCoef = TECHNICITY_COEFFICIENTS[profile.terrain] ?? 1.00;
-  let flatTime=0, totalTimeForTerrain=0;
+  let slopeCostSum=0, slopeDistSum=0;
   enriched.forEach(p=>{
-    if(p.grade==null) return;
-    totalTimeForTerrain += p.dt;
-    if(Math.abs(p.grade) < 4) flatTime += p.dt;
+    if(p.grade==null || p.v==null) return;
+    const segDist = p.v * p.dt; // distance approximative parcourue à ce point (m)
+    const cost = minettiCostOptimal(p.grade/100);
+    slopeCostSum += (cost/FLAT_COST) * segDist;
+    slopeDistSum += segDist;
   });
-  // Le coefficient ne s'applique qu'à la portion de temps hors terrain plat
-  // (le plat reste "roulant" quelle que soit la technicité déclarée) : la
-  // technicité pèse surtout en montée/descente, pas sur les faux-plats.
-  const nonFlatShare = totalTimeForTerrain>0 ? 1 - (flatTime/totalTimeForTerrain) : 0;
-  const terrainFactor = ((terrainCoef-1) * nonFlatShare);
+  const avgSlopeCostRatio = slopeDistSum>0 ? slopeCostSum/slopeDistSum : 1;
+  const terrainFactor = (terrainCoef * avgSlopeCostRatio) - 1;
 
   return { enriched, zonesMin, zoneBounds, dPlus:Math.round(dPlus||0), dMinus:Math.round(dMinus||0),
     avgGapKmh, avgSpeedKmh, distTotal, durationMin, terrainFactor, first, last };
@@ -841,7 +920,13 @@ $("rs-btn-analyze").addEventListener("click", async ()=>{
   try{
     const base = computeAll(parsedRecords, parsedSession, profile);
     const env = await computeEnvironment(parsedRecords, base.first, base.last, profile, base.durationMin);
-    const combinedFactor = (1+env.heatFactor)*(1+env.altitudeFactor)*(1+env.windFactor)*(1+base.terrainFactor) - 1;
+    const rawCombinedFactor = (1+env.heatFactor)*(1+env.altitudeFactor)*(1+env.windFactor)*(1+base.terrainFactor) - 1;
+    // Garde-fou pour les profils atypiques (ex. séance 100% dédiée à une pente
+    // extrême) : au-delà, le calcul reste physiquement défendable mais l'écart
+    // affiché perd en lisibilité/crédibilité. Plafonné à ±120% — en pratique
+    // jamais atteint sur une séance de trail normale, même très technique.
+    const COMBINED_FACTOR_CAP = 1.20;
+    const combinedFactor = Math.max(-COMBINED_FACTOR_CAP, Math.min(COMBINED_FACTOR_CAP, rawCombinedFactor));
     const adjustedDuration = base.durationMin/(1+combinedFactor);
     computedResult = { ...base, env, combinedFactor, adjustedDuration, session: parsedSession, profile };
     $("step-upload").hidden = true;
@@ -943,7 +1028,7 @@ function renderReport(r){
     { label:"Chaleur", value:r.env.heatFactor },
     { label:"Altitude", value:r.env.altitudeFactor },
     { label:"Vent", value:r.env.windFactor },
-    { label:"Technicité du terrain", value:r.terrainFactor },
+    { label:"Terrain (pente + technicité)", value:r.terrainFactor },
   ];
   $("rs-factors").innerHTML = factors.map(f=>{
     const sev = envSeverity(f.value);
