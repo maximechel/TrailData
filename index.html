@@ -443,6 +443,7 @@ let activeView = "athlete";
 // Période affichée sur la vue "Demandes de rapport" — même forme et même
 // sélecteur date-à-date que chartPeriod, mais état indépendant.
 let reportLeadsPeriod = null;
+let selectedLeadIds = new Set();
 function ensureReportLeadsPeriod(){ if(!reportLeadsPeriod) reportLeadsPeriod = defaultChartPeriod(); return reportLeadsPeriod; }
 
 function fmtDate(d){ return d.toISOString().slice(0,10); }
@@ -632,6 +633,9 @@ function apiSaveAthleteTest(test){
 }
 function apiDeleteAthleteTest(id){
   return apiFetch("/athlete-tests?id=" + encodeURIComponent(id), { method:"DELETE" });
+}
+function apiDeleteReportLead(id){
+  return apiFetch("/report-leads?id=" + encodeURIComponent(id), { method:"DELETE" });
 }
 
 /* ---------------------------- snake_case <-> camelCase transform ---------------------------- */
@@ -1699,7 +1703,13 @@ function renderLeadsView(main){
     const d = (l.createdAt || "").slice(0,10);
     return d && d >= period.start && d <= period.end;
   });
+  // Ne garde en sélection que des lignes encore visibles sur la période
+  // affichée — évite une suppression "fantôme" d'une ligne filtrée hors vue.
+  const visibleIds = new Set(leads.map(l=>l.id));
+  [...selectedLeadIds].forEach(id=>{ if(!visibleIds.has(id)) selectedLeadIds.delete(id); });
+  const allSelected = leads.length > 0 && leads.every(l=>selectedLeadIds.has(l.id));
   const rowHtml = (l) => `<tr>
+    <td><input type="checkbox" class="lead-select" data-lead-id="${l.id}" ${selectedLeadIds.has(l.id)?"checked":""}></td>
     <td>${l.createdAt ? fmtDateFr(l.createdAt.slice(0,10)) : "—"}</td>
     <td>${escapeHtml(l.name || "—")}</td>
     <td>${l.email ? `<a href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : "—"}</td>
@@ -1736,10 +1746,16 @@ function renderLeadsView(main){
       : leads.length === 0
         ? '<div class="ls-panel"><div class="ls-empty">Aucune demande sur cette période.</div></div>'
         : `<div class="ls-table-card">
-      <div class="ls-table-head"><h3>Demandes (${leads.length})</h3></div>
+      <div class="ls-table-head">
+        <h3>Demandes (${leads.length})</h3>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${selectedLeadIds.size > 0 ? `<span style="font-size:12.5px;color:var(--text-muted);">${selectedLeadIds.size} sélectionnée${selectedLeadIds.size>1?"s":""}</span>` : ""}
+          <button class="ls-btn small ghost" type="button" id="btn-delete-selected-leads" ${selectedLeadIds.size===0?"disabled":""}>Vider la sélection</button>
+        </div>
+      </div>
       <div class="ls-table-scroll">
         <table class="ls-log">
-          <thead><tr><th>Date de la demande</th><th>Nom</th><th>Email</th><th>Séance</th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="leads-select-all" ${allSelected?"checked":""}></th><th>Date de la demande</th><th>Nom</th><th>Email</th><th>Séance</th></tr></thead>
           <tbody>${leads.map(rowHtml).join("")}</tbody>
         </table>
       </div>
@@ -1748,17 +1764,53 @@ function renderLeadsView(main){
   document.getElementById("leads-period-start").addEventListener("change", e=>{
     const v = e.target.value; if(!v) return;
     reportLeadsPeriod = { start: v, end: v > reportLeadsPeriod.end ? v : reportLeadsPeriod.end };
+    selectedLeadIds.clear();
     renderMain();
   });
   document.getElementById("leads-period-end").addEventListener("change", e=>{
     const v = e.target.value; if(!v) return;
     reportLeadsPeriod = { start: v < reportLeadsPeriod.start ? v : reportLeadsPeriod.start, end: v };
+    selectedLeadIds.clear();
     renderMain();
   });
   document.getElementById("btn-leads-period-reset").addEventListener("click", ()=>{
     reportLeadsPeriod = defaultChartPeriod();
+    selectedLeadIds.clear();
     renderMain();
   });
+  const selectAll = document.getElementById("leads-select-all");
+  if(selectAll){
+    selectAll.addEventListener("change", ()=>{
+      if(selectAll.checked) leads.forEach(l=>selectedLeadIds.add(l.id));
+      else leads.forEach(l=>selectedLeadIds.delete(l.id));
+      renderMain();
+    });
+  }
+  main.querySelectorAll(".lead-select").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const id = cb.getAttribute("data-lead-id");
+      if(cb.checked) selectedLeadIds.add(id); else selectedLeadIds.delete(id);
+      renderMain();
+    });
+  });
+  const delBtn = document.getElementById("btn-delete-selected-leads");
+  if(delBtn){
+    delBtn.addEventListener("click", deleteSelectedLeads);
+  }
+}
+
+async function deleteSelectedLeads(){
+  const ids = [...selectedLeadIds];
+  if(ids.length === 0) return;
+  if(!confirm("Supprimer " + ids.length + " demande" + (ids.length>1?"s":"") + " ? Cette action est irréversible.")) return;
+  try{
+    await Promise.all(ids.map(id=>apiDeleteReportLead(id)));
+    selectedLeadIds.clear();
+    await refreshData();
+  }catch(err){
+    if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+    alert("Suppression impossible : " + err.message);
+  }
 }
 
 function renderMain(){
