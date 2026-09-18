@@ -249,8 +249,8 @@
    Différences volontaires par rapport à l'espace coach :
    - un seul athlète (le compte connecté), jamais de liste à choisir ;
    - lecture seule sur tout, sauf la technicité du terrain par séance
-     (montée / descente / plat), éditable directement dans le tableau du
-     rapport environnemental ;
+     (un seul champ depuis le 2026-09-18, éditable directement dans le
+     tableau du rapport environnemental) ;
    - authentification par lien magique (Supabase Auth) au lieu de la clé
      coach partagée — les données sont lues/écrites directement via
      supabase-js, filtrées côté serveur par les policies RLS scopées à
@@ -290,7 +290,11 @@ const TECHNICITY_LEVELS = [
   { value:"tres_technique", label:"Très technique" },
   { value:"extreme", label:"Technicité extrême (éboulis, gros blocs, neige…)" },
 ];
-const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.10, normal:1.20, technique:1.25, tres_technique:1.48, extreme:1.68 };
+// Recalibrés le 2026-09-18 en coefficients "surface seule", alignés sur
+// index.html et rapport-seance.html (voir leurs commentaires) — la pente est
+// désormais prise en compte séparément, point par point, via le calcul
+// Minetti. Anciennes valeurs (blend pente+surface) : 1.10/1.20/1.25/1.48/1.68.
+const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.03, normal:1.08, technique:1.15, tres_technique:1.22, extreme:1.30 };
 function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
 function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
 function defaultIntensityZones(){
@@ -517,10 +521,8 @@ function sessionFromApi(s){
     envWindFactor: s.env_wind_factor!=null ? Number(s.env_wind_factor) : null,
     envCombinedFactor: s.env_combined_factor!=null ? Number(s.env_combined_factor) : null,
     envAdjustedDuration: s.env_adjusted_duration!=null ? Number(s.env_adjusted_duration) : null,
-    envGradeTimeShares: Array.isArray(s.env_grade_time_shares) ? s.env_grade_time_shares : null,
-    technicityClimb: s.technicity_climb || "roulant",
-    technicityDescent: s.technicity_descent || "roulant",
-    technicityFlat: s.technicity_flat || "roulant",
+    envSlopeCostRatio: s.env_slope_cost_ratio!=null ? Number(s.env_slope_cost_ratio) : null,
+    technicity: s.technicity || "roulant",
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function hooperFromApi(h){
@@ -852,20 +854,21 @@ function envSeverity(f){
   if(f < 0.30) return { key:"serious", label:"Marqué" };
   return { key:"critical", label:"Fort" };
 }
+// Recalibré le 2026-09-18 (voir index.html, même logique) : facteur terrain
+// = coefficient de technicité de surface (un seul champ désormais) × ratio
+// de coût Minetti pondéré par distance, calculé côté serveur et stocké dans
+// envSlopeCostRatio.
 function envTerrainFactor(s){
-  if(!Array.isArray(s.envGradeTimeShares)) return null;
-  const cDescent = technicityCoef(s.technicityDescent);
-  const cFlat = technicityCoef(s.technicityFlat);
-  const cClimb = technicityCoef(s.technicityClimb);
-  const bucketCoef = [cDescent, cDescent, cFlat, cClimb, cClimb, cClimb];
-  const weighted = s.envGradeTimeShares.reduce((sum, share, i) => sum + share*bucketCoef[i], 0);
-  return weighted - 1;
+  if(s.envSlopeCostRatio == null) return null;
+  const coef = technicityCoef(s.technicity);
+  return (coef * s.envSlopeCostRatio) - 1;
 }
+const ENV_COMBINED_FACTOR_CAP = 1.20;
 function envCombinedWithTerrain(s){
   if(s.envCombinedFactor == null) return null;
   const terrain = envTerrainFactor(s);
-  if(terrain == null) return s.envCombinedFactor;
-  return (1+s.envCombinedFactor)*(1+terrain) - 1;
+  const raw = terrain == null ? s.envCombinedFactor : (1+s.envCombinedFactor)*(1+terrain) - 1;
+  return Math.max(-ENV_COMBINED_FACTOR_CAP, Math.min(ENV_COMBINED_FACTOR_CAP, raw));
 }
 function envAdjustedDurationWithTerrain(s){
   if(s.duration == null) return s.envAdjustedDuration;
@@ -895,11 +898,11 @@ function envFmtNum(v, unit, digits){ return v==null ? "—" : v.toFixed(digits!=
 
 // Sélecteur de technicité éditable, inséré dans la ligne d'une séance du
 // rapport environnemental — seul champ modifiable par l'athlète dans tout
-// l'espace. field est "climb" | "descent" | "flat".
-function technicitySelectHtml(s, field){
-  const current = field==="climb" ? s.technicityClimb : field==="descent" ? s.technicityDescent : s.technicityFlat;
-  const options = TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${t.value===current?"selected":""}>${t.label}</option>`).join("");
-  return `<select class="ls-technicity-select" data-technicity-session="${s.id}" data-technicity-field="${field}">${options}</select>`;
+// l'espace. Un seul champ par séance depuis le 2026-09-18 (avant : 3 champs
+// montée/descente/plat — voir migration unify_technicity_and_add_slope_cost_ratio).
+function technicitySelectHtml(s){
+  const options = TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${t.value===s.technicity?"selected":""}>${t.label}</option>`).join("");
+  return `<select class="ls-technicity-select" data-technicity-session="${s.id}">${options}</select>`;
 }
 function envRowHtml(s){
   const combined = envCombinedWithTerrain(s);
@@ -917,9 +920,7 @@ function envRowHtml(s){
     <td>${envFmtPct(s.envHeatFactor)}</td>
     <td>${envFmtPct(s.envAltitudeFactor)}</td>
     <td>${envFmtPct(s.envWindFactor)}</td>
-    <td>${technicitySelectHtml(s,"climb")}</td>
-    <td>${technicitySelectHtml(s,"descent")}</td>
-    <td>${technicitySelectHtml(s,"flat")}</td>
+    <td>${technicitySelectHtml(s)}</td>
     <td>${envFmtPct(envTerrainFactor(s))}</td>
     <td><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${envFmtPct(combined)}</span></td>
   </tr>`;
@@ -967,11 +968,8 @@ function gapGradeAverageInRange(sessionsArr, startDate, endDate){
     if(!Array.isArray(s.gapByGrade)) return;
     const d = new Date(s.date+"T00:00:00");
     if(isNaN(d) || d < startDate || d > endDate) return;
-    const cDescent = technicityCoef(s.technicityDescent);
-    const cFlat = technicityCoef(s.technicityFlat);
-    const cClimb = technicityCoef(s.technicityClimb);
-    const bucketCoef = [cDescent, cDescent, cFlat, cClimb, cClimb, cClimb];
-    s.gapByGrade.forEach((v,i)=>{ if(v!=null){ sums[i]+=v*bucketCoef[i]; counts[i]++; } });
+    const c = technicityCoef(s.technicity);
+    s.gapByGrade.forEach((v,i)=>{ if(v!=null){ sums[i]+=v*c; counts[i]++; } });
   });
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
@@ -1311,7 +1309,7 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) et de la technicité du terrain sur chaque séance Strava. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres sur terrain roulant, à titre indicatif. Tu peux renseigner ou corriger la technicité de chaque séance (montée / descente / plat) directement dans le tableau ci-dessous.</div>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) et de la technicité du terrain sur chaque séance Strava. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres sur terrain roulant, à titre indicatif. Tu peux renseigner ou corriger la technicité de chaque séance directement dans le tableau ci-dessous.</div>
       <div class="ls-stat-grid" style="margin-bottom:18px;">
         <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
         <div class="ls-stat"><div class="ls-stat-label">Température moyenne</div><div class="ls-stat-value">${envSummary.count? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
@@ -1331,7 +1329,7 @@ function renderMain(){
         </div>
         <div class="ls-table-scroll">
           <table class="ls-log">
-            <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Durée ajustée</th><th>Temp.</th><th>Humidité</th><th>Altitude</th><th>Vent</th><th>Chaleur</th><th>Altitude</th><th>Vent</th><th>Technicité montée</th><th>Technicité descente</th><th>Technicité plat</th><th>Terrain</th><th>Combiné</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Durée ajustée</th><th>Temp.</th><th>Humidité</th><th>Altitude</th><th>Vent</th><th>Chaleur</th><th>Altitude</th><th>Vent</th><th>Technicité</th><th>Terrain</th><th>Combiné</th></tr></thead>
             <tbody>${envSessions.map(envRowHtml).join("")}</tbody>
           </table>
         </div>
@@ -1395,7 +1393,7 @@ function renderMain(){
   });
   main.querySelectorAll("[data-technicity-session]").forEach(sel=>{
     sel.addEventListener("change", e=>{
-      updateTechnicity(e.target.getAttribute("data-technicity-session"), e.target.getAttribute("data-technicity-field"), e.target.value);
+      updateTechnicity(e.target.getAttribute("data-technicity-session"), e.target.value);
     });
   });
   const intensityBtn = document.getElementById("btn-intensity-table");
@@ -1789,20 +1787,14 @@ function renderChartsInner(athleteObj){
 
 /* ---------------------------- technicité (seule écriture permise) ---------------------------- */
 
-async function updateTechnicity(sessionId, field, value){
-  const dbField = { climb:"technicity_climb", descent:"technicity_descent", flat:"technicity_flat" }[field];
-  if(!dbField) return;
-  const { error } = await sb.from("sessions").update({ [dbField]: value }).eq("id", sessionId);
+async function updateTechnicity(sessionId, value){
+  const { error } = await sb.from("sessions").update({ technicity: value }).eq("id", sessionId);
   if(error){
     showToast("Erreur lors de l'enregistrement : " + error.message, "--critical");
     return;
   }
   const s = sessions.find(x=>x.id===sessionId);
-  if(s){
-    if(field==="climb") s.technicityClimb = value;
-    else if(field==="descent") s.technicityDescent = value;
-    else if(field==="flat") s.technicityFlat = value;
-  }
+  if(s) s.technicity = value;
   showToast("Technicité enregistrée.", "--good");
   renderMain();
 }
