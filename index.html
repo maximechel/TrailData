@@ -1077,14 +1077,22 @@ function athleteTestToApi(t){
 
 /* ---------------------------- Strava connect ---------------------------- */
 
-function buildStravaAuthUrl(athleteId){
+// "flow" encodé dans le state OAuth pour que strava-callback sache où
+// rediriger une fois l'autorisation Strava accordée : "self" = l'athlète est
+// devant CET écran coach (connectStrava, cas rare) → retour au tableau de
+// bord coach ; "remote" = lien envoyé à l'athlète pour son propre appareil
+// (copyStravaLink, cas courant) → retour vers son espace personnel
+// (client.html), jamais vers le tableau de bord coach qui lui demanderait
+// une clé qu'il ne doit pas avoir. Bug corrigé le 2026-09-19 : avant ça, les
+// deux flux redirigeaient vers le tableau de bord coach.
+function buildStravaAuthUrl(athleteId, flow){
   const params = new URLSearchParams({
     client_id: STRAVA_CLIENT_ID,
     response_type: "code",
     redirect_uri: STRAVA_REDIRECT_URI,
     approval_prompt: "auto",
     scope: "activity:read_all",
-    state: athleteId
+    state: athleteId + ":" + (flow || "remote")
   });
   return "https://www.strava.com/oauth/authorize?" + params.toString();
 }
@@ -1125,7 +1133,7 @@ async function sendPortalLink(athlete){
 // qui serait connecté à la fiche de cet athlète.
 function connectStrava(athleteId){
   localStorage.setItem(ACTIVE_ATHLETE_STORAGE, athleteId);
-  window.location.href = buildStravaAuthUrl(athleteId);
+  window.location.href = buildStravaAuthUrl(athleteId, "self");
 }
 
 // À utiliser par le coach pour connecter un athlète qui n'est pas devant cet
@@ -1139,7 +1147,7 @@ function connectStrava(athleteId){
 // clic ne rien faire de visible en cas d'échec silencieux de la copie auto.
 async function copyStravaLink(athleteId){
   const athlete = state.athletes.find(a=>a.id===athleteId);
-  const link = buildStravaAuthUrl(athleteId);
+  const link = buildStravaAuthUrl(athleteId, "remote");
   let autoCopied = false;
   try{ await navigator.clipboard.writeText(link); autoCopied = true; }catch(e){ /* on retente depuis la fenêtre */ }
   showStravaLinkModal(athlete, link, autoCopied);

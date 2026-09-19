@@ -457,6 +457,28 @@ function showToast(text, cssVarName){
 
 function closeModal(){ document.getElementById("modal-root").innerHTML = ""; }
 
+// Message après retour de Strava (lien "Copier le lien Strava" envoyé par le
+// coach, ouvert par l'athlète sur son propre appareil — voir strava-callback,
+// qui redirige ici une fois l'autorisation accordée). Affiché même sur
+// l'écran de connexion si l'athlète n'a pas encore de session active :
+// l'import de ses séances tourne côté serveur indépendamment de sa
+// connexion, mais il doit se connecter avec son email pour les voir.
+function handleStravaRedirectParam(){
+  const url = new URL(window.location.href);
+  const flag = url.searchParams.get("strava");
+  if(!flag) return;
+  url.searchParams.delete("strava");
+  history.replaceState({}, "", url.pathname + (url.search? url.search : "") + url.hash);
+  const messages = {
+    connected: { css:"--good", text:"Compte Strava connecté ! Tes dernières séances (30 jours) sont en cours d'import. Connecte-toi avec ton email ci-dessous pour les retrouver." },
+    denied: { css:"--warning", text:"Connexion Strava annulée : l'autorisation n'a pas été accordée." },
+    unknown_athlete: { css:"--critical", text:"Connexion Strava impossible : profil introuvable côté serveur. Contacte ton coach." },
+    error: { css:"--critical", text:"Une erreur est survenue lors de la connexion à Strava. Réessaie." }
+  };
+  const m = messages[flag];
+  if(m) showToast(m.text, m.css);
+}
+
 // Vue lecture seule de la table d'intensité (bornes km/h et FC par zone,
 // saisies par le coach depuis son tableau de bord — voir openIntensityModal
 // dans index.html, la version éditable). L'athlète peut la consulter mais
@@ -2357,6 +2379,7 @@ function showLoggedOutUI(){
 
 async function init(){
   applyTheme(currentThemeMode());
+  handleStravaRedirectParam();
   document.getElementById("btn-theme").addEventListener("click", cycleTheme);
   document.getElementById("btn-logout").addEventListener("click", async ()=>{ await sb.auth.signOut(); });
   document.getElementById("btn-send-link").addEventListener("click", async ()=>{
