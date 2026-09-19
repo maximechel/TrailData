@@ -801,6 +801,14 @@ const NUTRITION_ITEMS = {
     { value:"biscottes", label:"Biscottes", kcal:130 },
     { value:"autre", label:"Autre", kcal:150 },
   ],
+  pdj_proteine: [
+    { value:"oeuf", label:"Œuf(s)", kcal:150 },
+    { value:"blanc_poulet", label:"Blanc de poulet / dinde", kcal:165 },
+    { value:"jambon", label:"Jambon blanc", kcal:80 },
+    { value:"whey", label:"Protéine en poudre (whey)", kcal:120 },
+    { value:"tofu", label:"Tofu / soja", kcal:120 },
+    { value:"autre", label:"Autre", kcal:140 },
+  ],
   pdj_laitier: [
     { value:"lait", label:"Lait", kcal:100 },
     { value:"yaourt", label:"Yaourt", kcal:90 },
@@ -847,6 +855,7 @@ const NUTRITION_MEAL_STRUCTURE = {
   ],
   petit_dejeuner: [
     { role:"feculent", label:"Féculent / céréales", catalog:"pdj_feculent" },
+    { role:"proteine", label:"Protéine", catalog:"pdj_proteine" },
     { role:"laitier", label:"Laitier", catalog:"pdj_laitier" },
     { role:"fruit", label:"Fruit", catalog:"pdj_fruit" },
     { role:"sucre", label:"Sucré", catalog:"pdj_sucre" },
@@ -3043,7 +3052,7 @@ function nutritionDemoData(){
     athlete: { sex:"homme", activityLevel:"actif", weightKg:70, heightCm:176, birthDate:"1992-05-20" },
     sessions: [ { date: today, avgHr: 148, duration: 80 } ],
     entries: [
-      { id:"demo-pdj", date: today, mealType:"petit_dejeuner", items:{ feculent:{type:"pain",portion:2}, laitier:{type:"yaourt",portion:2}, fruit:{type:"fruit_frais",portion:2}, sucre:{type:"confiture",portion:1} } },
+      { id:"demo-pdj", date: today, mealType:"petit_dejeuner", items:{ feculent:{type:"pain",portion:2}, proteine:{type:"oeuf",portion:2}, laitier:{type:"yaourt",portion:2}, fruit:{type:"fruit_frais",portion:2}, sucre:{type:"confiture",portion:1} } },
       { id:"demo-dej", date: today, mealType:"dejeuner", items:{ entree:{type:"crudites",portion:2}, plat_proteine:{type:"viande_blanche",portion:2}, plat_feculent:{type:"pates",portion:2}, plat_legume:{type:"legumes_verts",portion:3}, dessert:{type:"fruit",portion:2} } },
       { id:"demo-col", date: today, mealType:"collation", items:{ item:{type:"barre_cereale",portion:1} } },
       { id:"demo-din", date: today, mealType:"diner", items:{ entree:{type:"soupe",portion:2}, plat_proteine:{type:"oeuf",portion:2}, plat_feculent:{type:"riz",portion:2}, plat_legume:{type:"legumes_verts",portion:2}, dessert:{type:"laitage_yaourt",portion:1} } },

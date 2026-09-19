@@ -719,6 +719,14 @@ const NUTRITION_ITEMS = {
     { value:"biscottes", label:"Biscottes", kcal:130 },
     { value:"autre", label:"Autre", kcal:150 },
   ],
+  pdj_proteine: [
+    { value:"oeuf", label:"Œuf(s)", kcal:150 },
+    { value:"blanc_poulet", label:"Blanc de poulet / dinde", kcal:165 },
+    { value:"jambon", label:"Jambon blanc", kcal:80 },
+    { value:"whey", label:"Protéine en poudre (whey)", kcal:120 },
+    { value:"tofu", label:"Tofu / soja", kcal:120 },
+    { value:"autre", label:"Autre", kcal:140 },
+  ],
   pdj_laitier: [
     { value:"lait", label:"Lait", kcal:100 },
     { value:"yaourt", label:"Yaourt", kcal:90 },
@@ -765,6 +773,7 @@ const NUTRITION_MEAL_STRUCTURE = {
   ],
   petit_dejeuner: [
     { role:"feculent", label:"Féculent / céréales", catalog:"pdj_feculent" },
+    { role:"proteine", label:"Protéine", catalog:"pdj_proteine" },
     { role:"laitier", label:"Laitier", catalog:"pdj_laitier" },
     { role:"fruit", label:"Fruit", catalog:"pdj_fruit" },
     { role:"sucre", label:"Sucré", catalog:"pdj_sucre" },
