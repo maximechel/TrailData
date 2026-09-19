@@ -438,6 +438,7 @@ let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevat
 let santeHistoryView = "last"; // "last" | "history" — bascule d'affichage de la carte "Localisation des gênes" de l'onglet Santé
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe "Durée réelle vs ajustée" (onglet Rapport environnemental), indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond, affinable via son propre sélecteur.
+let nutritionPeriod = null; // { start, end } — période affichée sur l'onglet Nutrition (lecture seule côté coach), indépendante des autres ; par défaut les 2 dernières semaines pour rester lisible (repas quotidiens, contrairement aux séances).
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 // Cases CAP / Vélo du Volume dans l'onglet Jumeau numérique — cumulables
 // (le volume affiché est la somme des types cochés). CAP seule par défaut :
@@ -514,6 +515,15 @@ function defaultEnvChartPeriod(){
   return { start: fmtDate(start), end: fmtDate(end) };
 }
 function ensureEnvChartPeriod(){ if(!envChartPeriod) envChartPeriod = defaultEnvChartPeriod(); return envChartPeriod; }
+
+// Période par défaut de l'onglet Nutrition : 2 dernières semaines (contrairement
+// aux séances, les repas sont quotidiens — un mois entier surchargerait la liste).
+function defaultNutritionPeriod(){
+  const end = new Date();
+  const start = new Date(end); start.setDate(start.getDate()-14);
+  return { start: fmtDate(start), end: fmtDate(end) };
+}
+function ensureNutritionPeriod(){ if(!nutritionPeriod) nutritionPeriod = defaultNutritionPeriod(); return nutritionPeriod; }
 
 // Initialise (une seule fois — n'écrase jamais un choix déjà fait par le
 // coach) les deux périodes de comparaison du graphique "Profil terrain", en
@@ -693,13 +703,13 @@ function athleteFromApi(a){
   return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
     stravaAthleteId: a.strava_athlete_id, heightCm: a.height_cm, weightKg: a.weight_kg!=null? Number(a.weight_kg): null,
     birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null,
-    email: a.email || "" };
+    email: a.email || "", sex: a.sex || null, activityLevel: a.activity_level || null };
 }
 function athleteToApi(a){
   const row = { name:a.name, sport:a.sport, max_hr: a.maxHR!=null? a.maxHR : null, color_index: a.colorIndex||0,
     height_cm: a.heightCm!=null? a.heightCm : null, weight_kg: a.weightKg!=null? a.weightKg : null,
     birth_date: a.birthDate || null, intensity_zones: a.intensityZones || null,
-    email: a.email || null };
+    email: a.email || null, sex: a.sex || null, activity_level: a.activityLevel || null };
   if(a.id) row.id = a.id;
   return row;
 }
@@ -714,6 +724,271 @@ function ageFromBirthDate(dateStr){
   if(m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
   return age;
 }
+
+/* ---------------------------- Nutrition ---------------------------- */
+// Onglet Nutrition : journal alimentaire simplifié (méthode de l'assiette,
+// portions 1=petite/2=moyenne/3=grande) saisi par l'athlète depuis son espace
+// (lecture seule ici, voir renderNutritionTabHtml), et estimation de la
+// dépense calorique journalière = métabolisme de base (moyenne de 3 formules
+// de la littérature) × coefficient d'activité quotidienne (PAL) + calories de
+// séance (formule par FC de Keytel et al. 2005) les jours avec entraînement
+// importé. Comparaison indicative pour situer un ordre de grandeur, pas un
+// comptage calorique précis — décision prise avec Maxime le 2026-09-19.
+
+const NUTRITION_MEAL_TYPES = [
+  { value:"petit_dejeuner", label:"Petit-déjeuner" },
+  { value:"dejeuner", label:"Déjeuner" },
+  { value:"diner", label:"Dîner" },
+  { value:"collation", label:"Collation" },
+];
+function nutritionMealLabel(v){ const m = NUTRITION_MEAL_TYPES.find(x=>x.value===v); return m ? m.label : v; }
+
+// Catalogue des éléments par rôle, avec une estimation calorique indicative
+// pour une PORTION MOYENNE (portion 2) — multipliée par NUTRITION_PORTIONS
+// selon la taille choisie. Valeurs d'ordre de grandeur usuel par élément
+// (pas une table nutritionnelle de référence), suffisantes pour situer les
+// apports face aux dépenses sans viser un comptage calorique précis.
+const NUTRITION_ITEMS = {
+  entree: [
+    { value:"crudites", label:"Crudités", kcal:60 },
+    { value:"charcuterie", label:"Charcuterie", kcal:180 },
+    { value:"soupe", label:"Soupe / velouté", kcal:90 },
+    { value:"oeuf", label:"Œuf (dur, mayo...)", kcal:140 },
+    { value:"poisson_fume", label:"Poisson fumé / mariné", kcal:120 },
+    { value:"autre", label:"Autre", kcal:100 },
+  ],
+  plat_proteine: [
+    { value:"viande_rouge", label:"Viande rouge", kcal:280 },
+    { value:"viande_blanche", label:"Viande blanche", kcal:220 },
+    { value:"poisson", label:"Poisson", kcal:200 },
+    { value:"oeuf", label:"Œuf", kcal:220 },
+    { value:"legumineuses", label:"Légumineuses", kcal:180 },
+    { value:"tofu_soja", label:"Tofu / soja", kcal:160 },
+    { value:"autre", label:"Autre", kcal:220 },
+  ],
+  plat_feculent: [
+    { value:"riz", label:"Riz", kcal:200 },
+    { value:"pates", label:"Pâtes", kcal:220 },
+    { value:"pomme_de_terre", label:"Pomme de terre", kcal:150 },
+    { value:"quinoa", label:"Quinoa", kcal:180 },
+    { value:"pain", label:"Pain", kcal:180 },
+    { value:"semoule", label:"Semoule", kcal:190 },
+    { value:"autre", label:"Autre", kcal:190 },
+  ],
+  plat_legume: [
+    { value:"legumes_verts", label:"Légumes verts", kcal:50 },
+    { value:"legumes_racines", label:"Légumes racines", kcal:70 },
+    { value:"legumes_mixtes", label:"Légumes mixtes", kcal:60 },
+    { value:"autre", label:"Autre", kcal:60 },
+  ],
+  dessert: [
+    { value:"laitage_yaourt", label:"Laitage / yaourt", kcal:90 },
+    { value:"fromage", label:"Fromage", kcal:110 },
+    { value:"patisserie", label:"Pâtisserie", kcal:280 },
+    { value:"fruit", label:"Fruit", kcal:70 },
+    { value:"compote", label:"Compote", kcal:90 },
+    { value:"chocolat", label:"Chocolat", kcal:150 },
+    { value:"autre", label:"Autre", kcal:120 },
+  ],
+  pdj_feculent: [
+    { value:"pain", label:"Pain", kcal:150 },
+    { value:"cereales", label:"Céréales", kcal:150 },
+    { value:"biscottes", label:"Biscottes", kcal:130 },
+    { value:"autre", label:"Autre", kcal:150 },
+  ],
+  pdj_laitier: [
+    { value:"lait", label:"Lait", kcal:100 },
+    { value:"yaourt", label:"Yaourt", kcal:90 },
+    { value:"fromage_blanc", label:"Fromage blanc", kcal:100 },
+    { value:"autre", label:"Autre", kcal:100 },
+  ],
+  pdj_fruit: [
+    { value:"fruit_frais", label:"Fruit frais", kcal:60 },
+    { value:"jus_fruit", label:"Jus de fruit", kcal:90 },
+    { value:"autre", label:"Autre", kcal:60 },
+  ],
+  pdj_sucre: [
+    { value:"confiture", label:"Confiture / pâte à tartiner", kcal:180 },
+    { value:"viennoiserie", label:"Viennoiserie", kcal:280 },
+    { value:"aucun", label:"Aucun", kcal:0 },
+  ],
+  collation: [
+    { value:"fruit", label:"Fruit", kcal:60 },
+    { value:"laitage", label:"Laitage", kcal:90 },
+    { value:"oleagineux", label:"Oléagineux", kcal:170 },
+    { value:"barre_cereale", label:"Barre céréale", kcal:150 },
+    { value:"sucrerie", label:"Sucrerie", kcal:180 },
+    { value:"autre", label:"Autre", kcal:130 },
+  ],
+};
+
+// Rôles à saisir/afficher selon le type de repas — déjeuner/dîner suivent la
+// structure entrée/plat (protéine+féculent+légume)/dessert demandée par
+// Maxime ; petit-déjeuner et collation ont une structure allégée propre.
+const NUTRITION_MEAL_STRUCTURE = {
+  dejeuner: [
+    { role:"entree", label:"Entrée", catalog:"entree" },
+    { role:"plat_proteine", label:"Plat — protéine", catalog:"plat_proteine" },
+    { role:"plat_feculent", label:"Plat — féculent", catalog:"plat_feculent" },
+    { role:"plat_legume", label:"Plat — légume", catalog:"plat_legume" },
+    { role:"dessert", label:"Dessert", catalog:"dessert" },
+  ],
+  diner: [
+    { role:"entree", label:"Entrée", catalog:"entree" },
+    { role:"plat_proteine", label:"Plat — protéine", catalog:"plat_proteine" },
+    { role:"plat_feculent", label:"Plat — féculent", catalog:"plat_feculent" },
+    { role:"plat_legume", label:"Plat — légume", catalog:"plat_legume" },
+    { role:"dessert", label:"Dessert", catalog:"dessert" },
+  ],
+  petit_dejeuner: [
+    { role:"feculent", label:"Féculent / céréales", catalog:"pdj_feculent" },
+    { role:"laitier", label:"Laitier", catalog:"pdj_laitier" },
+    { role:"fruit", label:"Fruit", catalog:"pdj_fruit" },
+    { role:"sucre", label:"Sucré", catalog:"pdj_sucre" },
+  ],
+  collation: [
+    { role:"item", label:"Collation", catalog:"collation" },
+  ],
+};
+
+const NUTRITION_PORTIONS = [
+  { value:1, label:"Petite", mult:0.6 },
+  { value:2, label:"Moyenne", mult:1.0 },
+  { value:3, label:"Grande", mult:1.5 },
+];
+function nutritionPortionMult(p){ const f = NUTRITION_PORTIONS.find(x=>x.value===p); return f ? f.mult : 1.0; }
+function nutritionPortionLabel(p){ const f = NUTRITION_PORTIONS.find(x=>x.value===p); return f ? f.label : "Moyenne"; }
+
+// Icône "assiette plus ou moins remplie" — anneau de progression (33/66/100%)
+// plutôt qu'une assiette dessinée, pour rester lisible en petite taille et
+// cohérent avec les autres indicateurs circulaires de l'appli (ls-status-pill).
+function nutritionPlateIconSvg(portion, size){
+  const px = size || 30;
+  const pct = portion===1? 0.34 : portion===2? 0.67 : 1.0;
+  const r = 12, c = 2*Math.PI*r;
+  const dash = c*pct;
+  return `<svg width="${px}" height="${px}" viewBox="0 0 30 30" aria-hidden="true">
+    <circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--border)" stroke-width="4"></circle>
+    <circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--accent)" stroke-width="4"
+      stroke-dasharray="${dash.toFixed(1)} ${(c-dash).toFixed(1)}" stroke-linecap="round"
+      transform="rotate(-90 15 15)"></circle>
+  </svg>`;
+}
+
+// Estimation calorique indicative d'un élément (rôle+type+portion), arrondie
+// à la dizaine (cohérent avec la précision affichée ailleurs, ex. envFmtPct).
+function nutritionItemKcal(catalog, type, portion){
+  const list = NUTRITION_ITEMS[catalog];
+  if(!list) return 0;
+  const item = list.find(i=>i.value===type) || list.find(i=>i.value==="autre");
+  if(!item) return 0;
+  return Math.round((item.kcal * nutritionPortionMult(portion)) / 10) * 10;
+}
+
+// Total calorique indicatif d'un repas (somme des éléments présents dans entry.items).
+function nutritionEntryKcal(entry){
+  const structure = NUTRITION_MEAL_STRUCTURE[entry.mealType] || [];
+  let total = 0;
+  structure.forEach(({role, catalog})=>{
+    const it = entry.items && entry.items[role];
+    if(it && it.type) total += nutritionItemKcal(catalog, it.type, it.portion || 2);
+  });
+  return total;
+}
+
+// ---- Métabolisme de base : moyenne de 3 formules reconnues, ne nécessitant
+// que poids/taille/âge/sexe (contrairement à Katch-McArdle, qui a besoin de
+// la masse grasse, non suivie ici). ----
+function bmrMifflinStJeor(sex, weightKg, heightCm, age){
+  const base = 10*weightKg + 6.25*heightCm - 5*age;
+  return sex === "femme" ? base - 161 : base + 5;
+}
+function bmrHarrisBenedictRevised(sex, weightKg, heightCm, age){
+  return sex === "femme"
+    ? 447.593 + 9.247*weightKg + 3.098*heightCm - 4.330*age
+    : 88.362 + 13.397*weightKg + 4.799*heightCm - 5.677*age;
+}
+function bmrWhoFao(sex, weightKg, age){
+  if(sex === "femme"){
+    if(age < 30) return 14.7*weightKg + 496;
+    if(age < 60) return 8.7*weightKg + 829;
+    return 10.5*weightKg + 596;
+  }
+  if(age < 30) return 15.3*weightKg + 679;
+  if(age < 60) return 11.6*weightKg + 879;
+  return 13.5*weightKg + 487;
+}
+// Moyenne de Mifflin-St Jeor (1990), Harris-Benedict révisée (Roza & Shizgal
+// 1984) et WHO/FAO (2001). null si sexe/poids/taille/âge manquent.
+function bmrAverage(sex, weightKg, heightCm, age){
+  if(!sex || !weightKg || !heightCm || age == null) return null;
+  const a = bmrMifflinStJeor(sex, weightKg, heightCm, age);
+  const b = bmrHarrisBenedictRevised(sex, weightKg, heightCm, age);
+  const c = bmrWhoFao(sex, weightKg, age);
+  return Math.round((a+b+c)/3);
+}
+
+// Coefficients PAL (Physical Activity Level) standards de la littérature —
+// niveau d'activité de la VIE COURANTE (travail, déplacements, loisirs),
+// volontairement HORS entraînement structuré : les calories de séance
+// (Keytel ci-dessous) sont ajoutées en plus les jours avec entraînement
+// importé, pour ne jamais compter le même effort deux fois.
+const ACTIVITY_LEVEL_PAL = { non_actif:1.2, peu_actif:1.375, actif:1.55, tres_actif:1.725 };
+const ACTIVITY_LEVEL_LABELS = { non_actif:"Non actif", peu_actif:"Peu actif", actif:"Actif", tres_actif:"Très actif" };
+function activityLevelPal(level){ return ACTIVITY_LEVEL_PAL[level] ?? null; }
+function activityLevelLabel(level){ return ACTIVITY_LEVEL_LABELS[level] || "—"; }
+
+// Dépense calorique d'une séance à partir de la FC moyenne (Keytel et al.
+// 2005, Journal of Sports Sciences — référence pour l'estimation de dépense
+// énergétique par FC, formule distincte selon le sexe). Nécessite FC moyenne
+// de la séance (sessions.avg_hr, fournie par Strava), poids, âge et sexe.
+// Plafonné à 0 (la formule peut devenir négative à FC très basse, hors de sa
+// plage de validité).
+function sessionCaloriesKeytel(sex, avgHr, weightKg, ageYears, durationMin){
+  if(!sex || avgHr == null || !weightKg || ageYears == null || !durationMin) return null;
+  const kcalPerMin = sex === "femme"
+    ? (-20.4022 + 0.4472*avgHr - 0.1263*weightKg + 0.074*ageYears) / 4.184
+    : (-55.0969 + 0.6309*avgHr + 0.1988*weightKg + 0.2017*ageYears) / 4.184;
+  return Math.round(Math.max(0, kcalPerMin) * durationMin);
+}
+
+// Dépense calorique totale d'un jour donné : métabolisme de base × PAL (vie
+// courante) + calories des séances importées ce jour-là (Keytel, une par
+// séance avec FC moyenne disponible). null si le profil est incomplet.
+function dailyExpenditure(athlete, sessionsOfDay){
+  const age = ageFromBirthDate(athlete.birthDate);
+  const bmr = bmrAverage(athlete.sex, athlete.weightKg, athlete.heightCm, age);
+  const pal = activityLevelPal(athlete.activityLevel);
+  if(bmr == null || pal == null) return null;
+  let total = Math.round(bmr * pal);
+  let sessionsCounted = 0, sessionsMissingHr = 0;
+  (sessionsOfDay||[]).forEach(s=>{
+    const kcal = sessionCaloriesKeytel(athlete.sex, s.avgHr, athlete.weightKg, age, s.duration);
+    if(kcal != null){ total += kcal; sessionsCounted++; }
+    else if(s.duration) sessionsMissingHr++;
+  });
+  return { total, bmr, pal, sessionsCounted, sessionsMissingHr };
+}
+
+// Sévérité de l'écart apports/dépenses, en % de la dépense — mêmes paliers
+// visuels (good/warning/serious/critical) que statusVar/statusInk ailleurs.
+function nutritionBalanceSeverity(apports, depense){
+  if(depense == null || depense === 0) return { key:"none", label:"—" };
+  const ecart = apports - depense;
+  const pct = Math.abs(ecart) / depense;
+  const dir = ecart < -1 ? "déficit" : ecart > 1 ? "surplus" : "équilibre";
+  if(pct < 0.08) return { key:"good", label:"Équilibré" };
+  if(pct < 0.20) return { key:"warning", label:"Léger " + dir };
+  if(pct < 0.35) return { key:"serious", label: dir.charAt(0).toUpperCase()+dir.slice(1)+" marqué" };
+  return { key:"critical", label: dir.charAt(0).toUpperCase()+dir.slice(1)+" important" };
+}
+
+function nutritionEntryFromApi(n){
+  return { id:n.id, athleteId:n.athlete_id, date:n.date, mealType:n.meal_type,
+    moment:n.moment||"", items: (n.items && typeof n.items==="object") ? n.items : {},
+    note:n.note||"", createdAt:n.created_at };
+}
+
 function sessionFromApi(s){
   return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
@@ -735,6 +1010,7 @@ function sessionFromApi(s){
     vamClimbProfile: Array.isArray(s.vam_climb_profile) ? s.vam_climb_profile : null,
     vamDescentProfile: Array.isArray(s.vam_descent_profile) ? s.vam_descent_profile : null,
     technicity: s.technicity || "roulant",
+    avgHr: s.avg_hr!=null ? Number(s.avg_hr) : null,
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function sessionToApi(s){
@@ -1897,6 +2173,8 @@ function renderMain(){
   const envSessions = sessions.filter(s=>s.source==="strava");
   ensureChartPeriod();
   ensureEnvChartPeriod();
+  ensureNutritionPeriod();
+  const nutritionEntriesForAthlete = (state.nutritionEntries||[]).filter(n=>n.athleteId===athlete.id);
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
   ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
 
@@ -1928,6 +2206,7 @@ function renderMain(){
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
       <button class="ls-tab-btn ${activeTab==="twin"?"active":""}" data-tab="twin" type="button">Jumeau numérique</button>
       <button class="ls-tab-btn ${activeTab==="sante"?"active":""}" data-tab="sante" type="button">Santé</button>
+      <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
@@ -2178,6 +2457,10 @@ function renderMain(){
     <div class="ls-tab-panel" id="tab-panel-sante" ${activeTab!=="sante"?"hidden":""}>
       ${renderSanteTabHtml(athlete, sessions)}
     </div>
+
+    <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
+      ${renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
+    </div>
   `;
 
   document.getElementById("btn-add-session").addEventListener("click", ()=>openSessionModal(athlete.id));
@@ -2225,6 +2508,23 @@ function renderMain(){
   });
   document.getElementById("btn-env-period-reset").addEventListener("click", ()=>{
     envChartPeriod = defaultEnvChartPeriod();
+    renderMain();
+  });
+  const nutritionPeriodStart = document.getElementById("nutrition-period-start");
+  const nutritionPeriodEnd = document.getElementById("nutrition-period-end");
+  const nutritionPeriodResetBtn = document.getElementById("btn-nutrition-period-reset");
+  if(nutritionPeriodStart) nutritionPeriodStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    nutritionPeriod = { start: v, end: v > nutritionPeriod.end ? v : nutritionPeriod.end };
+    renderMain();
+  });
+  if(nutritionPeriodEnd) nutritionPeriodEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    nutritionPeriod = { start: v < nutritionPeriod.start ? v : nutritionPeriod.start, end: v };
+    renderMain();
+  });
+  if(nutritionPeriodResetBtn) nutritionPeriodResetBtn.addEventListener("click", ()=>{
+    nutritionPeriod = defaultNutritionPeriod();
     renderMain();
   });
   const stravaBtn = document.getElementById("btn-connect-strava");
@@ -2617,6 +2917,103 @@ function renderSanteTabHtml(athlete, sessions){
       ${bodyCard}
     </div>
     <div style="margin-top:20px;">${correlationCard}</div>
+  `;
+}
+
+// Onglet Nutrition (lecture seule côté coach — seul l'athlète saisit, voir
+// client.html) : journal alimentaire jour par jour sur la période choisie,
+// avec apports estimés (méthode de l'assiette) comparés à la dépense
+// calorique estimée du jour (métabolisme de base × activité + calories de
+// séance si entraînement importé). Voir le bloc "Nutrition" plus haut pour
+// le détail des formules.
+function nutritionMealSummaryLine(entry){
+  const structure = NUTRITION_MEAL_STRUCTURE[entry.mealType] || [];
+  const parts = [];
+  structure.forEach(({role, label, catalog})=>{
+    const it = entry.items && entry.items[role];
+    if(!it || !it.type) return;
+    const list = NUTRITION_ITEMS[catalog] || [];
+    const found = list.find(i=>i.value===it.type);
+    const itemLabel = found ? found.label : it.type;
+    parts.push(`${itemLabel} (${nutritionPortionLabel(it.portion||2).toLowerCase()})`);
+  });
+  return parts.length ? parts.join(", ") : "—";
+}
+function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
+  const profileComplete = !!(athlete.sex && athlete.activityLevel && athlete.weightKg && athlete.heightCm && athlete.birthDate);
+  const period = nutritionPeriod;
+  const entriesInPeriod = nutritionEntries.filter(n=> n.date >= period.start && n.date <= period.end);
+  const sessionsInPeriod = sessions.filter(s=> s.date >= period.start && s.date <= period.end);
+
+  const dates = Array.from(new Set([...entriesInPeriod.map(n=>n.date), ...sessionsInPeriod.map(s=>s.date)])).sort((a,b)=> a<b?1:-1);
+
+  const dayRows = dates.map(date=>{
+    const dayEntries = entriesInPeriod.filter(n=>n.date===date).sort((a,b)=>{
+      const order = { petit_dejeuner:0, dejeuner:1, collation:2, diner:3 };
+      return (order[a.mealType]??9) - (order[b.mealType]??9);
+    });
+    const daySessions = sessionsInPeriod.filter(s=>s.date===date);
+    const apports = dayEntries.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0);
+    const dep = profileComplete ? dailyExpenditure(athlete, daySessions) : null;
+    const sev = dep ? nutritionBalanceSeverity(apports, dep.total) : { key:"none", label:"—" };
+    const mealsLine = dayEntries.map(e=> `<div><strong>${nutritionMealLabel(e.mealType)}</strong> — ${nutritionMealSummaryLine(e)}</div>`).join("");
+    return `<tr>
+      <td>${fmtDateFr(date)}</td>
+      <td style="font-size:11.5px;line-height:1.6;">${mealsLine || "—"}</td>
+      <td>${dayEntries.length ? apports + " kcal" : "—"}</td>
+      <td>${dep ? dep.total + " kcal" + (dep.sessionsMissingHr ? ` <span class="ls-legend-note" style="display:inline;">(${dep.sessionsMissingHr} séance${dep.sessionsMissingHr>1?"s":""} sans FC ignorée${dep.sessionsMissingHr>1?"s":""})</span>` : "") : "—"}</td>
+      <td>${dep && dayEntries.length ? `<span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${sev.label}</span>` : "—"}</td>
+    </tr>`;
+  }).join("");
+
+  const daysWithBoth = dates.filter(date=>{
+    const hasEntry = entriesInPeriod.some(n=>n.date===date);
+    return hasEntry && profileComplete;
+  });
+  const avgApports = daysWithBoth.length ? Math.round(daysWithBoth.reduce((sum,date)=> sum + entriesInPeriod.filter(n=>n.date===date).reduce((s,e)=>s+nutritionEntryKcal(e),0), 0) / daysWithBoth.length) : null;
+  const avgDepense = daysWithBoth.length ? Math.round(daysWithBoth.reduce((sum,date)=>{
+    const dep = dailyExpenditure(athlete, sessionsInPeriod.filter(s=>s.date===date));
+    return sum + (dep ? dep.total : 0);
+  }, 0) / daysWithBoth.length) : null;
+
+  const profileWarning = !profileComplete ? `
+    <div class="ls-panel" style="margin-bottom:16px;">
+      <div class="ls-empty">Profil incomplet pour estimer la dépense calorique : renseigne sexe, niveau d'activité, taille, poids et date de naissance dans la fiche de l'athlète (bouton "Modifier" en haut de page). Le journal alimentaire reste visible ci-dessous.</div>
+    </div>` : "";
+
+  return `
+    <div class="ls-chart-sub" style="margin-bottom:14px;">Journal alimentaire simplifié saisi par l'athlète depuis son espace (méthode de l'assiette : entrée/plat/dessert pour déjeuner et dîner, structure allégée pour petit-déjeuner et collations), comparé à une estimation indicative de la dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis.</div>
+    ${profileWarning}
+    <div class="ls-stat-grid" style="margin-bottom:18px;">
+      <div class="ls-stat"><div class="ls-stat-label">Jours avec repas (période)</div><div class="ls-stat-value">${new Set(entriesInPeriod.map(n=>n.date)).size}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Apports moyens / jour</div><div class="ls-stat-value">${avgApports!=null? avgApports : "—"}${avgApports!=null?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Dépense moyenne / jour</div><div class="ls-stat-value">${avgDepense!=null? avgDepense : "—"}${avgDepense!=null?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Écart moyen</div><div class="ls-stat-value">${avgApports!=null && avgDepense!=null ? (avgApports-avgDepense>0?"+":"")+(avgApports-avgDepense) : "—"}${avgApports!=null && avgDepense!=null?"<small>kcal</small>":""}</div></div>
+    </div>
+    <div class="ls-period-bar">
+      <div class="ls-field">
+        <label>Période — début</label>
+        <input type="date" id="nutrition-period-start" value="${period.start}" max="${period.end}">
+      </div>
+      <div class="ls-period-arrow">→</div>
+      <div class="ls-field">
+        <label>Période — fin</label>
+        <input type="date" id="nutrition-period-end" value="${period.end}" min="${period.start}">
+      </div>
+      <button class="ls-btn small ghost" type="button" id="btn-nutrition-period-reset">Réinitialiser (2 semaines)</button>
+      <div class="ls-period-note">Par défaut les 2 dernières semaines (repas quotidiens, contrairement aux séances) — élargissez pour voir plus loin dans l'historique.</div>
+    </div>
+    ${dates.length === 0
+      ? '<div class="ls-panel"><div class="ls-empty">Aucun repas saisi sur cette période.</div></div>'
+      : `<div class="ls-table-card">
+      <div class="ls-table-head"><h3>Journal (${dates.length} jour${dates.length>1?"s":""})</h3></div>
+      <div class="ls-table-scroll">
+        <table class="ls-log">
+          <thead><tr><th>Date</th><th>Repas</th><th>Apports</th><th>Dépense</th><th>Écart</th></tr></thead>
+          <tbody>${dayRows}</tbody>
+        </table>
+      </div>
+    </div>`}
   `;
 }
 function santeWeekVigilance(h){
@@ -3462,6 +3859,24 @@ function openAthleteModal(existing){
           <div class="ls-field"><label>Taille (cm)</label><input type="number" min="0" name="heightCm" value="${existing&&existing.heightCm? existing.heightCm:""}"></div>
           <div class="ls-field"><label>Poids (kg)</label><input type="number" min="0" step="0.1" name="weightKg" value="${existing&&existing.weightKg? existing.weightKg:""}"></div>
         </div>
+        <div class="ls-field-row">
+          <div class="ls-field">
+            <label>Sexe (biologique)</label>
+            <select name="sex">
+              <option value="">Non renseigné</option>
+              <option value="homme" ${existing&&existing.sex==="homme"?"selected":""}>Homme</option>
+              <option value="femme" ${existing&&existing.sex==="femme"?"selected":""}>Femme</option>
+            </select>
+          </div>
+          <div class="ls-field">
+            <label>Niveau d'activité quotidienne</label>
+            <select name="activityLevel">
+              <option value="">Non renseigné</option>
+              ${Object.entries(ACTIVITY_LEVEL_LABELS).map(([v,l])=>`<option value="${v}" ${existing&&existing.activityLevel===v?"selected":""}>${l}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="ls-legend-note">Sexe, niveau d'activité, taille, poids et date de naissance alimentent l'estimation de dépense calorique de l'onglet Nutrition (métabolisme de base + activité quotidienne + entraînement du jour). Non requis pour le reste de l'application.</div>
         <div class="ls-modal-actions">
           <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
           <button type="submit" class="ls-btn primary">${existing? "Enregistrer":"Créer"}</button>
@@ -3478,7 +3893,8 @@ function openAthleteModal(existing){
       name: fd.get("name"), sport: fd.get("sport"), maxHR: fd.get("maxHR")? +fd.get("maxHR") : null,
       birthDate: fd.get("birthDate") || null, heightCm: fd.get("heightCm")? +fd.get("heightCm") : null,
       weightKg: fd.get("weightKg")? +fd.get("weightKg") : null,
-      email: (fd.get("email")||"").trim() || null
+      email: (fd.get("email")||"").trim() || null,
+      sex: fd.get("sex") || null, activityLevel: fd.get("activityLevel") || null
     };
     const athlete = existing
       ? Object.assign({ id: existing.id, colorIndex: existing.colorIndex }, common)
@@ -3862,7 +4278,8 @@ async function refreshData(){
     athleteTests: (data.athleteTests || []).map(athleteTestFromApi),
     reportLeads: (data.reportLeads || []).map(reportLeadFromApi),
     hooperResponses: (data.hooperResponses || []).map(hooperResponseFromApi),
-    injuryReports: (data.injuryReports || []).map(injuryReportFromApi) };
+    injuryReports: (data.injuryReports || []).map(injuryReportFromApi),
+    nutritionEntries: (data.nutritionEntries || []).map(nutritionEntryFromApi) };
   if(keepAthlete && state.athletes.some(a=>a.id===keepAthlete)) activeAthleteId = keepAthlete;
   else {
     const stored = localStorage.getItem(ACTIVE_ATHLETE_STORAGE);

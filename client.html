@@ -138,6 +138,15 @@
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
   .ls-table-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
   .ls-table-head h3{font-size:13px;font-weight:700;margin:0;}
+  .ls-portion-row{display:flex;gap:8px;margin-top:6px;}
+  .ls-portion-btn{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--surface-2);
+    border:1px solid var(--border);border-radius:10px;padding:6px 10px;cursor:pointer;font-family:var(--font-ui);
+    font-size:10.5px;color:var(--text-muted);}
+  .ls-portion-btn.active{border-color:var(--accent);color:var(--text-primary);background:var(--surface);}
+  .ls-nutrition-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+  .ls-nutrition-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px;}
+  .ls-nutrition-card-items{display:flex;flex-direction:column;gap:6px;}
+  .ls-nutrition-item-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-secondary);}
   .ls-table-scroll{overflow-x:auto;max-height:360px;overflow-y:auto;border-radius:10px;}
   table.ls-log{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
   table.ls-log th{position:sticky;top:0;background:var(--surface);text-align:left;font-size:11px;text-transform:uppercase;
@@ -322,6 +331,7 @@ let athlete = null;
 let sessions = [];
 let hooperResponses = [];
 let injuryReports = [];
+let nutritionEntries = [];
 let santeDraft = null;
 let santeSaving = false;
 let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
@@ -330,6 +340,7 @@ let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
 let terrainCompareB = null;
 let activeTab = "training";
+let nutritionSelectedDate = null; // "YYYY-MM-DD" — jour affiché/édité dans l'onglet Nutrition ; par défaut aujourd'hui (voir renderNutritionTabHtml).
 
 /* ---------- onglet Santé : questionnaire de Hooper + avatar de gênes ----------
    Échelle Hooper 1-7 par item : 1 = très mauvais/très élevé, 7 = très bien/très
@@ -487,12 +498,142 @@ function openIntensityModal(athlete){
   document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
 }
 
+/* ---------------------------- Nutrition : modal de saisie d'un repas ---------------------------- */
+// Brouillon en cours d'édition (null quand le modal est fermé) — même principe
+// que santeDraft, mais scopé au modal plutôt qu'à un onglet entier puisque la
+// saisie d'un repas est un aller-retour ponctuel, pas un état persistant de page.
+let nutritionDraft = null;
+
+function nutritionDefaultItems(mealType){
+  const structure = NUTRITION_MEAL_STRUCTURE[mealType] || [];
+  const items = {};
+  structure.forEach(({role})=>{ items[role] = { type:"", portion:2 }; });
+  return items;
+}
+
+function nutritionModalFieldsHtml(){
+  const structure = NUTRITION_MEAL_STRUCTURE[nutritionDraft.mealType] || [];
+  return structure.map(({role, label, catalog})=>{
+    const current = nutritionDraft.items[role] || { type:"", portion:2 };
+    const options = (NUTRITION_ITEMS[catalog]||[]).map(i=>`<option value="${i.value}" ${current.type===i.value?"selected":""}>${escapeHtml(i.label)}</option>`).join("");
+    const portionBtns = NUTRITION_PORTIONS.map(p=>`
+      <button type="button" class="ls-portion-btn ${current.portion===p.value?"active":""}" data-nutrition-role="${role}" data-portion-value="${p.value}" title="${p.label}">
+        ${nutritionPlateIconSvg(p.value, 28)}
+        <span>${p.label}</span>
+      </button>`).join("");
+    return `
+      <div class="ls-field">
+        <label>${escapeHtml(label)}</label>
+        <select data-nutrition-role="${role}" class="nutrition-item-select">
+          <option value="">— non consommé —</option>
+          ${options}
+        </select>
+        <div class="ls-portion-row">${portionBtns}</div>
+      </div>`;
+  }).join("");
+}
+
+function wireNutritionFieldListeners(){
+  document.querySelectorAll(".nutrition-item-select").forEach(sel=>{
+    sel.addEventListener("change", e=>{
+      const role = e.target.getAttribute("data-nutrition-role");
+      if(!nutritionDraft.items[role]) nutritionDraft.items[role] = { type:"", portion:2 };
+      nutritionDraft.items[role].type = e.target.value;
+    });
+  });
+  document.querySelectorAll(".ls-portion-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const role = btn.getAttribute("data-nutrition-role");
+      const val = +btn.getAttribute("data-portion-value");
+      if(!nutritionDraft.items[role]) nutritionDraft.items[role] = { type:"", portion:2 };
+      nutritionDraft.items[role].portion = val;
+      const fields = document.getElementById("nutrition-modal-fields");
+      if(fields){ fields.innerHTML = nutritionModalFieldsHtml(); wireNutritionFieldListeners(); }
+    });
+  });
+}
+
+function renderNutritionModal(){
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal wide">
+      <h3>${nutritionDraft.id? "Modifier le repas":"Ajouter un repas"}</h3>
+      <div class="ls-modal-sub">Choisis ce que tu as mangé pour chaque élément, et la taille de la portion (petite / moyenne / grande — l'anneau se remplit en conséquence). Laisse un élément sur "non consommé" si tu ne l'as pas pris.</div>
+      <div class="ls-field-row">
+        <div class="ls-field"><label>Date</label><input type="date" id="nutrition-draft-date" value="${nutritionDraft.date}" max="${fmtDate(new Date())}"></div>
+        <div class="ls-field">
+          <label>Repas</label>
+          <select id="nutrition-draft-mealtype">
+            ${NUTRITION_MEAL_TYPES.map(m=>`<option value="${m.value}" ${nutritionDraft.mealType===m.value?"selected":""}>${m.label}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div id="nutrition-modal-fields">${nutritionModalFieldsHtml()}</div>
+      <div class="ls-modal-actions">
+        <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
+        <button type="button" class="ls-btn primary" id="btn-nutrition-save">${nutritionDraft.id? "Enregistrer":"Ajouter"}</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("modal-cancel").addEventListener("click", ()=>{ nutritionDraft=null; closeModal(); });
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay"){ nutritionDraft=null; closeModal(); } });
+  document.getElementById("nutrition-draft-date").addEventListener("change", e=>{ nutritionDraft.date = e.target.value; });
+  document.getElementById("nutrition-draft-mealtype").addEventListener("change", e=>{
+    nutritionDraft.mealType = e.target.value;
+    nutritionDraft.items = nutritionDefaultItems(e.target.value);
+    document.getElementById("nutrition-modal-fields").innerHTML = nutritionModalFieldsHtml();
+    wireNutritionFieldListeners();
+  });
+  wireNutritionFieldListeners();
+  document.getElementById("btn-nutrition-save").addEventListener("click", saveNutritionDraft);
+}
+
+function openNutritionEntryModal(existing, defaultDate){
+  nutritionDraft = existing
+    ? { id: existing.id, date: existing.date, mealType: existing.mealType, items: JSON.parse(JSON.stringify(existing.items||{})) }
+    : { id: null, date: defaultDate || fmtDate(new Date()), mealType: "dejeuner", items: nutritionDefaultItems("dejeuner") };
+  renderNutritionModal();
+}
+
+async function saveNutritionDraft(){
+  // Ne garde que les éléments réellement renseignés (type non vide).
+  const items = {};
+  Object.entries(nutritionDraft.items).forEach(([role, it])=>{ if(it && it.type) items[role] = { type: it.type, portion: it.portion||2 }; });
+  const row = { athlete_id: athlete.id, date: nutritionDraft.date, meal_type: nutritionDraft.mealType, items };
+  if(nutritionDraft.id) row.id = nutritionDraft.id;
+  const saveBtn = document.getElementById("btn-nutrition-save");
+  if(saveBtn) saveBtn.disabled = true;
+  const { data, error } = await sb.from("nutrition_entries").upsert(row).select().single();
+  if(error){
+    showToast("Erreur lors de l'enregistrement : " + error.message, "--critical");
+    if(saveBtn) saveBtn.disabled = false;
+    return;
+  }
+  if(nutritionDraft.id) nutritionEntries = nutritionEntries.filter(n=>n.id!==nutritionDraft.id);
+  nutritionEntries.push(nutritionEntryFromApi(data));
+  nutritionDraft = null;
+  closeModal();
+  showToast("Repas enregistré.", "--good");
+  renderMain();
+}
+
+async function deleteNutritionEntry(id){
+  if(!confirm("Supprimer ce repas ?")) return;
+  const { error } = await sb.from("nutrition_entries").delete().eq("id", id);
+  if(error){ showToast("Erreur lors de la suppression : " + error.message, "--critical"); return; }
+  nutritionEntries = nutritionEntries.filter(n=>n.id!==id);
+  showToast("Repas supprimé.", "--good");
+  renderMain();
+}
+
 /* ---------------------------- snake_case -> camelCase ---------------------------- */
 
 function athleteFromApi(a){
   return { id:a.id, name:a.name, sport:a.sport, maxHR: a.max_hr, colorIndex: a.color_index,
     stravaAthleteId: a.strava_athlete_id, heightCm: a.height_cm, weightKg: a.weight_kg!=null? Number(a.weight_kg): null,
-    birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null };
+    birthDate: a.birth_date, intensityZones: Array.isArray(a.intensity_zones)? a.intensity_zones : null,
+    sex: a.sex || null, activityLevel: a.activity_level || null };
 }
 function ageFromBirthDate(dateStr){
   if(!dateStr) return null;
@@ -504,6 +645,267 @@ function ageFromBirthDate(dateStr){
   if(m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
   return age;
 }
+
+/* ---------------------------- Nutrition ---------------------------- */
+// Onglet Nutrition : journal alimentaire simplifié (méthode de l'assiette,
+// portions 1=petite/2=moyenne/3=grande), saisi ici par l'athlète, et
+// estimation de la dépense calorique journalière = métabolisme de base
+// (moyenne de 3 formules de la littérature) × coefficient d'activité
+// quotidienne (PAL, défini par le coach) + calories de séance (formule par FC
+// de Keytel et al. 2005) les jours avec entraînement importé. Comparaison
+// indicative pour situer un ordre de grandeur, pas un comptage calorique
+// précis — décision prise avec Maxime le 2026-09-19. Mêmes constantes et
+// formules que index.html (lecture seule côté coach) et rapport-seance.html
+// (méthodologie Minetti dont s'inspire l'esprit "estimation transparente").
+
+const NUTRITION_MEAL_TYPES = [
+  { value:"petit_dejeuner", label:"Petit-déjeuner" },
+  { value:"dejeuner", label:"Déjeuner" },
+  { value:"diner", label:"Dîner" },
+  { value:"collation", label:"Collation" },
+];
+function nutritionMealLabel(v){ const m = NUTRITION_MEAL_TYPES.find(x=>x.value===v); return m ? m.label : v; }
+
+// Catalogue des éléments par rôle, avec une estimation calorique indicative
+// pour une PORTION MOYENNE (portion 2) — multipliée par NUTRITION_PORTIONS
+// selon la taille choisie. Valeurs d'ordre de grandeur usuel par élément
+// (pas une table nutritionnelle de référence), suffisantes pour situer les
+// apports face aux dépenses sans viser un comptage calorique précis.
+const NUTRITION_ITEMS = {
+  entree: [
+    { value:"crudites", label:"Crudités", kcal:60 },
+    { value:"charcuterie", label:"Charcuterie", kcal:180 },
+    { value:"soupe", label:"Soupe / velouté", kcal:90 },
+    { value:"oeuf", label:"Œuf (dur, mayo...)", kcal:140 },
+    { value:"poisson_fume", label:"Poisson fumé / mariné", kcal:120 },
+    { value:"autre", label:"Autre", kcal:100 },
+  ],
+  plat_proteine: [
+    { value:"viande_rouge", label:"Viande rouge", kcal:280 },
+    { value:"viande_blanche", label:"Viande blanche", kcal:220 },
+    { value:"poisson", label:"Poisson", kcal:200 },
+    { value:"oeuf", label:"Œuf", kcal:220 },
+    { value:"legumineuses", label:"Légumineuses", kcal:180 },
+    { value:"tofu_soja", label:"Tofu / soja", kcal:160 },
+    { value:"autre", label:"Autre", kcal:220 },
+  ],
+  plat_feculent: [
+    { value:"riz", label:"Riz", kcal:200 },
+    { value:"pates", label:"Pâtes", kcal:220 },
+    { value:"pomme_de_terre", label:"Pomme de terre", kcal:150 },
+    { value:"quinoa", label:"Quinoa", kcal:180 },
+    { value:"pain", label:"Pain", kcal:180 },
+    { value:"semoule", label:"Semoule", kcal:190 },
+    { value:"autre", label:"Autre", kcal:190 },
+  ],
+  plat_legume: [
+    { value:"legumes_verts", label:"Légumes verts", kcal:50 },
+    { value:"legumes_racines", label:"Légumes racines", kcal:70 },
+    { value:"legumes_mixtes", label:"Légumes mixtes", kcal:60 },
+    { value:"autre", label:"Autre", kcal:60 },
+  ],
+  dessert: [
+    { value:"laitage_yaourt", label:"Laitage / yaourt", kcal:90 },
+    { value:"fromage", label:"Fromage", kcal:110 },
+    { value:"patisserie", label:"Pâtisserie", kcal:280 },
+    { value:"fruit", label:"Fruit", kcal:70 },
+    { value:"compote", label:"Compote", kcal:90 },
+    { value:"chocolat", label:"Chocolat", kcal:150 },
+    { value:"autre", label:"Autre", kcal:120 },
+  ],
+  pdj_feculent: [
+    { value:"pain", label:"Pain", kcal:150 },
+    { value:"cereales", label:"Céréales", kcal:150 },
+    { value:"biscottes", label:"Biscottes", kcal:130 },
+    { value:"autre", label:"Autre", kcal:150 },
+  ],
+  pdj_laitier: [
+    { value:"lait", label:"Lait", kcal:100 },
+    { value:"yaourt", label:"Yaourt", kcal:90 },
+    { value:"fromage_blanc", label:"Fromage blanc", kcal:100 },
+    { value:"autre", label:"Autre", kcal:100 },
+  ],
+  pdj_fruit: [
+    { value:"fruit_frais", label:"Fruit frais", kcal:60 },
+    { value:"jus_fruit", label:"Jus de fruit", kcal:90 },
+    { value:"autre", label:"Autre", kcal:60 },
+  ],
+  pdj_sucre: [
+    { value:"confiture", label:"Confiture / pâte à tartiner", kcal:180 },
+    { value:"viennoiserie", label:"Viennoiserie", kcal:280 },
+    { value:"aucun", label:"Aucun", kcal:0 },
+  ],
+  collation: [
+    { value:"fruit", label:"Fruit", kcal:60 },
+    { value:"laitage", label:"Laitage", kcal:90 },
+    { value:"oleagineux", label:"Oléagineux", kcal:170 },
+    { value:"barre_cereale", label:"Barre céréale", kcal:150 },
+    { value:"sucrerie", label:"Sucrerie", kcal:180 },
+    { value:"autre", label:"Autre", kcal:130 },
+  ],
+};
+
+// Rôles à saisir/afficher selon le type de repas — déjeuner/dîner suivent la
+// structure entrée/plat (protéine+féculent+légume)/dessert demandée par
+// Maxime ; petit-déjeuner et collation ont une structure allégée propre.
+const NUTRITION_MEAL_STRUCTURE = {
+  dejeuner: [
+    { role:"entree", label:"Entrée", catalog:"entree" },
+    { role:"plat_proteine", label:"Plat — protéine", catalog:"plat_proteine" },
+    { role:"plat_feculent", label:"Plat — féculent", catalog:"plat_feculent" },
+    { role:"plat_legume", label:"Plat — légume", catalog:"plat_legume" },
+    { role:"dessert", label:"Dessert", catalog:"dessert" },
+  ],
+  diner: [
+    { role:"entree", label:"Entrée", catalog:"entree" },
+    { role:"plat_proteine", label:"Plat — protéine", catalog:"plat_proteine" },
+    { role:"plat_feculent", label:"Plat — féculent", catalog:"plat_feculent" },
+    { role:"plat_legume", label:"Plat — légume", catalog:"plat_legume" },
+    { role:"dessert", label:"Dessert", catalog:"dessert" },
+  ],
+  petit_dejeuner: [
+    { role:"feculent", label:"Féculent / céréales", catalog:"pdj_feculent" },
+    { role:"laitier", label:"Laitier", catalog:"pdj_laitier" },
+    { role:"fruit", label:"Fruit", catalog:"pdj_fruit" },
+    { role:"sucre", label:"Sucré", catalog:"pdj_sucre" },
+  ],
+  collation: [
+    { role:"item", label:"Collation", catalog:"collation" },
+  ],
+};
+
+const NUTRITION_PORTIONS = [
+  { value:1, label:"Petite", mult:0.6 },
+  { value:2, label:"Moyenne", mult:1.0 },
+  { value:3, label:"Grande", mult:1.5 },
+];
+function nutritionPortionMult(p){ const f = NUTRITION_PORTIONS.find(x=>x.value===p); return f ? f.mult : 1.0; }
+function nutritionPortionLabel(p){ const f = NUTRITION_PORTIONS.find(x=>x.value===p); return f ? f.label : "Moyenne"; }
+
+// Icône "assiette plus ou moins remplie" — anneau de progression (33/66/100%)
+// plutôt qu'une assiette dessinée, pour rester lisible en petite taille et
+// cohérent avec les autres indicateurs circulaires de l'appli (ls-status-pill).
+function nutritionPlateIconSvg(portion, size){
+  const px = size || 30;
+  const pct = portion===1? 0.34 : portion===2? 0.67 : 1.0;
+  const r = 12, c = 2*Math.PI*r;
+  const dash = c*pct;
+  return `<svg width="${px}" height="${px}" viewBox="0 0 30 30" aria-hidden="true">
+    <circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--border)" stroke-width="4"></circle>
+    <circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--accent)" stroke-width="4"
+      stroke-dasharray="${dash.toFixed(1)} ${(c-dash).toFixed(1)}" stroke-linecap="round"
+      transform="rotate(-90 15 15)"></circle>
+  </svg>`;
+}
+
+// Estimation calorique indicative d'un élément (rôle+type+portion), arrondie
+// à la dizaine (cohérent avec la précision affichée ailleurs, ex. envFmtPct).
+function nutritionItemKcal(catalog, type, portion){
+  const list = NUTRITION_ITEMS[catalog];
+  if(!list) return 0;
+  const item = list.find(i=>i.value===type) || list.find(i=>i.value==="autre");
+  if(!item) return 0;
+  return Math.round((item.kcal * nutritionPortionMult(portion)) / 10) * 10;
+}
+
+// Total calorique indicatif d'un repas (somme des éléments présents dans entry.items).
+function nutritionEntryKcal(entry){
+  const structure = NUTRITION_MEAL_STRUCTURE[entry.mealType] || [];
+  let total = 0;
+  structure.forEach(({role, catalog})=>{
+    const it = entry.items && entry.items[role];
+    if(it && it.type) total += nutritionItemKcal(catalog, it.type, it.portion || 2);
+  });
+  return total;
+}
+
+// ---- Métabolisme de base : moyenne de 3 formules reconnues, ne nécessitant
+// que poids/taille/âge/sexe (contrairement à Katch-McArdle, qui a besoin de
+// la masse grasse, non suivie ici). ----
+function bmrMifflinStJeor(sex, weightKg, heightCm, age){
+  const base = 10*weightKg + 6.25*heightCm - 5*age;
+  return sex === "femme" ? base - 161 : base + 5;
+}
+function bmrHarrisBenedictRevised(sex, weightKg, heightCm, age){
+  return sex === "femme"
+    ? 447.593 + 9.247*weightKg + 3.098*heightCm - 4.330*age
+    : 88.362 + 13.397*weightKg + 4.799*heightCm - 5.677*age;
+}
+function bmrWhoFao(sex, weightKg, age){
+  if(sex === "femme"){
+    if(age < 30) return 14.7*weightKg + 496;
+    if(age < 60) return 8.7*weightKg + 829;
+    return 10.5*weightKg + 596;
+  }
+  if(age < 30) return 15.3*weightKg + 679;
+  if(age < 60) return 11.6*weightKg + 879;
+  return 13.5*weightKg + 487;
+}
+// Moyenne de Mifflin-St Jeor (1990), Harris-Benedict révisée (Roza & Shizgal
+// 1984) et WHO/FAO (2001). null si sexe/poids/taille/âge manquent.
+function bmrAverage(sex, weightKg, heightCm, age){
+  if(!sex || !weightKg || !heightCm || age == null) return null;
+  const a = bmrMifflinStJeor(sex, weightKg, heightCm, age);
+  const b = bmrHarrisBenedictRevised(sex, weightKg, heightCm, age);
+  const c = bmrWhoFao(sex, weightKg, age);
+  return Math.round((a+b+c)/3);
+}
+
+// Coefficients PAL (Physical Activity Level) standards de la littérature —
+// niveau d'activité de la VIE COURANTE (travail, déplacements, loisirs),
+// volontairement HORS entraînement structuré : les calories de séance
+// (Keytel ci-dessous) sont ajoutées en plus les jours avec entraînement
+// importé, pour ne jamais compter le même effort deux fois.
+const ACTIVITY_LEVEL_PAL = { non_actif:1.2, peu_actif:1.375, actif:1.55, tres_actif:1.725 };
+const ACTIVITY_LEVEL_LABELS = { non_actif:"Non actif", peu_actif:"Peu actif", actif:"Actif", tres_actif:"Très actif" };
+function activityLevelPal(level){ return ACTIVITY_LEVEL_PAL[level] ?? null; }
+function activityLevelLabel(level){ return ACTIVITY_LEVEL_LABELS[level] || "—"; }
+
+// Dépense calorique d'une séance à partir de la FC moyenne (Keytel et al.
+// 2005, Journal of Sports Sciences — référence pour l'estimation de dépense
+// énergétique par FC, formule distincte selon le sexe). Nécessite FC moyenne
+// de la séance (sessions.avg_hr, fournie par Strava), poids, âge et sexe.
+// Plafonné à 0 (la formule peut devenir négative à FC très basse, hors de sa
+// plage de validité).
+function sessionCaloriesKeytel(sex, avgHr, weightKg, ageYears, durationMin){
+  if(!sex || avgHr == null || !weightKg || ageYears == null || !durationMin) return null;
+  const kcalPerMin = sex === "femme"
+    ? (-20.4022 + 0.4472*avgHr - 0.1263*weightKg + 0.074*ageYears) / 4.184
+    : (-55.0969 + 0.6309*avgHr + 0.1988*weightKg + 0.2017*ageYears) / 4.184;
+  return Math.round(Math.max(0, kcalPerMin) * durationMin);
+}
+
+// Dépense calorique totale d'un jour donné : métabolisme de base × PAL (vie
+// courante) + calories des séances importées ce jour-là (Keytel, une par
+// séance avec FC moyenne disponible). null si le profil est incomplet.
+function dailyExpenditure(athlete, sessionsOfDay){
+  const age = ageFromBirthDate(athlete.birthDate);
+  const bmr = bmrAverage(athlete.sex, athlete.weightKg, athlete.heightCm, age);
+  const pal = activityLevelPal(athlete.activityLevel);
+  if(bmr == null || pal == null) return null;
+  let total = Math.round(bmr * pal);
+  let sessionsCounted = 0, sessionsMissingHr = 0;
+  (sessionsOfDay||[]).forEach(s=>{
+    const kcal = sessionCaloriesKeytel(athlete.sex, s.avgHr, athlete.weightKg, age, s.duration);
+    if(kcal != null){ total += kcal; sessionsCounted++; }
+    else if(s.duration) sessionsMissingHr++;
+  });
+  return { total, bmr, pal, sessionsCounted, sessionsMissingHr };
+}
+
+// Sévérité de l'écart apports/dépenses, en % de la dépense — mêmes paliers
+// visuels (good/warning/serious/critical) que statusVar/statusInk ailleurs.
+function nutritionBalanceSeverity(apports, depense){
+  if(depense == null || depense === 0) return { key:"none", label:"—" };
+  const ecart = apports - depense;
+  const pct = Math.abs(ecart) / depense;
+  const dir = ecart < -1 ? "déficit" : ecart > 1 ? "surplus" : "équilibre";
+  if(pct < 0.08) return { key:"good", label:"Équilibré" };
+  if(pct < 0.20) return { key:"warning", label:"Léger " + dir };
+  if(pct < 0.35) return { key:"serious", label: dir.charAt(0).toUpperCase()+dir.slice(1)+" marqué" };
+  return { key:"critical", label: dir.charAt(0).toUpperCase()+dir.slice(1)+" important" };
+}
+
 function sessionFromApi(s){
   return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
@@ -523,6 +925,7 @@ function sessionFromApi(s){
     envAdjustedDuration: s.env_adjusted_duration!=null ? Number(s.env_adjusted_duration) : null,
     envSlopeCostRatio: s.env_slope_cost_ratio!=null ? Number(s.env_slope_cost_ratio) : null,
     technicity: s.technicity || "roulant",
+    avgHr: s.avg_hr!=null ? Number(s.avg_hr) : null,
     rpe:s.rpe, note:s.note||"", source: s.source||"manual", stravaActivityId: s.strava_activity_id };
 }
 function hooperFromApi(h){
@@ -533,6 +936,11 @@ function hooperFromApi(h){
 function injuryFromApi(r){
   return { id:r.id, athleteId:r.athlete_id, weekStart:r.week_start, view:r.view,
     zoneId:r.zone_id, zoneLabel:r.zone_label, severity:r.severity, note:r.note||"", reportedAt:r.reported_at };
+}
+function nutritionEntryFromApi(n){
+  return { id:n.id, athleteId:n.athlete_id, date:n.date, mealType:n.meal_type,
+    moment:n.moment||"", items: (n.items && typeof n.items==="object") ? n.items : {},
+    note:n.note||"", createdAt:n.created_at };
 }
 
 /* ---------------------------- onglet Santé : état du brouillon et rendu ---------------------------- */
@@ -671,6 +1079,75 @@ function renderSanteTab(){
     <button type="button" class="ls-sante-submit" id="btn-sante-submit" ${santeSaving?"disabled":""}>${santeSaving?"Envoi…":"Envoyer mon questionnaire"}</button>
   `;
 }
+
+/* ---------------------------- onglet Nutrition ---------------------------- */
+function ensureNutritionSelectedDate(){ if(!nutritionSelectedDate) nutritionSelectedDate = fmtDate(new Date()); return nutritionSelectedDate; }
+
+function nutritionMealSummaryLine(entry){
+  const structure = NUTRITION_MEAL_STRUCTURE[entry.mealType] || [];
+  const parts = [];
+  structure.forEach(({role, catalog})=>{
+    const it = entry.items && entry.items[role];
+    if(!it || !it.type) return;
+    const list = NUTRITION_ITEMS[catalog] || [];
+    const found = list.find(i=>i.value===it.type);
+    parts.push(found ? found.label : it.type);
+  });
+  return parts.length ? parts.join(", ") : "—";
+}
+
+function renderNutritionTabHtml(){
+  ensureNutritionSelectedDate();
+  const date = nutritionSelectedDate;
+  const dayEntries = nutritionEntries.filter(n=>n.date===date).sort((a,b)=>{
+    const order = { petit_dejeuner:0, dejeuner:1, collation:2, diner:3 };
+    return (order[a.mealType]??9) - (order[b.mealType]??9);
+  });
+  const daySessions = sessions.filter(s=>s.date===date);
+  const apports = dayEntries.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0);
+  const profileComplete = !!(athlete.sex && athlete.activityLevel && athlete.weightKg && athlete.heightCm && athlete.birthDate);
+  const dep = profileComplete ? dailyExpenditure(athlete, daySessions) : null;
+  const sev = dep ? nutritionBalanceSeverity(apports, dep.total) : { key:"none", label:"—" };
+
+  const mealCards = dayEntries.map(e=>`
+    <div class="ls-nutrition-card">
+      <div class="ls-nutrition-card-head">
+        <strong>${nutritionMealLabel(e.mealType)}</strong>
+        <div>
+          <button type="button" class="ls-btn small ghost" data-edit-nutrition="${e.id}">Modifier</button>
+          <button type="button" class="ls-btn small ghost" data-del-nutrition="${e.id}">Supprimer</button>
+        </div>
+      </div>
+      <div class="ls-nutrition-card-items">
+        ${(NUTRITION_MEAL_STRUCTURE[e.mealType]||[]).map(({role,label,catalog})=>{
+          const it = e.items && e.items[role];
+          if(!it || !it.type) return "";
+          const found = (NUTRITION_ITEMS[catalog]||[]).find(i=>i.value===it.type);
+          return `<div class="ls-nutrition-item-row">${nutritionPlateIconSvg(it.portion||2,24)}<span>${escapeHtml(label)} — ${escapeHtml(found?found.label:it.type)} (${nutritionPortionLabel(it.portion||2).toLowerCase()})</span></div>`;
+        }).join("")}
+      </div>
+    </div>`).join("");
+
+  return `
+    <div class="ls-chart-sub" style="margin-bottom:14px;">Renseigne simplement ce que tu as mangé à chaque repas (méthode de l'assiette : petite / moyenne / grande portion), pour situer tes apports face à ta dépense calorique estimée du jour.</div>
+    ${!profileComplete ? `<div class="ls-panel" style="margin-bottom:16px;"><div class="ls-empty">Ton coach doit renseigner ton profil (sexe, niveau d'activité, taille, poids, date de naissance) pour qu'on puisse estimer ta dépense calorique. Le journal reste utilisable en attendant.</div></div>` : ""}
+    <div class="ls-field" style="max-width:220px;margin-bottom:16px;">
+      <label>Date</label>
+      <input type="date" id="nutrition-date-picker" value="${date}" max="${fmtDate(new Date())}">
+    </div>
+    <div class="ls-stat-grid" style="margin-bottom:18px;">
+      <div class="ls-stat"><div class="ls-stat-label">Apports du jour</div><div class="ls-stat-value">${dayEntries.length? apports : "—"}${dayEntries.length?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Dépense estimée</div><div class="ls-stat-value">${dep? dep.total : "—"}${dep?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Écart</div><div class="ls-stat-value">${dep && dayEntries.length ? `<span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${sev.label}</span>` : "—"}</div></div>
+    </div>
+    <div class="ls-table-head" style="margin-bottom:10px;">
+      <h3>Repas du ${fmtDateFr(date)}</h3>
+      <button type="button" class="ls-btn small primary" id="btn-add-nutrition">+ Ajouter un repas</button>
+    </div>
+    ${dayEntries.length? mealCards : '<div class="ls-panel"><div class="ls-empty">Aucun repas enregistré pour cette date.</div></div>'}
+  `;
+}
+
 function bindSanteEvents(main){
   main.querySelectorAll("[data-hooper-item]").forEach(b=> b.addEventListener("click", ()=>
     setSanteHooperValue(b.getAttribute("data-hooper-item"), parseInt(b.getAttribute("data-hooper-value"),10))));
@@ -1175,6 +1652,7 @@ function renderMain(){
       <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
       <button class="ls-tab-btn ${activeTab==="sante"?"active":""}" data-tab="sante" type="button">Santé</button>
+      <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
@@ -1339,12 +1817,29 @@ function renderMain(){
     <div class="ls-tab-panel" id="tab-panel-sante" ${activeTab!=="sante"?"hidden":""}>
       ${renderSanteTab()}
     </div>
+
+    <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
+      ${renderNutritionTabHtml()}
+    </div>
   `;
 
   main.querySelectorAll("[data-tab]").forEach(b=> b.addEventListener("click", ()=>{
     activeTab = b.getAttribute("data-tab");
     renderMain();
   }));
+  const nutritionDatePicker = document.getElementById("nutrition-date-picker");
+  if(nutritionDatePicker) nutritionDatePicker.addEventListener("change", e=>{
+    if(!e.target.value) return;
+    nutritionSelectedDate = e.target.value;
+    renderMain();
+  });
+  const btnAddNutrition = document.getElementById("btn-add-nutrition");
+  if(btnAddNutrition) btnAddNutrition.addEventListener("click", ()=> openNutritionEntryModal(null, nutritionSelectedDate));
+  main.querySelectorAll("[data-edit-nutrition]").forEach(b=> b.addEventListener("click", ()=>{
+    const entry = nutritionEntries.find(n=>n.id===b.getAttribute("data-edit-nutrition"));
+    if(entry) openNutritionEntryModal(entry);
+  }));
+  main.querySelectorAll("[data-del-nutrition]").forEach(b=> b.addEventListener("click", ()=> deleteNutritionEntry(b.getAttribute("data-del-nutrition"))));
   const periodStartEl = document.getElementById("period-start");
   if(periodStartEl) periodStartEl.addEventListener("change", e=>{
     const v = e.target.value; if(!v) return;
@@ -1817,6 +2312,7 @@ async function loadAthleteData(){
     sessions = [];
     hooperResponses = [];
     injuryReports = [];
+    nutritionEntries = [];
     renderMain();
     return;
   }
@@ -1832,6 +2328,8 @@ async function loadAthleteData(){
   hooperResponses = hErr ? [] : (hooperRows||[]).map(hooperFromApi);
   const { data: injuryRows, error: iErr } = await sb.from("injury_reports").select("*").eq("athlete_id", athlete.id);
   injuryReports = iErr ? [] : (injuryRows||[]).map(injuryFromApi);
+  const { data: nutritionRows, error: nErr } = await sb.from("nutrition_entries").select("*").eq("athlete_id", athlete.id);
+  nutritionEntries = nErr ? [] : (nutritionRows||[]).map(nutritionEntryFromApi);
   santeDraft = null;
   renderMain();
 }
@@ -1845,7 +2343,7 @@ function showLoggedOutUI(){
   document.getElementById("login-screen").hidden = false;
   document.getElementById("main-panel").hidden = true;
   document.getElementById("btn-logout").hidden = true;
-  athlete = null; sessions = []; hooperResponses = []; injuryReports = []; santeDraft = null;
+  athlete = null; sessions = []; hooperResponses = []; injuryReports = []; nutritionEntries = []; santeDraft = null;
 }
 
 async function init(){
