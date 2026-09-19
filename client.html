@@ -173,6 +173,7 @@
   .ls-source-tag{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:999px;font-family:var(--font-mono);}
   .ls-source-tag.manual{background:var(--surface-2);color:var(--text-muted);}
   .ls-source-tag.strava{background:#fc4c0222;color:#fc4c02;}
+  .ls-source-tag.garmin{background:#0a84c222;color:#0a84c2;}
 
   .ls-login-card{max-width:420px;margin:60px auto;}
   .ls-login-card h2{margin-top:0;font-size:18px;}
@@ -1611,6 +1612,9 @@ function athleteMetaLine(a){
 
 function rowHtml(s){
   const isStrava = s.source === "strava";
+  const isGarmin = s.source === "garmin";
+  const sourceClass = isStrava ? "strava" : (isGarmin ? "garmin" : "manual");
+  const sourceLabel = isStrava ? "Strava" : (isGarmin ? "Garmin" : "Manuel");
   return `<tr>
     <td>${fmtDateFr(s.date)}</td>
     <td>${escapeHtml(s.type)}</td>
@@ -1620,7 +1624,7 @@ function rowHtml(s){
     <td class="ls-num">${s.dMinus} m</td>
     <td class="ls-num">${trimp(s).toFixed(0)}</td>
     <td class="ls-num">${s.rpe ?? "—"}</td>
-    <td><span class="ls-source-tag ${isStrava?"strava":"manual"}">${isStrava?"Strava":"Manuel"}</span></td>
+    <td><span class="ls-source-tag ${sourceClass}">${sourceLabel}</span></td>
   </tr>`;
 }
 function acuteChronicLatest(sessionsArr){
