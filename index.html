@@ -174,6 +174,10 @@
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
   .ls-table-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
   .ls-table-head h3{font-size:13px;font-weight:700;margin:0;}
+  .ls-nutrition-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
+  .ls-nutrition-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px;}
+  .ls-nutrition-card-items{display:flex;flex-direction:column;gap:6px;}
+  .ls-nutrition-item-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-secondary);}
   .ls-table-scroll{overflow-x:auto;max-height:360px;overflow-y:auto;border-radius:10px;}
   table.ls-log{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
   table.ls-log th{position:sticky;top:0;background:var(--surface);text-align:left;font-size:11px;text-transform:uppercase;
@@ -439,6 +443,7 @@ let santeHistoryView = "last"; // "last" | "history" — bascule d'affichage de 
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe "Durée réelle vs ajustée" (onglet Rapport environnemental), indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond, affinable via son propre sélecteur.
 let nutritionPeriod = null; // { start, end } — période affichée sur l'onglet Nutrition (lecture seule côté coach), indépendante des autres ; par défaut les 2 dernières semaines pour rester lisible (repas quotidiens, contrairement aux séances).
+let nutritionView = "coach"; // "coach" | "athlete" — sous-onglet actif dans l'onglet Nutrition : vue coach (lecture seule, données réelles) ou aperçu de démonstration de ce que voit l'athlète (données fictives, utile avant même de créer son profil)
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 // Cases CAP / Vélo du Volume dans l'onglet Jumeau numérique — cumulables
 // (le volume affiché est la somme des types cochés). CAP seule par défaut :
@@ -2459,7 +2464,11 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
-      ${renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button type="button" class="ls-btn small ${nutritionView==="coach"?"primary":"ghost"}" data-nutrition-view="coach">Vue coach</button>
+        <button type="button" class="ls-btn small ${nutritionView==="athlete"?"primary":"ghost"}" data-nutrition-view="athlete">Vue athlète (démo)</button>
+      </div>
+      ${nutritionView==="athlete" ? renderNutritionAthleteDemoHtml() : renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
     </div>
   `;
 
@@ -2527,6 +2536,13 @@ function renderMain(){
     nutritionPeriod = defaultNutritionPeriod();
     renderMain();
   });
+  main.querySelectorAll("[data-nutrition-view]").forEach(b=> b.addEventListener("click", ()=>{
+    nutritionView = b.getAttribute("data-nutrition-view");
+    renderMain();
+  }));
+  main.querySelectorAll("[data-nutrition-demo-action]").forEach(b=> b.addEventListener("click", ()=>{
+    showToast("Aperçu de démonstration — l'athlète pourra saisir ses repas depuis son espace une fois son profil créé.", "--accent");
+  }));
   const stravaBtn = document.getElementById("btn-connect-strava");
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
@@ -3014,6 +3030,78 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
         </table>
       </div>
     </div>`}
+  `;
+}
+
+// Données fictives pour le sous-onglet "Vue athlète (démo)" ci-dessous —
+// aucune donnée réelle : sert uniquement à montrer à un prospect l'écran
+// qu'il aura côté athlète, avant même que son profil ne soit créé. La date
+// est calée sur aujourd'hui pour rester crédible dans la durée.
+function nutritionDemoData(){
+  const today = fmtDate(new Date());
+  return {
+    athlete: { sex:"homme", activityLevel:"actif", weightKg:70, heightCm:176, birthDate:"1992-05-20" },
+    sessions: [ { date: today, avgHr: 148, duration: 80 } ],
+    entries: [
+      { id:"demo-pdj", date: today, mealType:"petit_dejeuner", items:{ feculent:{type:"pain",portion:2}, laitier:{type:"yaourt",portion:2}, fruit:{type:"fruit_frais",portion:2}, sucre:{type:"confiture",portion:1} } },
+      { id:"demo-dej", date: today, mealType:"dejeuner", items:{ entree:{type:"crudites",portion:2}, plat_proteine:{type:"viande_blanche",portion:2}, plat_feculent:{type:"pates",portion:2}, plat_legume:{type:"legumes_verts",portion:3}, dessert:{type:"fruit",portion:2} } },
+      { id:"demo-col", date: today, mealType:"collation", items:{ item:{type:"barre_cereale",portion:1} } },
+      { id:"demo-din", date: today, mealType:"diner", items:{ entree:{type:"soupe",portion:2}, plat_proteine:{type:"oeuf",portion:2}, plat_feculent:{type:"riz",portion:2}, plat_legume:{type:"legumes_verts",portion:2}, dessert:{type:"laitage_yaourt",portion:1} } },
+    ],
+  };
+}
+// Sous-onglet "Vue athlète (démo)" : reproduit l'écran que voit un athlète
+// depuis son espace personnel (voir client.html, structure identique —
+// cartes repas avec icônes de portion), mais avec les données fictives
+// ci-dessus. Aucune saisie réelle possible ici : les boutons Modifier /
+// Supprimer / + Ajouter affichent un simple message d'information (voir
+// wiring [data-nutrition-demo-action] dans renderMain).
+function renderNutritionAthleteDemoHtml(){
+  const demo = nutritionDemoData();
+  const date = demo.entries[0].date;
+  const dayEntries = demo.entries.slice().sort((a,b)=>{
+    const order = { petit_dejeuner:0, dejeuner:1, collation:2, diner:3 };
+    return (order[a.mealType]??9) - (order[b.mealType]??9);
+  });
+  const apports = dayEntries.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0);
+  const dep = dailyExpenditure(demo.athlete, demo.sessions);
+  const sev = dep ? nutritionBalanceSeverity(apports, dep.total) : { key:"none", label:"—" };
+
+  const mealCards = dayEntries.map(e=>`
+    <div class="ls-nutrition-card">
+      <div class="ls-nutrition-card-head">
+        <strong>${nutritionMealLabel(e.mealType)}</strong>
+        <div>
+          <button type="button" class="ls-btn small ghost" data-nutrition-demo-action="edit">Modifier</button>
+          <button type="button" class="ls-btn small ghost" data-nutrition-demo-action="delete">Supprimer</button>
+        </div>
+      </div>
+      <div class="ls-nutrition-card-items">
+        ${(NUTRITION_MEAL_STRUCTURE[e.mealType]||[]).map(({role,label,catalog})=>{
+          const it = e.items && e.items[role];
+          if(!it || !it.type) return "";
+          const found = (NUTRITION_ITEMS[catalog]||[]).find(i=>i.value===it.type);
+          return `<div class="ls-nutrition-item-row">${nutritionPlateIconSvg(it.portion||2,24)}<span>${escapeHtml(label)} — ${escapeHtml(found?found.label:it.type)} (${nutritionPortionLabel(it.portion||2).toLowerCase()})</span></div>`;
+        }).join("")}
+      </div>
+    </div>`).join("");
+
+  return `
+    <div class="ls-chart-sub" style="margin-bottom:14px;">Aperçu de démonstration avec des données fictives — c'est exactement ce que verra l'athlète depuis son espace personnel, avant même que son profil ne soit créé. Rien n'est enregistré depuis cet écran.</div>
+    <div class="ls-field" style="max-width:220px;margin-bottom:16px;">
+      <label>Date</label>
+      <input type="date" value="${date}" disabled>
+    </div>
+    <div class="ls-stat-grid" style="margin-bottom:18px;">
+      <div class="ls-stat"><div class="ls-stat-label">Apports du jour</div><div class="ls-stat-value">${apports}<small>kcal</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Dépense estimée</div><div class="ls-stat-value">${dep.total}<small>kcal</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Écart</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${sev.label}</span></div></div>
+    </div>
+    <div class="ls-table-head" style="margin-bottom:10px;">
+      <h3>Repas du ${fmtDateFr(date)} <span class="ls-legend-note" style="display:inline;">(exemple)</span></h3>
+      <button type="button" class="ls-btn small primary" data-nutrition-demo-action="add">+ Ajouter un repas</button>
+    </div>
+    ${mealCards}
   `;
 }
 function santeWeekVigilance(h){
