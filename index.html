@@ -304,6 +304,8 @@
         <div class="ls-athlete-sub" id="vam-backfill-status" style="text-align:center;"></div>
         <button class="ls-btn small ghost" id="btn-terrain-backfill" type="button" title="Recalcule le facteur terrain (rapport environnemental) de toutes les séances Strava déjà synchronisées avec le nouveau calcul Minetti pondéré par distance (18/09) — maintenance ponctuelle, à ne lancer qu'une fois.">Rattrapage terrain (Minetti)</button>
         <div class="ls-athlete-sub" id="terrain-backfill-status" style="text-align:center;"></div>
+        <button class="ls-btn small ghost" id="btn-avghr-backfill" type="button" title="Récupère la FC moyenne (avg_hr) des séances Strava déjà synchronisées avant que ce champ ne soit collecté à l'import (fix du 20/09) — nécessaire pour que la dépense calorique varie selon l'intensité de chaque séance, pas seulement le profil. Maintenance ponctuelle, à ne lancer qu'une fois. Séances Garmin non concernées (fichier source indisponible).">Rattrapage FC moyenne (dépense)</button>
+        <div class="ls-athlete-sub" id="avghr-backfill-status" style="text-align:center;"></div>
       </div>
     </aside>
 
@@ -427,6 +429,18 @@ const VAM_BACKFILL_STATE_KEY = "loadscope.vamBackfillState";
 // pagination : on déclenche une fois avec force_all:true et on laisse
 // tourner, le résultat n'est visible qu'au rafraîchissement de la page.
 const STRAVA_BACKFILL_GAP_URL = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/strava-backfill-gap";
+// Rattrapage ponctuel (20/09) : récupère avg_hr (FC moyenne de la séance) pour
+// les séances Strava déjà synchronisées avant que ce champ ne soit collecté à
+// l'import (voir strava-callback / strava-import-history, corrigés le 20/09 —
+// strava-webhook, lui, le calculait déjà correctement pour les nouvelles
+// séances synchronisées en direct). Nécessaire pour que la dépense calorique
+// de l'onglet Nutrition varie selon l'intensité de chaque séance plutôt que de
+// rester égale au profil seul (voir dailyExpenditure/sessionCaloriesKeytel).
+// Même modèle que vam-backfill : paginé par lots depuis le navigateur, curseur
+// par id, pause de 15 min si la limite Strava est atteinte. Séances Garmin non
+// concernées (fichier FIT d'origine indisponible côté serveur).
+const AVG_HR_BACKFILL_URL = "https://ibhrdpzcrwofltleylxr.supabase.co/functions/v1/avg-hr-backfill";
+const AVG_HR_BACKFILL_STATE_KEY = "loadscope.avgHrBackfillState";
 const COACH_KEY_STORAGE = "loadscope.coachkey";
 const ACTIVE_ATHLETE_STORAGE = "loadscope.activeAthlete";
 // Espace athlète (client.html) : URL publique de la page et clé publique
@@ -646,6 +660,75 @@ async function runVamBackfillLoop(){
     vamBackfillRunning = false;
     btn.disabled = false;
     btn.textContent = "Rattrapage VAM (montée/descente)";
+    render(state.done ? "terminé ✓" : "arrêté — recliquer pour reprendre");
+  }
+}
+
+/* ------------------- Rattrapage FC moyenne (avg_hr, maintenance ponctuelle) ------------------- */
+// Récupère avg_hr pour les séances Strava déjà synchronisées avant que ce
+// champ ne soit collecté à l'import (voir AVG_HR_BACKFILL_URL ci-dessus) —
+// même mécanique de boucle paginée/reprenable que le rattrapage VAM.
+let avgHrBackfillRunning = false;
+function loadAvgHrBackfillState(){
+  try{
+    const s = JSON.parse(localStorage.getItem(AVG_HR_BACKFILL_STATE_KEY));
+    if(s && typeof s === "object") return s;
+  }catch(e){}
+  return { afterId:"00000000-0000-0000-0000-000000000000", totalProcessed:0, totalUpdated:0, totalErrors:0, done:false };
+}
+function saveAvgHrBackfillState(s){
+  try{ localStorage.setItem(AVG_HR_BACKFILL_STATE_KEY, JSON.stringify(s)); }catch(e){}
+}
+async function runAvgHrBackfillLoop(){
+  if(avgHrBackfillRunning) return;
+  const btn = document.getElementById("btn-avghr-backfill");
+  const statusEl = document.getElementById("avghr-backfill-status");
+  if(!btn || !statusEl) return;
+  const key = localStorage.getItem(COACH_KEY_STORAGE) || "";
+  let state = loadAvgHrBackfillState();
+  if(state.done){
+    state = { afterId:"00000000-0000-0000-0000-000000000000", totalProcessed:0, totalUpdated:0, totalErrors:0, done:false };
+    saveAvgHrBackfillState(state);
+  }
+  avgHrBackfillRunning = true;
+  btn.disabled = true;
+  btn.textContent = "Rattrapage en cours… (cliquer pour arrêter)";
+  const render = (extra) => {
+    statusEl.textContent = state.totalProcessed + " séance(s) vérifiée(s), " + state.totalUpdated + " mise(s) à jour, " + state.totalErrors + " erreur(s)" + (extra ? " — " + extra : "");
+  };
+  render();
+  try{
+    while(!state.done && avgHrBackfillRunning){
+      let res;
+      try{
+        res = await fetch(AVG_HR_BACKFILL_URL + "?limit=30&after=" + encodeURIComponent(state.afterId), { headers: { "x-coach-key": key } });
+      }catch(e){
+        render("connexion impossible, nouvelle tentative dans 30s");
+        await new Promise(r=>setTimeout(r, 30000));
+        continue;
+      }
+      if(res.status === 401){ render("clé d'accès invalide"); break; }
+      let data;
+      try{ data = await res.json(); }catch(e){ render("réponse serveur invalide"); break; }
+      if(data.error){ render("erreur : " + data.error); break; }
+      state.totalProcessed += data.processed || 0;
+      state.totalUpdated += data.updated || 0;
+      state.totalErrors += (data.errors ? data.errors.length : 0);
+      if(data.lastId) state.afterId = data.lastId;
+      state.done = !!data.done;
+      saveAvgHrBackfillState(state);
+      if(data.rateLimited){
+        render("limite Strava atteinte, reprise dans 15 min");
+        await new Promise(r=>setTimeout(r, 15*60*1000));
+        continue;
+      }
+      render();
+      if(!state.done) await new Promise(r=>setTimeout(r, 1500));
+    }
+  } finally {
+    avgHrBackfillRunning = false;
+    btn.disabled = false;
+    btn.textContent = "Rattrapage FC moyenne (dépense)";
     render(state.done ? "terminé ✓" : "arrêté — recliquer pour reprendre");
   }
 }
@@ -4526,9 +4609,20 @@ function init(){
     runVamBackfillLoop();
   });
   document.getElementById("btn-terrain-backfill").addEventListener("click", runTerrainBackfill);
+  document.getElementById("btn-avghr-backfill").addEventListener("click", ()=>{
+    if(avgHrBackfillRunning){ avgHrBackfillRunning = false; return; }
+    runAvgHrBackfillLoop();
+  });
   (function initVamBackfillStatus(){
     const s = loadVamBackfillState();
     const statusEl = document.getElementById("vam-backfill-status");
+    if(statusEl && (s.totalProcessed > 0 || s.done)){
+      statusEl.textContent = s.totalProcessed + " séance(s) vérifiée(s), " + s.totalUpdated + " mise(s) à jour, " + s.totalErrors + " erreur(s)" + (s.done ? " — terminé ✓" : " — en pause, recliquer pour reprendre");
+    }
+  })();
+  (function initAvgHrBackfillStatus(){
+    const s = loadAvgHrBackfillState();
+    const statusEl = document.getElementById("avghr-backfill-status");
     if(statusEl && (s.totalProcessed > 0 || s.done)){
       statusEl.textContent = s.totalProcessed + " séance(s) vérifiée(s), " + s.totalUpdated + " mise(s) à jour, " + s.totalErrors + " erreur(s)" + (s.done ? " — terminé ✓" : " — en pause, recliquer pour reprendre");
     }
