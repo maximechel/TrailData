@@ -439,7 +439,7 @@ const CLIENT_PORTAL_URL = "https://maximechel.github.io/TrailData/client.html";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, twinRadar: null, envTrend: null, twinVam: null, santeHooper: null, santeCorrelation: null };
+let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, twinRadar: null, envTrend: null, twinVam: null, santeHooper: null, santeCorrelation: null, nutritionCompare: null };
 let santeHistoryView = "last"; // "last" | "history" — bascule d'affichage de la carte "Localisation des gênes" de l'onglet Santé
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe "Durée réelle vs ajustée" (onglet Rapport environnemental), indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond, affinable via son propre sélecteur.
@@ -3027,6 +3027,16 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
       <div class="ls-stat"><div class="ls-stat-label">Dépense moyenne / jour</div><div class="ls-stat-value">${avgDepense!=null? avgDepense : "—"}${avgDepense!=null?"<small>kcal</small>":""}</div></div>
       <div class="ls-stat"><div class="ls-stat-label">Écart moyen</div><div class="ls-stat-value">${avgApports!=null && avgDepense!=null ? (avgApports-avgDepense>0?"+":"")+(avgApports-avgDepense) : "—"}${avgApports!=null && avgDepense!=null?"<small>kcal</small>":""}</div></div>
     </div>
+    ${profileComplete ? `
+    <div class="ls-chart-card" style="margin-bottom:18px;">
+      <h3>Apports vs dépense — jour par jour</h3>
+      <div class="ls-chart-sub">Comparaison quotidienne sur la période sélectionnée ci-dessous. Une journée sans repas saisi n'affiche pas de barre "Apports" (pas de donnée saisie, pas un 0 kcal).</div>
+      <div class="ls-chart-wrap tall"><canvas id="chart-nutrition-compare"></canvas></div>
+      <div class="ls-sante-legend-row">
+        <div class="ls-sante-legend-item"><span class="ls-sante-legend-swatch" style="background:var(--cat-2);height:9px;border-radius:2px;"></span>Apports</div>
+        <div class="ls-sante-legend-item"><span class="ls-sante-legend-swatch" style="background:var(--cat-1);height:9px;border-radius:2px;"></span>Dépense</div>
+      </div>
+    </div>` : ""}
     <div class="ls-period-bar">
       <div class="ls-field">
         <label>Période — début</label>
@@ -3052,6 +3062,42 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
       </div>
     </div>`}
   `;
+}
+
+// Graphique "Apports vs dépense — jour par jour" de l'onglet Nutrition (vue
+// coach) : une barre par jour sur toute la période choisie dans le sélecteur
+// juste en dessous (voir renderNutritionTabHtml). Ne s'affiche que si le
+// canvas existe (profil complet — sinon le bandeau d'avertissement remplace
+// la carte, voir profileWarning) et si Chart.js est chargé.
+function renderNutritionChart(athlete, sessions, nutritionEntries){
+  if(typeof Chart === "undefined") return;
+  const canvas = document.getElementById("chart-nutrition-compare");
+  if(!canvas) return;
+  const period = ensureNutritionPeriod();
+  const dates = dateRangeDays(period.start, period.end);
+  const labels = dates.map(fmtDayMonth);
+  // null (pas 0) un jour sans repas saisi, pour ne pas afficher une barre
+  // "Apports" à zéro qui laisserait croire à un jeûne plutôt qu'à une absence
+  // de saisie — Chart.js n'affiche simplement pas de barre sur un null.
+  const apportsVals = dates.map(date=>{
+    const dayEntries = nutritionEntries.filter(n=>n.date===date);
+    return dayEntries.length ? dayEntries.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0) : null;
+  });
+  const depenseVals = dates.map(date=>{
+    const dep = dailyExpenditure(athlete, sessions.filter(s=>s.date===date));
+    return dep ? dep.total : null;
+  });
+  charts.nutritionCompare = new Chart(canvas, {
+    type: "bar",
+    data: { labels, datasets: [
+      { label:"Apports", data: apportsVals, backgroundColor: cssVar("--cat-2"), borderRadius:3, maxBarThickness:22 },
+      { label:"Dépense", data: depenseVals, backgroundColor: cssVar("--cat-1"), borderRadius:3, maxBarThickness:22 }
+    ]},
+    options: baseChartOptions({
+      plugins:{ legend:{ display:false } },
+      scales:{ y:{ title:{display:true, text:"kcal / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+    })
+  });
 }
 
 // Données fictives pour le sous-onglet "Vue athlète (démo)" ci-dessous —
@@ -3501,6 +3547,13 @@ function renderActiveTabCharts(){
     destroyCharts();
     const athleteSessions = state.sessions.filter(s=>s.athleteId===athlete.id);
     renderSanteCharts(athlete, athleteSessions);
+  } else if(activeTab === "nutrition"){
+    destroyCharts();
+    if(nutritionView === "coach"){
+      const athleteSessions = state.sessions.filter(s=>s.athleteId===athlete.id);
+      const athleteNutritionEntries = (state.nutritionEntries||[]).filter(n=>n.athleteId===athlete.id);
+      renderNutritionChart(athlete, athleteSessions, athleteNutritionEntries);
+    }
   } else {
     destroyCharts();
   }
