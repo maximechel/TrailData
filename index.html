@@ -3101,10 +3101,18 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
       <div class="ls-empty">Profil incomplet pour estimer la dépense calorique : renseigne sexe, niveau d'activité, taille, poids et date de naissance dans la fiche de l'athlète (bouton "Modifier" en haut de page). Le journal alimentaire reste visible ci-dessous.</div>
     </div>` : "";
 
+  // Métabolisme de base (BMR) : propriété du profil de l'athlète, pas de la
+  // période affichée — moyenne des 3 formules (voir bmrAverage), sans le
+  // facteur d'activité quotidienne (PAL) ni les calories de séance, qui
+  // s'ajoutent ensuite dans dailyExpenditure pour obtenir la dépense totale.
+  const bmrAge = profileComplete ? ageFromBirthDate(athlete.birthDate) : null;
+  const bmr = profileComplete ? bmrAverage(athlete.sex, athlete.weightKg, athlete.heightCm, bmrAge) : null;
+
   return `
     <div class="ls-chart-sub" style="margin-bottom:14px;">Journal alimentaire simplifié saisi par l'athlète depuis son espace (méthode de l'assiette : entrée/plat/dessert pour déjeuner et dîner, structure allégée pour petit-déjeuner et collations), comparé à une estimation indicative de la dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis.</div>
     ${profileWarning}
     <div class="ls-stat-grid" style="margin-bottom:18px;">
+      <div class="ls-stat"><div class="ls-stat-label">Métabolisme de base</div><div class="ls-stat-value">${bmr!=null? bmr : "—"}${bmr!=null?"<small>kcal/j</small>":""}</div></div>
       <div class="ls-stat"><div class="ls-stat-label">Jours avec repas (période)</div><div class="ls-stat-value">${new Set(entriesInPeriod.map(n=>n.date)).size}</div></div>
       <div class="ls-stat"><div class="ls-stat-label">Apports moyens / jour</div><div class="ls-stat-value">${avgApports!=null? avgApports : "—"}${avgApports!=null?"<small>kcal</small>":""}</div></div>
       <div class="ls-stat"><div class="ls-stat-label">Dépense moyenne / jour</div><div class="ls-stat-value">${avgDepense!=null? avgDepense : "—"}${avgDepense!=null?"<small>kcal</small>":""}</div></div>
