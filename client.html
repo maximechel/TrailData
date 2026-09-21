@@ -148,6 +148,9 @@
   .ls-nutrition-card-items{display:flex;flex-direction:column;gap:6px;}
   .ls-nutrition-item-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-secondary);}
   .ls-table-scroll{overflow-x:auto;max-height:360px;overflow-y:auto;border-radius:10px;}
+  .ls-row-actions{display:flex;gap:4px;}
+  .ls-icon-btn{border:none;background:transparent;color:var(--text-muted);cursor:pointer;padding:3px 5px;border-radius:6px;font-size:12px;}
+  .ls-icon-btn:hover{background:var(--surface-2);color:var(--text-primary);}
   table.ls-log{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
   table.ls-log th{position:sticky;top:0;background:var(--surface);text-align:left;font-size:11px;text-transform:uppercase;
     letter-spacing:.04em;color:var(--text-muted);padding:8px 10px;border-bottom:1px solid var(--grid);font-weight:700;}
@@ -1629,6 +1632,9 @@ function rowHtml(s){
     <td class="ls-num">${trimp(s).toFixed(0)}</td>
     <td class="ls-num">${s.rpe ?? "—"}</td>
     <td><span class="ls-source-tag ${sourceClass}">${sourceLabel}</span></td>
+    <td><span class="ls-row-actions">
+      <button class="ls-icon-btn" data-edit-session="${s.id}" title="Modifier">✎</button>
+    </span></td>
   </tr>`;
 }
 function acuteChronicLatest(sessionsArr){
@@ -1818,7 +1824,7 @@ function renderMain(){
       </div>
       <div class="ls-table-scroll">
         <table class="ls-log">
-          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th>Charge</th><th>RPE</th><th>Source</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th>Charge</th><th>RPE</th><th>Source</th><th>Action</th></tr></thead>
           <tbody>${sess.map(rowHtml).join("")}</tbody>
         </table>
       </div>
@@ -1930,6 +1936,8 @@ function renderMain(){
       updateTechnicity(e.target.getAttribute("data-technicity-session"), e.target.value);
     });
   });
+  main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=>
+    openSessionEditModal(b.getAttribute("data-edit-session"))));
   const intensityBtn = document.getElementById("btn-intensity-table");
   if(intensityBtn) intensityBtn.addEventListener("click", ()=>openIntensityModal(athlete));
   bindSanteEvents(main);
@@ -2330,6 +2338,59 @@ async function updateTechnicity(sessionId, value){
   const s = sessions.find(x=>x.id===sessionId);
   if(s) s.technicity = value;
   showToast("Technicité enregistrée.", "--good");
+  renderMain();
+}
+
+/* ---------------------------- édition rapide d'une séance (RPE + technicité) ---------------------------- */
+// Crayon dans le Journal des séances (onglet Entraînement) — la RLS autorise
+// l'athlète à mettre à jour l'intégralité de sa propre séance, mais on limite
+// volontairement ce formulaire au RPE et à la technicité : les données de
+// mesure (durée, distance, D+/D-, zones FC) viennent de Strava/Garmin ou de
+// la saisie initiale du coach et ne doivent pas être modifiées ici.
+function openSessionEditModal(sessionId){
+  const s = sessions.find(x=>x.id===sessionId);
+  if(!s) return;
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal">
+      <h3>Modifier la séance</h3>
+      <div class="ls-modal-sub">${fmtDateFr(s.date)} — ${escapeHtml(s.type)}. Tu peux ajuster ton ressenti (RPE) et le terrain parcouru.</div>
+      <div class="ls-field">
+        <label>RPE (0-10)</label>
+        <input type="number" min="0" max="10" id="session-edit-rpe" value="${s.rpe!=null? s.rpe:""}">
+      </div>
+      <div class="ls-field">
+        <label>Terrain</label>
+        <select id="session-edit-technicity">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${s.technicity===t.value?"selected":""}>${t.label}</option>`).join("")}</select>
+      </div>
+      <div class="ls-modal-actions">
+        <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
+        <button type="button" class="ls-btn primary" id="btn-session-edit-save">Enregistrer</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
+  document.getElementById("btn-session-edit-save").addEventListener("click", ()=> saveSessionEdit(sessionId));
+}
+
+async function saveSessionEdit(sessionId){
+  const rpeRaw = document.getElementById("session-edit-rpe").value;
+  const rpe = rpeRaw === "" ? null : Math.max(0, Math.min(10, +rpeRaw));
+  const technicity = document.getElementById("session-edit-technicity").value;
+  const saveBtn = document.getElementById("btn-session-edit-save");
+  if(saveBtn) saveBtn.disabled = true;
+  const { error } = await sb.from("sessions").update({ rpe, technicity }).eq("id", sessionId);
+  if(error){
+    showToast("Erreur lors de l'enregistrement : " + error.message, "--critical");
+    if(saveBtn) saveBtn.disabled = false;
+    return;
+  }
+  const s2 = sessions.find(x=>x.id===sessionId);
+  if(s2){ s2.rpe = rpe; s2.technicity = technicity; }
+  closeModal();
+  showToast("Séance mise à jour.", "--good");
   renderMain();
 }
 
