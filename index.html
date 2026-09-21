@@ -4071,10 +4071,9 @@ function openSessionModal(athleteId, sessionId){
           <div class="ls-field"><label>Date</label><input type="date" name="date" required value="${existing? existing.date: fmtDate(new Date())}"></div>
           <div class="ls-field"><label>Type</label><select name="type">${SPORTS.map(sp=>`<option ${existing&&existing.type===sp?"selected":""}>${sp}</option>`).join("")}</select></div>
         </div>
-        <div class="ls-field-row3">
+        <div class="ls-field-row">
           <div class="ls-field"><label>Durée (min)</label><input type="number" min="1" name="duration" required value="${existing? existing.duration:60}"></div>
           <div class="ls-field"><label>Distance (km)</label><input type="number" min="0" step="0.1" name="distance" required value="${existing? existing.distance:0}"></div>
-          <div class="ls-field"><label>RPE (1-10)</label><input type="number" min="1" max="10" name="rpe" value="${existing&&existing.rpe? existing.rpe:""}"></div>
         </div>
         <div class="ls-field-row">
           <div class="ls-field"><label>Dénivelé + (m)</label><input type="number" min="0" name="dPlus" value="${existing? existing.dPlus:0}"></div>
@@ -4091,6 +4090,10 @@ function openSessionModal(athleteId, sessionId){
           <label>Terrain</label>
           <div class="ls-modal-sub" style="margin:-2px 0 8px;">Corrige le GAP par tranche de pente (Profil terrain) et le facteur terrain du rapport environnemental — un terrain technique ralentit à effort égal, en plus de la pente elle-même (déjà prise en compte séparément).</div>
           <select name="technicity">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicity:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select>
+        </div>
+        <div class="ls-field">
+          <label>RPE (0-10)</label>
+          <input type="number" min="0" max="10" name="rpe" value="${existing&&existing.rpe!=null? existing.rpe:""}">
         </div>
         <div class="ls-modal-actions">
           <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
