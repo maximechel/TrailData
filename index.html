@@ -178,6 +178,11 @@
   .ls-nutrition-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px;}
   .ls-nutrition-card-items{display:flex;flex-direction:column;gap:6px;}
   .ls-nutrition-item-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-secondary);}
+  .ls-portion-row{display:flex;gap:8px;margin-top:6px;}
+  .ls-portion-btn{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--surface-2);
+    border:1px solid var(--border);border-radius:10px;padding:6px 10px;cursor:pointer;font-family:var(--font-ui);
+    font-size:10.5px;color:var(--text-muted);}
+  .ls-portion-btn.active{border-color:var(--accent);color:var(--text-primary);background:var(--surface);}
   .ls-table-scroll{overflow-x:auto;max-height:360px;overflow-y:auto;border-radius:10px;}
   table.ls-log{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
   table.ls-log th{position:sticky;top:0;background:var(--surface);text-align:left;font-size:11px;text-transform:uppercase;
@@ -458,7 +463,9 @@ let santeHistoryView = "last"; // "last" | "history" — bascule d'affichage de 
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe "Durée réelle vs ajustée" (onglet Rapport environnemental), indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond, affinable via son propre sélecteur.
 let nutritionPeriod = null; // { start, end } — période affichée sur l'onglet Nutrition (lecture seule côté coach), indépendante des autres ; par défaut les 2 dernières semaines pour rester lisible (repas quotidiens, contrairement aux séances).
-let nutritionView = "coach"; // "coach" | "athlete" — sous-onglet actif dans l'onglet Nutrition : vue coach (lecture seule, données réelles) ou aperçu de démonstration de ce que voit l'athlète (données fictives, utile avant même de créer son profil)
+let nutritionView = "coach"; // "coach" | "athlete" — sous-onglet actif dans l'onglet Nutrition : vue coach (lecture seule, période) ou "prise en main" jour par jour (lecture + écriture sur les vraies données de l'athlète sélectionné, voir renderNutritionAthleteLiveHtml)
+let nutritionLiveDate = null; // "YYYY-MM-DD" — jour affiché/édité dans le sous-onglet "Vue athlète" (prise en main) ; par défaut aujourd'hui, même principe que nutritionSelectedDate côté client.html.
+let nutritionDraft = null; // brouillon du modal d'ajout/modification de repas (sous-onglet "Vue athlète") — null quand le modal est fermé, même principe que côté client.html.
 let zonesTotalActivityFilter = "all"; // filtre du donut "zones de FC, historique complet" — "all" ou une valeur de SPORTS
 // Cases CAP / Vélo du Volume dans l'onglet Jumeau numérique — cumulables
 // (le volume affiché est la somme des types cochés). CAP seule par défaut :
@@ -785,6 +792,12 @@ function apiDeleteAthleteTest(id){
 function apiDeleteReportLead(id){
   return apiFetch("/report-leads?id=" + encodeURIComponent(id), { method:"DELETE" });
 }
+function apiSaveNutritionEntry(entry){
+  return apiFetch("/nutrition-entries", { method:"POST", body: JSON.stringify(nutritionEntryToApi(entry)) });
+}
+function apiDeleteNutritionEntry(id){
+  return apiFetch("/nutrition-entries?id=" + encodeURIComponent(id), { method:"DELETE" });
+}
 
 /* ---------------------------- snake_case <-> camelCase transform ---------------------------- */
 
@@ -1089,6 +1102,11 @@ function nutritionEntryFromApi(n){
   return { id:n.id, athleteId:n.athlete_id, date:n.date, mealType:n.meal_type,
     moment:n.moment||"", items: (n.items && typeof n.items==="object") ? n.items : {},
     note:n.note||"", createdAt:n.created_at };
+}
+function nutritionEntryToApi(n){
+  const row = { athlete_id: n.athleteId, date: n.date, meal_type: n.mealType, items: n.items || {} };
+  if(n.id) row.id = n.id;
+  return row;
 }
 
 function sessionFromApi(s){
@@ -2571,9 +2589,9 @@ function renderMain(){
     <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="ls-btn small ${nutritionView==="coach"?"primary":"ghost"}" data-nutrition-view="coach">Vue coach</button>
-        <button type="button" class="ls-btn small ${nutritionView==="athlete"?"primary":"ghost"}" data-nutrition-view="athlete">Vue athlète (démo)</button>
+        <button type="button" class="ls-btn small ${nutritionView==="athlete"?"primary":"ghost"}" data-nutrition-view="athlete">Vue athlète (prise en main)</button>
       </div>
-      ${nutritionView==="athlete" ? renderNutritionAthleteDemoHtml() : renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
+      ${nutritionView==="athlete" ? renderNutritionAthleteLiveHtml(athlete, sessions, nutritionEntriesForAthlete) : renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
     </div>
   `;
 
@@ -2645,9 +2663,19 @@ function renderMain(){
     nutritionView = b.getAttribute("data-nutrition-view");
     renderMain();
   }));
-  main.querySelectorAll("[data-nutrition-demo-action]").forEach(b=> b.addEventListener("click", ()=>{
-    showToast("Aperçu de démonstration — l'athlète pourra saisir ses repas depuis son espace une fois son profil créé.", "--accent");
+  const nutritionLiveDatePicker = document.getElementById("nutrition-live-date-picker");
+  if(nutritionLiveDatePicker) nutritionLiveDatePicker.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    nutritionLiveDate = v;
+    renderMain();
+  });
+  const btnAddNutritionLive = document.getElementById("btn-add-nutrition-live");
+  if(btnAddNutritionLive) btnAddNutritionLive.addEventListener("click", ()=> openNutritionEntryModal(athlete.id, null, nutritionLiveDate));
+  main.querySelectorAll("[data-edit-nutrition]").forEach(b=> b.addEventListener("click", ()=>{
+    const entry = nutritionEntriesForAthlete.find(n=>n.id===b.getAttribute("data-edit-nutrition"));
+    if(entry) openNutritionEntryModal(athlete.id, entry);
   }));
+  main.querySelectorAll("[data-del-nutrition]").forEach(b=> b.addEventListener("click", ()=> deleteNutritionEntryLive(b.getAttribute("data-del-nutrition"))));
   const stravaBtn = document.getElementById("btn-connect-strava");
   if(stravaBtn) stravaBtn.addEventListener("click", ()=>connectStrava(athlete.id));
   const stravaCopyBtn = document.getElementById("btn-copy-strava-link");
@@ -3195,39 +3223,28 @@ function renderNutritionChart(athlete, sessions, nutritionEntries){
   });
 }
 
-// Données fictives pour le sous-onglet "Vue athlète (démo)" ci-dessous —
-// aucune donnée réelle : sert uniquement à montrer à un prospect l'écran
-// qu'il aura côté athlète, avant même que son profil ne soit créé. La date
-// est calée sur aujourd'hui pour rester crédible dans la durée.
-function nutritionDemoData(){
-  const today = fmtDate(new Date());
-  return {
-    athlete: { sex:"homme", activityLevel:"actif", weightKg:70, heightCm:176, birthDate:"1992-05-20" },
-    sessions: [ { date: today, avgHr: 148, duration: 80 } ],
-    entries: [
-      { id:"demo-pdj", date: today, mealType:"petit_dejeuner", items:{ feculent:{type:"pain",portion:2}, proteine:{type:"oeuf",portion:2}, laitier:{type:"yaourt",portion:2}, fruit:{type:"fruit_frais",portion:2}, sucre:{type:"confiture",portion:1} } },
-      { id:"demo-dej", date: today, mealType:"dejeuner", items:{ entree:{type:"crudites",portion:2}, plat_proteine:{type:"viande_blanche",portion:2}, plat_feculent:{type:"pates",portion:2}, plat_legume:{type:"legumes_verts",portion:3}, dessert:{type:"fruit",portion:2} } },
-      { id:"demo-colm", date: today, mealType:"collation_matin", items:{ item:{type:"fruit",portion:1} } },
-      { id:"demo-col", date: today, mealType:"collation", items:{ item:{type:"barre_cereale",portion:1} } },
-      { id:"demo-din", date: today, mealType:"diner", items:{ entree:{type:"soupe",portion:2}, plat_proteine:{type:"oeuf",portion:2}, plat_feculent:{type:"riz",portion:2}, plat_legume:{type:"legumes_verts",portion:2}, dessert:{type:"laitage_yaourt",portion:1} } },
-    ],
-  };
-}
-// Sous-onglet "Vue athlète (démo)" : reproduit l'écran que voit un athlète
-// depuis son espace personnel (voir client.html, structure identique —
-// cartes repas avec icônes de portion), mais avec les données fictives
-// ci-dessus. Aucune saisie réelle possible ici : les boutons Modifier /
-// Supprimer / + Ajouter affichent un simple message d'information (voir
-// wiring [data-nutrition-demo-action] dans renderMain).
-function renderNutritionAthleteDemoHtml(){
-  const demo = nutritionDemoData();
-  const date = demo.entries[0].date;
-  const dayEntries = demo.entries.slice().sort((a,b)=>{
+// Sous-onglet "Vue athlète" (prise en main) : reproduit l'écran que voit
+// l'athlète depuis son espace personnel (voir client.html, structure et
+// classes CSS identiques — cartes repas avec icônes de portion), mais sur
+// les VRAIES données de l'athlète actuellement sélectionné dans la barre
+// latérale, avec écriture réelle (ajout/modification/suppression) via
+// apiSaveNutritionEntry / apiDeleteNutritionEntry (voir endpoint
+// nutrition-entries de app-api, qui écrit avec le rôle de service — hors
+// RLS, comme le reste des écritures coach). Permet au coach de tester le
+// journal ou de saisir un repas à la place de l'athlète ; les entrées
+// enregistrées ici sont indiscernables de celles saisies par l'athlète
+// lui-même depuis client.html (même table, pas de champ "saisi par").
+function renderNutritionAthleteLiveHtml(athlete, sessions, nutritionEntries){
+  if(!nutritionLiveDate) nutritionLiveDate = fmtDate(new Date());
+  const date = nutritionLiveDate;
+  const dayEntries = nutritionEntries.filter(n=>n.date===date).sort((a,b)=>{
     const order = { petit_dejeuner:0, collation_matin:1, dejeuner:2, collation:3, diner:4 };
     return (order[a.mealType]??9) - (order[b.mealType]??9);
   });
+  const daySessions = sessions.filter(s=>s.date===date);
   const apports = dayEntries.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0);
-  const dep = dailyExpenditure(demo.athlete, demo.sessions);
+  const profileComplete = !!(athlete.sex && athlete.activityLevel && athlete.weightKg && athlete.heightCm && athlete.birthDate);
+  const dep = profileComplete ? dailyExpenditure(athlete, daySessions) : null;
   const sev = dep ? nutritionBalanceSeverity(apports, dep.total) : { key:"none", label:"—" };
 
   const mealCards = dayEntries.map(e=>`
@@ -3235,8 +3252,8 @@ function renderNutritionAthleteDemoHtml(){
       <div class="ls-nutrition-card-head">
         <strong>${nutritionMealLabel(e.mealType)}</strong>
         <div>
-          <button type="button" class="ls-btn small ghost" data-nutrition-demo-action="edit">Modifier</button>
-          <button type="button" class="ls-btn small ghost" data-nutrition-demo-action="delete">Supprimer</button>
+          <button type="button" class="ls-btn small ghost" data-edit-nutrition="${e.id}">Modifier</button>
+          <button type="button" class="ls-btn small ghost" data-del-nutrition="${e.id}">Supprimer</button>
         </div>
       </div>
       <div class="ls-nutrition-card-items">
@@ -3250,22 +3267,152 @@ function renderNutritionAthleteDemoHtml(){
     </div>`).join("");
 
   return `
-    <div class="ls-chart-sub" style="margin-bottom:14px;">Aperçu de démonstration avec des données fictives — c'est exactement ce que verra l'athlète depuis son espace personnel, avant même que son profil ne soit créé. Rien n'est enregistré depuis cet écran.</div>
+    <div class="ls-chart-sub" style="margin-bottom:14px;">Prise en main : ajoute, modifie ou supprime les repas de ${escapeHtml(athlete.name)} directement depuis le dashboard, exactement comme depuis son espace personnel — les entrées enregistrées ici sont ses vraies données (mêmes que dans la "Vue coach").</div>
+    ${!profileComplete ? `<div class="ls-panel" style="margin-bottom:16px;"><div class="ls-empty">Profil incomplet pour estimer la dépense calorique (sexe, niveau d'activité, taille, poids, date de naissance requis). Le journal reste utilisable en attendant.</div></div>` : ""}
     <div class="ls-field" style="max-width:220px;margin-bottom:16px;">
       <label>Date</label>
-      <input type="date" value="${date}" disabled>
+      <input type="date" id="nutrition-live-date-picker" value="${date}" max="${fmtDate(new Date())}">
     </div>
     <div class="ls-stat-grid" style="margin-bottom:18px;">
-      <div class="ls-stat"><div class="ls-stat-label">Apports du jour</div><div class="ls-stat-value">${apports}<small>kcal</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Dépense estimée</div><div class="ls-stat-value">${dep.total}<small>kcal</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Écart</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${sev.label}</span></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Apports du jour</div><div class="ls-stat-value">${dayEntries.length? apports : "—"}${dayEntries.length?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Dépense estimée</div><div class="ls-stat-value">${dep? dep.total : "—"}${dep?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Écart</div><div class="ls-stat-value">${dep && dayEntries.length ? `<span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${sev.label}</span>` : "—"}</div></div>
     </div>
     <div class="ls-table-head" style="margin-bottom:10px;">
-      <h3>Repas du ${fmtDateFr(date)} <span class="ls-legend-note" style="display:inline;">(exemple)</span></h3>
-      <button type="button" class="ls-btn small primary" data-nutrition-demo-action="add">+ Ajouter un repas</button>
+      <h3>Repas du ${fmtDateFr(date)}</h3>
+      <button type="button" class="ls-btn small primary" id="btn-add-nutrition-live">+ Ajouter un repas</button>
     </div>
-    ${mealCards}
+    ${dayEntries.length? mealCards : '<div class="ls-panel"><div class="ls-empty">Aucun repas enregistré pour cette date.</div></div>'}
   `;
+}
+
+// ---- Modal d'ajout/modification de repas (sous-onglet "Vue athlète",
+// prise en main) — même principe que le modal équivalent côté client.html
+// (nutritionDraft, structure par rôle selon NUTRITION_MEAL_STRUCTURE), mais
+// enregistre via apiSaveNutritionEntry (clé coach) plutôt qu'en écriture
+// directe Supabase (RLS athlète). ----
+function nutritionDefaultItems(mealType){
+  const structure = NUTRITION_MEAL_STRUCTURE[mealType] || [];
+  const items = {};
+  structure.forEach(({role})=>{ items[role] = { type:"", portion:2 }; });
+  return items;
+}
+
+function nutritionModalFieldsHtml(){
+  const structure = NUTRITION_MEAL_STRUCTURE[nutritionDraft.mealType] || [];
+  return structure.map(({role, label, catalog})=>{
+    const current = nutritionDraft.items[role] || { type:"", portion:2 };
+    const options = (NUTRITION_ITEMS[catalog]||[]).map(i=>`<option value="${i.value}" ${current.type===i.value?"selected":""}>${escapeHtml(i.label)}</option>`).join("");
+    const portionBtns = NUTRITION_PORTIONS.map(p=>`
+      <button type="button" class="ls-portion-btn ${current.portion===p.value?"active":""}" data-nutrition-role="${role}" data-portion-value="${p.value}" title="${p.label}">
+        ${nutritionPlateIconSvg(p.value, 28)}
+        <span>${p.label}</span>
+      </button>`).join("");
+    return `
+      <div class="ls-field">
+        <label>${escapeHtml(label)}</label>
+        <select data-nutrition-role="${role}" class="nutrition-item-select">
+          <option value="">— non consommé —</option>
+          ${options}
+        </select>
+        <div class="ls-portion-row">${portionBtns}</div>
+      </div>`;
+  }).join("");
+}
+
+function wireNutritionFieldListeners(){
+  document.querySelectorAll(".nutrition-item-select").forEach(sel=>{
+    sel.addEventListener("change", e=>{
+      const role = e.target.getAttribute("data-nutrition-role");
+      if(!nutritionDraft.items[role]) nutritionDraft.items[role] = { type:"", portion:2 };
+      nutritionDraft.items[role].type = e.target.value;
+    });
+  });
+  document.querySelectorAll(".ls-portion-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const role = btn.getAttribute("data-nutrition-role");
+      const val = +btn.getAttribute("data-portion-value");
+      if(!nutritionDraft.items[role]) nutritionDraft.items[role] = { type:"", portion:2 };
+      nutritionDraft.items[role].portion = val;
+      const fields = document.getElementById("nutrition-modal-fields");
+      if(fields){ fields.innerHTML = nutritionModalFieldsHtml(); wireNutritionFieldListeners(); }
+    });
+  });
+}
+
+function renderNutritionEntryModal(){
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal wide">
+      <h3>${nutritionDraft.id? "Modifier le repas":"Ajouter un repas"}</h3>
+      <div class="ls-modal-sub">Choisis ce que l'athlète a mangé pour chaque élément, et la taille de la portion (petite / moyenne / grande). Laisse un élément sur "non consommé" s'il ne l'a pas pris.</div>
+      <div class="ls-field-row">
+        <div class="ls-field"><label>Date</label><input type="date" id="nutrition-draft-date" value="${nutritionDraft.date}" max="${fmtDate(new Date())}"></div>
+        <div class="ls-field">
+          <label>Repas</label>
+          <select id="nutrition-draft-mealtype">
+            ${NUTRITION_MEAL_TYPES.map(m=>`<option value="${m.value}" ${nutritionDraft.mealType===m.value?"selected":""}>${m.label}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div id="nutrition-modal-fields">${nutritionModalFieldsHtml()}</div>
+      <div class="ls-modal-actions">
+        <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
+        <button type="button" class="ls-btn primary" id="btn-nutrition-save">${nutritionDraft.id? "Enregistrer":"Ajouter"}</button>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById("modal-cancel").addEventListener("click", ()=>{ nutritionDraft=null; closeModal(); });
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay"){ nutritionDraft=null; closeModal(); } });
+  document.getElementById("nutrition-draft-date").addEventListener("change", e=>{ nutritionDraft.date = e.target.value; });
+  document.getElementById("nutrition-draft-mealtype").addEventListener("change", e=>{
+    nutritionDraft.mealType = e.target.value;
+    nutritionDraft.items = nutritionDefaultItems(e.target.value);
+    document.getElementById("nutrition-modal-fields").innerHTML = nutritionModalFieldsHtml();
+    wireNutritionFieldListeners();
+  });
+  wireNutritionFieldListeners();
+  document.getElementById("btn-nutrition-save").addEventListener("click", saveNutritionDraft);
+}
+
+function openNutritionEntryModal(athleteId, existing, defaultDate){
+  nutritionDraft = existing
+    ? { id: existing.id, athleteId, date: existing.date, mealType: existing.mealType, items: JSON.parse(JSON.stringify(existing.items||{})) }
+    : { id: null, athleteId, date: defaultDate || fmtDate(new Date()), mealType: "dejeuner", items: nutritionDefaultItems("dejeuner") };
+  renderNutritionEntryModal();
+}
+
+async function saveNutritionDraft(){
+  // Ne garde que les éléments réellement renseignés (type non vide).
+  const items = {};
+  Object.entries(nutritionDraft.items).forEach(([role, it])=>{ if(it && it.type) items[role] = { type: it.type, portion: it.portion||2 }; });
+  const entry = { id: nutritionDraft.id, athleteId: nutritionDraft.athleteId, date: nutritionDraft.date, mealType: nutritionDraft.mealType, items };
+  const saveBtn = document.getElementById("btn-nutrition-save");
+  if(saveBtn) saveBtn.disabled = true;
+  try{
+    await apiSaveNutritionEntry(entry);
+    nutritionDraft = null;
+    closeModal();
+    showToast("Repas enregistré.", "--good");
+    await refreshData();
+  }catch(err){
+    if(err.unauthorized){ closeModal(); showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+    alert("Impossible d'enregistrer le repas : " + err.message);
+    if(saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function deleteNutritionEntryLive(id){
+  if(!confirm("Supprimer ce repas ?")) return;
+  try{
+    await apiDeleteNutritionEntry(id);
+    showToast("Repas supprimé.", "--good");
+    await refreshData();
+  }catch(err){
+    if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+    alert("Suppression impossible : " + err.message);
+  }
 }
 function santeWeekVigilance(h){
   return (7-h.sommeil) + (7-h.fatigue) + (7-h.stress) + (7-h.douleur);
