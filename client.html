@@ -683,9 +683,10 @@ function ageFromBirthDate(dateStr){
 
 const NUTRITION_MEAL_TYPES = [
   { value:"petit_dejeuner", label:"Petit-déjeuner" },
+  { value:"collation_matin", label:"Collation du matin" },
   { value:"dejeuner", label:"Déjeuner" },
   { value:"diner", label:"Dîner" },
-  { value:"collation", label:"Collation" },
+  { value:"collation", label:"Collation (après-midi)" },
 ];
 function nutritionMealLabel(v){ const m = NUTRITION_MEAL_TYPES.find(x=>x.value===v); return m ? m.label : v; }
 
@@ -802,6 +803,9 @@ const NUTRITION_MEAL_STRUCTURE = {
     { role:"sucre", label:"Sucré", catalog:"pdj_sucre" },
   ],
   collation: [
+    { role:"item", label:"Collation", catalog:"collation" },
+  ],
+  collation_matin: [
     { role:"item", label:"Collation", catalog:"collation" },
   ],
 };
@@ -1132,7 +1136,7 @@ function renderNutritionTabHtml(){
   ensureNutritionSelectedDate();
   const date = nutritionSelectedDate;
   const dayEntries = nutritionEntries.filter(n=>n.date===date).sort((a,b)=>{
-    const order = { petit_dejeuner:0, dejeuner:1, collation:2, diner:3 };
+    const order = { petit_dejeuner:0, collation_matin:1, dejeuner:2, collation:3, diner:4 };
     return (order[a.mealType]??9) - (order[b.mealType]??9);
   });
   const daySessions = sessions.filter(s=>s.date===date);
