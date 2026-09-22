@@ -4337,8 +4337,14 @@ function openAthleteModal(existing){
       email: (fd.get("email")||"").trim() || null,
       sex: fd.get("sex") || null, activityLevel: fd.get("activityLevel") || null
     };
+    // intensityZones n'a pas de champ dans ce formulaire (voir openIntensityModal,
+    // son propre modal) -- il faut explicitement le reporter depuis l'athlète
+    // existant, sinon athleteToApi() envoie intensity_zones:null et apiSaveAthlete
+    // (upsert plein-champ côté app-api) écrase silencieusement la table
+    // d'intensité déjà saisie à chaque modification du profil général (bug
+    // signalé le 2026-09-22 : la table d'intensité de Romain "disparaissait").
     const athlete = existing
-      ? Object.assign({ id: existing.id, colorIndex: existing.colorIndex }, common)
+      ? Object.assign({ id: existing.id, colorIndex: existing.colorIndex, intensityZones: existing.intensityZones }, common)
       : Object.assign({ colorIndex: state.athletes.length % CAT_HUES.length }, common);
     const submitBtn = e.target.querySelector('button[type=submit]');
     submitBtn.disabled = true;
