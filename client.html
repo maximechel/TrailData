@@ -1312,6 +1312,21 @@ function acwrSeries(sessionsArr){
   });
   return { dates, acute, chronic, acwr, ctl, atl, tsb };
 }
+// Valeur d'une série alignée sur `dates` (voir acwrSeries) au dernier jour
+// connu <= targetDate -- permet de lire Forme/Fatigue "à la fin de la
+// période sélectionnée" plutôt que toujours "aujourd'hui". Les courbes
+// elles-mêmes restent calculées sur tout l'historique (une moyenne
+// exponentielle ne peut pas être recalculée seulement sur une fenêtre sans
+// perdre la charge accumulée avant) ; seule la lecture ponctuelle des
+// badges suit la période.
+function valueAtOrBefore(dates, arr, targetDate){
+  if(!dates.length) return null;
+  for(let i = dates.length - 1; i >= 0; i--){
+    if(dates[i] <= targetDate) return arr[i];
+  }
+  return arr[0];
+}
+
 function classifyACWR(v){
   if(v == null || !isFinite(v)) return { key:"none", label:"Pas assez d'historique", css:"--text-muted" };
   if(v < 0.8) return { key:"warning", label:"Sous-charge" };
@@ -1689,11 +1704,12 @@ function renderMain(){
     return;
   }
   const sess = sessions.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
-  const { acwr, ctl, atl } = acwrSeries(sess);
+  const { dates: ffDates, acwr, ctl, atl } = acwrSeries(sess);
   const acuteVal = acuteChronicLatest(sess).acute;
   const chronicVal = acuteChronicLatest(sess).chronic;
-  const ctlNow = ctl.length ? ctl[ctl.length-1] : null;
-  const atlNow = atl.length ? atl[atl.length-1] : null;
+  ensureChartPeriod();
+  const ctlNow = valueAtOrBefore(ffDates, ctl, chartPeriod.end);
+  const atlNow = valueAtOrBefore(ffDates, atl, chartPeriod.end);
   const lastACWR = acwr.length ? acwr[acwr.length-1] : null;
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sess);
@@ -1778,6 +1794,7 @@ function renderMain(){
             <span class="ls-ff-label">Fatigue</span>
           </div>
         </div>
+        <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeurs à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates en haut de l'onglet pour relire ton état de forme à un autre moment.</div>
         <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
       </div>
       <div class="ls-chart-card full">
