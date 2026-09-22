@@ -1255,7 +1255,14 @@ async function submitSanteQuestionnaire(){
 
 function trimp(session){
   const z = session.zones;
-  return z[0]*1 + z[1]*2 + z[2]*3 + z[3]*4 + z[4]*5;
+  const base = z[0]*1 + z[1]*2 + z[2]*3 + z[3]*4 + z[4]*5;
+  // Pondère la charge par la technicité du terrain (même coefficient que le
+  // GAP -- voir technicityCoef) : à profil de FC identique, un terrain
+  // technique impose un coût neuromusculaire/attentionnel que la FC seule
+  // sous-représente. Se répercute automatiquement sur charge aiguë/chronique,
+  // ACWR et Forme/Fatigue (CTL/ATL). Heuristique de coach, pas une formule
+  // validée par la littérature -- voir échange du 2026-09-22.
+  return base * technicityCoef(session.technicity);
 }
 function dailySeries(sessionsArr){
   const map = {};
@@ -1755,12 +1762,12 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
-        <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
+        <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Forme / Fatigue (CTL / ATL)</h3>
-        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente.</div>
+        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge pondérée par la technicité du terrain.</div>
         <div class="ls-ff-badges">
           <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
             <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
@@ -1858,7 +1865,7 @@ function renderMain(){
       </div>
       <div class="ls-table-scroll">
         <table class="ls-log">
-          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th>Charge</th><th>RPE</th><th>Source</th><th>Action</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th title="TRIMP pondéré par la technicité du terrain">Charge</th><th>RPE</th><th>Source</th><th>Action</th></tr></thead>
           <tbody>${sess.map(rowHtml).join("")}</tbody>
         </table>
       </div>
