@@ -2421,12 +2421,13 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
         <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
-        ${periodBarHtml("load", `Période partagée par les 7 graphiques de cet onglet qui en dépendent — modifiable depuis n'importe lequel d'entre eux. Sert aussi de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).`)}
+        ${periodBarHtml("load", `Période partagée par les 8 graphiques de cet onglet qui en dépendent — modifiable depuis n'importe lequel d'entre eux. Sert aussi de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).`)}
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Forme / Fatigue (CTL / ATL)</h3>
         <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge basée sur les zones de FC, pondérée par la technicité du terrain ; pas encore par l'environnement (chaleur/altitude/vent).</div>
+        ${periodBarHtml("formfatigue", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-ff-badges">
           <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
             <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
@@ -2680,7 +2681,7 @@ function renderMain(){
   // Une instance du sélecteur de période par graphique qu'il pilote (voir
   // periodBarHtml) : toutes partagent le même état chartPeriod, donc changer
   // l'une déclenche un renderMain() qui remet les 6 autres à jour aussi.
-  ["load","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
+  ["load","formfatigue","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
     const startEl = document.getElementById("period-start-"+suffix);
     const endEl = document.getElementById("period-end-"+suffix);
     const resetBtn = document.getElementById("btn-period-reset-"+suffix);
