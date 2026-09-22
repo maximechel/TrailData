@@ -393,13 +393,14 @@ const ATHLETE_TEST_TYPES_META = [
   { value:"seuil1", label:"Seuil 1 — aérobie" },
   { value:"seuil2", label:"Seuil 2 — anaérobie" },
   { value:"vam3", label:"VAM 3' (test de côte)" },
-  { value:"vam12", label:"VAM 12' (test de côte)" },
+  { value:"vam9", label:"VAM 9' (test de côte)" },
 ];
-// Tests de côte courts (protocole 3'/12' — voir échange du 2026-09-22) :
+// Tests de côte courts (protocole 3'/9' — voir échange du 2026-09-22, VAM 9'
+// remplace VAM 12' pour coller aux parcours utilisés en pratique) :
 // VAM = D+ / temps × 60, en m/h. Stockés dans le même champ générique
 // "value" que VMA/seuils (voir athlete_tests), mais en m/h et non en km/h —
 // athleteTestValueLabel() et le formulaire distinguent les deux à l'affichage.
-const VAM_INTERVAL_TEST_TYPES = new Set(["vam3", "vam12"]);
+const VAM_INTERVAL_TEST_TYPES = new Set(["vam3", "vam9"]);
 // Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
 // km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
 // (efforts anaérobies courts) n'ont pas de bornes FC : la fréquence cardiaque
@@ -1854,7 +1855,7 @@ function digitalTwinParams(athleteId, sessions, endDate){
     seuil1: latestSpeedTest(athleteId, "seuil1"),
     seuil2: latestSpeedTest(athleteId, "seuil2"),
     vam3: latestSpeedTest(athleteId, "vam3"),
-    vam12: latestSpeedTest(athleteId, "vam12"),
+    vam9: latestSpeedTest(athleteId, "vam9"),
     vamClimbProfile: vamClimbProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
     vamDescentProfile: vamDescentProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
     volume: volumeWeeklyAverage(volumeSessions, endDate),
@@ -1864,9 +1865,9 @@ function digitalTwinParams(athleteId, sessions, endDate){
 // côte, une VAM supérieure à sa VAM soutenue sur 12 min. Nécessite les deux
 // derniers tests ; ne rapproche pas leurs dates (chaque test reste la
 // dernière valeur connue, comme les autres paramètres du jumeau).
-function vam3To12Ratio(twin){
-  if(!twin || !twin.vam3 || !twin.vam12 || !twin.vam12.value) return null;
-  return (twin.vam3.value / twin.vam12.value) * 100;
+function vam3To9Ratio(twin){
+  if(!twin || !twin.vam3 || !twin.vam9 || !twin.vam9.value) return null;
+  return (twin.vam3.value / twin.vam9.value) * 100;
 }
 
 /* ---------------------------- Simulateur : moteur de régression par paires ---------------------------- */
@@ -1887,8 +1888,9 @@ const SIM_PARAMS = [
   { key:"vma", label:"VMA", category:"physio" },
   { key:"seuil1", label:"Seuil 1 (aérobie)", category:"physio" },
   { key:"seuil2", label:"Seuil 2 (anaérobie)", category:"physio" },
+  { key:"vam3", label:"VAM 3' (test de côte)", category:"physio" },
+  { key:"vam9", label:"VAM 9' (test de côte)", category:"physio" },
   { key:"volume", label:"Volume hebdo", category:"charge" },
-  { key:"montee", label:"Montée (VAM moy.)", category:"perf" },
   { key:"descente", label:"Descente (VAM moy.)", category:"perf" },
 ];
 const SIM_SNAPSHOT_WINDOW_WEEKS = 8;   // fenêtre glissante pour les instantanés Volume/Montée/Descente
@@ -1955,6 +1957,8 @@ function simParamSeries(sessions, athleteTests, key){
   if(key==="vma") return simParamSeriesFromTests(athleteTests, "vma", t=>t.value);
   if(key==="seuil1") return simParamSeriesFromTests(athleteTests, "seuil1", t=>t.value);
   if(key==="seuil2") return simParamSeriesFromTests(athleteTests, "seuil2", t=>t.value);
+  if(key==="vam3") return simParamSeriesFromTests(athleteTests, "vam3", t=>t.value);
+  if(key==="vam9") return simParamSeriesFromTests(athleteTests, "vam9", t=>t.value);
   const stravaSessions = sessions.filter(s=>s.source==="strava");
   const dates = stravaSessions.map(s=>new Date(s.date+"T00:00:00")).filter(d=>!isNaN(d));
   if(!dates.length) return [];
@@ -1966,7 +1970,6 @@ function simParamSeries(sessions, athleteTests, key){
   while(d <= rangeEnd){
     let value = null;
     if(key==="volume") value = simVolumeSnapshotKm(sessions.filter(isTwinVolumeSession), d, SIM_SNAPSHOT_WINDOW_WEEKS);
-    else if(key==="montee") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamClimbProfile", 15));
     else if(key==="descente") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamDescentProfile", 10));
     if(value!=null) out.push({ date:new Date(d), value });
     d.setDate(d.getDate() + SIM_SNAPSHOT_STEP_WEEKS*7);
@@ -2021,7 +2024,7 @@ function simFormatValue(key, value){
   if(key==="force") return value.toFixed(0)+" N";
   if(key==="vma" || key==="seuil1" || key==="seuil2") return value.toFixed(1)+" km/h";
   if(key==="volume") return value.toFixed(1)+" km/sem.";
-  if(key==="montee" || key==="descente") return value.toFixed(0)+" m/h";
+  if(key==="vam3" || key==="vam9" || key==="descente") return value.toFixed(0)+" m/h";
   return String(value);
 }
 // Position (%) de la bulle de valeur au-dessus du curseur moderne du
@@ -2428,8 +2431,8 @@ function renderMain(){
       <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value">${twin.vam3? twin.vam3.value.toFixed(0) : "—"}<small> m/h${twin.vam3? " · "+fmtDateFr(twin.vam3.date):""}</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">VAM 12'</div><div class="ls-stat-value">${twin.vam12? twin.vam12.value.toFixed(0) : "—"}<small> m/h${twin.vam12? " · "+fmtDateFr(twin.vam12.date):""}</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM12'</div><div class="ls-stat-value">${vam3To12Ratio(twin)!=null? vam3To12Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VAM 9'</div><div class="ls-stat-value">${twin.vam9? twin.vam9.value.toFixed(0) : "—"}<small> m/h${twin.vam9? " · "+fmtDateFr(twin.vam9.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(twin)!=null? vam3To9Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
     </div>
 
     <div class="ls-charts">
@@ -2614,8 +2617,8 @@ function renderMain(){
         <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value">${twin.vam3? twin.vam3.value.toFixed(0) : "—"}<small> m/h${twin.vam3? " · "+fmtDateFr(twin.vam3.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">VAM 12'</div><div class="ls-stat-value">${twin.vam12? twin.vam12.value.toFixed(0) : "—"}<small> m/h${twin.vam12? " · "+fmtDateFr(twin.vam12.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM12'</div><div class="ls-stat-value">${vam3To12Ratio(twin)!=null? vam3To12Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">VAM 9'</div><div class="ls-stat-value">${twin.vam9? twin.vam9.value.toFixed(0) : "—"}<small> m/h${twin.vam9? " · "+fmtDateFr(twin.vam9.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(twin)!=null? vam3To9Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
       </div>
       ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
         <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
@@ -4275,7 +4278,7 @@ function openAthleteTestModal(athleteId, testId){
   <div class="ls-modal-overlay" id="modal-overlay">
     <div class="ls-modal">
       <h3>${existing? "Modifier le test":"Ajouter un test"}</h3>
-      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h. VAM 3'/12' : vitesse ascensionnelle moyenne en m/h sur une côte standardisée (VAM = D+ / temps × 60) — à refaire sur la même pente/revêtement pour rester comparable dans le temps.</div>
+      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h. VAM 3'/9' : vitesse ascensionnelle moyenne en m/h sur une côte standardisée (VAM = D+ / temps × 60) — à refaire sur la même pente/revêtement pour rester comparable dans le temps.</div>
       <form id="athlete-test-form">
         <div class="ls-field-row">
           <div class="ls-field"><label>Test</label><select name="testType" id="test-type-select">${ATHLETE_TEST_TYPES_META.map(m=>`<option value="${m.value}" ${(existing?existing.testType:"force_membre_inf")===m.value?"selected":""}>${escapeHtml(m.label)}</option>`).join("")}</select></div>
