@@ -1656,9 +1656,14 @@ function envRowHtml(s){
 // trace une courbe par mois plutôt qu'un simple avant/après.
 function gapZoneAverageOf(sessionsSubset){
   const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
+  // Corrigé par la technicité du terrain (même coefficient et même logique
+  // que gapGradeAverageInRange / "Profil terrain" -- voir échange du
+  // 2026-09-22) : sans ça, un bloc de sorties techniques ferait baisser la
+  // courbe même sans réelle perte de moteur aérobie.
   sessionsSubset.forEach(s=>{
     if(!Array.isArray(s.gapByHrZone)) return;
-    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
+    const c = technicityCoef(s.technicity);
+    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v*c; counts[i]++; } });
   });
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
@@ -2510,7 +2515,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Efficacité physiologique</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)} (dégradé : mois ancien en terne → mois récent en couleur pleine). Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava.</div>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)} (dégradé : mois ancien en terne → mois récent en couleur pleine). Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance.</div>
         ${periodBarHtml("physio", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
