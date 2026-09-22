@@ -128,6 +128,10 @@
   .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
+  .ls-ff-badges{display:flex;gap:14px;margin:2px 0 10px;}
+  .ls-ff-circle{display:flex;flex-direction:column;align-items:center;justify-content:center;width:60px;height:60px;border-radius:50%;border:3px solid;flex-shrink:0;}
+  .ls-ff-circle .ls-ff-value{font-size:16px;font-weight:800;line-height:1;}
+  .ls-ff-circle .ls-ff-label{font-size:8px;text-transform:uppercase;letter-spacing:.03em;margin-top:2px;opacity:.85;}
   .ls-chart-wrap.radar{height:340px;max-width:440px;margin:0 auto;}
   .ls-chart-wrap.donut{height:400px;max-width:760px;margin:0 auto;}
   .ls-subchart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
@@ -338,7 +342,7 @@ let injuryReports = [];
 let nutritionEntries = [];
 let santeDraft = null;
 let santeSaving = false;
-let charts = { load: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
+let charts = { load: null, formFatigue: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
 let chartPeriod = null;
 let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
@@ -1273,20 +1277,33 @@ function rollingAvg(orderedDates, map, index, window){
   return n ? sum / window : 0;
 }
 function acwrSeries(sessionsArr){
-  if(sessionsArr.length === 0) return { dates:[], acute:[], chronic:[], acwr:[] };
+  if(sessionsArr.length === 0) return { dates:[], acute:[], chronic:[], acwr:[], ctl:[], atl:[], tsb:[] };
   const map = dailySeries(sessionsArr);
   const sorted = sessionsArr.map(s=>s.date).sort();
   const start = sorted[0];
   const end = fmtDate(new Date());
   const dates = dateRangeDays(start, end);
   const acute = [], chronic = [], acwr = [];
+  // Forme (CTL) / Fatigue (ATL) : moyennes mobiles EXPONENTIELLES du même TRIMP
+  // quotidien (constantes 42j/7j -- convention Coggan/TrainingPeaks, voir
+  // échange du 2026-09-22), démarrant à 0 au premier jour d'historique connu :
+  // les premières semaines sous-estiment donc la charge réelle, comme côté
+  // TrainingPeaks/Suunto.
+  const ctl = [], atl = [], tsb = [];
+  let ctlPrev = 0, atlPrev = 0;
   dates.forEach((d, i) => {
     const a = rollingAvg(dates, map, i, 7);
     const c = rollingAvg(dates, map, i, 28);
     acute.push(a); chronic.push(c);
     acwr.push(c > 0.5 && i >= 13 ? a/c : null);
+    tsb.push(i === 0 ? null : ctlPrev - atlPrev);
+    const load = map[d] || 0;
+    const ctlToday = ctlPrev + (load - ctlPrev) / 42;
+    const atlToday = atlPrev + (load - atlPrev) / 7;
+    ctl.push(ctlToday); atl.push(atlToday);
+    ctlPrev = ctlToday; atlPrev = atlToday;
   });
-  return { dates, acute, chronic, acwr };
+  return { dates, acute, chronic, acwr, ctl, atl, tsb };
 }
 function classifyACWR(v){
   if(v == null || !isFinite(v)) return { key:"none", label:"Pas assez d'historique", css:"--text-muted" };
@@ -1665,9 +1682,11 @@ function renderMain(){
     return;
   }
   const sess = sessions.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
-  const { acwr } = acwrSeries(sess);
+  const { acwr, ctl, atl } = acwrSeries(sess);
   const acuteVal = acuteChronicLatest(sess).acute;
   const chronicVal = acuteChronicLatest(sess).chronic;
+  const ctlNow = ctl.length ? ctl[ctl.length-1] : null;
+  const atlNow = atl.length ? atl[atl.length-1] : null;
   const lastACWR = acwr.length ? acwr[acwr.length-1] : null;
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sess);
@@ -1738,6 +1757,21 @@ function renderMain(){
         <h3>Charge d'entraînement</h3>
         <div class="ls-chart-sub">Charge quotidienne (TRIMP), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Forme / Fatigue (CTL / ATL)</h3>
+        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente.</div>
+        <div class="ls-ff-badges">
+          <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
+            <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
+            <span class="ls-ff-label">Forme</span>
+          </div>
+          <div class="ls-ff-circle" style="border-color:${cssVar("--serious")};color:${cssVar("--serious")}">
+            <span class="ls-ff-value">${atlNow!=null? atlNow.toFixed(0):"—"}</span>
+            <span class="ls-ff-label">Fatigue</span>
+          </div>
+        </div>
+        <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Ratio charge aiguë / chronique (ACWR)</h3>
@@ -2103,7 +2137,7 @@ function renderActiveTabCharts(){
 }
 function renderChartsInner(athleteObj){
   const sess = sessions;
-  const { dates, acute, chronic, acwr } = acwrSeries(sess);
+  const { dates, acute, chronic, acwr, ctl, atl } = acwrSeries(sess);
   const daily = dailySeries(sess);
   const dailyVals = dates.map(d=>daily[d]||0);
   const color = athleteColor(athleteObj);
@@ -2161,6 +2195,15 @@ function renderChartsInner(athleteObj){
       { type:"line", label:"Chronique (28j)", data: sl(chronic), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3], order:2 }
     ]},
     options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  charts.formFatigue = new Chart(document.getElementById("chart-form-fatigue"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"Forme (CTL)", data: sl(ctl), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
+      { label:"Fatigue (ATL)", data: sl(atl), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:2 }
+    ]},
+    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. (moyenne exp.)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
 
   const acwrColors = sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
