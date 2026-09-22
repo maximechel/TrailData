@@ -388,7 +388,14 @@ const ATHLETE_TEST_TYPES_META = [
   { value:"vma", label:"VMA (test de terrain)" },
   { value:"seuil1", label:"Seuil 1 — aérobie" },
   { value:"seuil2", label:"Seuil 2 — anaérobie" },
+  { value:"vam3", label:"VAM 3' (test de côte)" },
+  { value:"vam12", label:"VAM 12' (test de côte)" },
 ];
+// Tests de côte courts (protocole 3'/12' — voir échange du 2026-09-22) :
+// VAM = D+ / temps × 60, en m/h. Stockés dans le même champ générique
+// "value" que VMA/seuils (voir athlete_tests), mais en m/h et non en km/h —
+// athleteTestValueLabel() et le formulaire distinguent les deux à l'affichage.
+const VAM_INTERVAL_TEST_TYPES = new Set(["vam3", "vam12"]);
 // Table d'intensité par défaut (7 zones) : le coach saisit lui-même les bornes
 // km/h et FC pour chaque athlète — rien n'est calculé automatiquement. Z6/Z7
 // (efforts anaérobies courts) n'ont pas de bornes FC : la fréquence cardiaque
@@ -1795,10 +1802,20 @@ function digitalTwinParams(athleteId, sessions, endDate){
     vma: latestSpeedTest(athleteId, "vma"),
     seuil1: latestSpeedTest(athleteId, "seuil1"),
     seuil2: latestSpeedTest(athleteId, "seuil2"),
+    vam3: latestSpeedTest(athleteId, "vam3"),
+    vam12: latestSpeedTest(athleteId, "vam12"),
     vamClimbProfile: vamClimbProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
     vamDescentProfile: vamDescentProfileAverage(stravaSessions, endDate, MATRIX_WINDOW_WEEKS),
     volume: volumeWeeklyAverage(volumeSessions, endDate),
   };
+}
+// Indice VAM3/VAM12 (%) : capacité de l'athlète à produire, sur 3 min en
+// côte, une VAM supérieure à sa VAM soutenue sur 12 min. Nécessite les deux
+// derniers tests ; ne rapproche pas leurs dates (chaque test reste la
+// dernière valeur connue, comme les autres paramètres du jumeau).
+function vam3To12Ratio(twin){
+  if(!twin || !twin.vam3 || !twin.vam12 || !twin.vam12.value) return null;
+  return (twin.vam3.value / twin.vam12.value) * 100;
 }
 
 /* ---------------------------- Simulateur : moteur de régression par paires ---------------------------- */
@@ -2356,6 +2373,9 @@ function renderMain(){
       <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${twin.vma? twin.vma.value.toFixed(1) : "—"}<small> km/h${twin.vma? " · "+fmtDateFr(twin.vma.date):""}</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value">${twin.vam3? twin.vam3.value.toFixed(0) : "—"}<small> m/h${twin.vam3? " · "+fmtDateFr(twin.vam3.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VAM 12'</div><div class="ls-stat-value">${twin.vam12? twin.vam12.value.toFixed(0) : "—"}<small> m/h${twin.vam12? " · "+fmtDateFr(twin.vam12.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM12'</div><div class="ls-stat-value">${vam3To12Ratio(twin)!=null? vam3To12Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
     </div>
 
     <div class="ls-charts">
@@ -2522,6 +2542,9 @@ function renderMain(){
         <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${twin.vma? twin.vma.value.toFixed(1) : "—"}<small> km/h${twin.vma? " · "+fmtDateFr(twin.vma.date):""}</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value">${twin.vam3? twin.vam3.value.toFixed(0) : "—"}<small> m/h${twin.vam3? " · "+fmtDateFr(twin.vam3.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">VAM 12'</div><div class="ls-stat-value">${twin.vam12? twin.vam12.value.toFixed(0) : "—"}<small> m/h${twin.vam12? " · "+fmtDateFr(twin.vam12.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM12'</div><div class="ls-stat-value">${vam3To12Ratio(twin)!=null? vam3To12Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
       </div>
       ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
         <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
@@ -2828,6 +2851,9 @@ function athleteTestValueLabel(test){
   if(test.testType==="force_membre_inf"){
     if(test.valueDroite==null || test.valueGauche==null) return "—";
     return `${(test.valueDroite+test.valueGauche).toFixed(0)} N (D ${test.valueDroite.toFixed(0)} / G ${test.valueGauche.toFixed(0)})`;
+  }
+  if(VAM_INTERVAL_TEST_TYPES.has(test.testType)){
+    return test.value!=null ? test.value.toFixed(0)+" m/h" : "—";
   }
   return test.value!=null ? test.value.toFixed(1)+" km/h" : "—";
 }
@@ -4169,7 +4195,7 @@ function openAthleteTestModal(athleteId, testId){
   <div class="ls-modal-overlay" id="modal-overlay">
     <div class="ls-modal">
       <h3>${existing? "Modifier le test":"Ajouter un test"}</h3>
-      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h.</div>
+      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h. VAM 3'/12' : vitesse ascensionnelle moyenne en m/h sur une côte standardisée (VAM = D+ / temps × 60) — à refaire sur la même pente/revêtement pour rester comparable dans le temps.</div>
       <form id="athlete-test-form">
         <div class="ls-field-row">
           <div class="ls-field"><label>Test</label><select name="testType" id="test-type-select">${ATHLETE_TEST_TYPES_META.map(m=>`<option value="${m.value}" ${(existing?existing.testType:"force_membre_inf")===m.value?"selected":""}>${escapeHtml(m.label)}</option>`).join("")}</select></div>
@@ -4180,8 +4206,8 @@ function openAthleteTestModal(athleteId, testId){
           <div class="ls-field"><label>Force gauche (N)</label><input type="number" min="0" step="0.1" name="valueGauche" value="${existing&&existing.valueGauche!=null? existing.valueGauche:""}"></div>
         </div>
         <div class="ls-field" id="test-speed-fields">
-          <label>Vitesse (km/h)</label>
-          <input type="number" min="0" step="0.1" name="value" value="${existing&&existing.value!=null? existing.value:""}">
+          <label id="test-speed-label">Vitesse (km/h)</label>
+          <input type="number" min="0" step="0.1" name="value" id="test-speed-input" value="${existing&&existing.value!=null? existing.value:""}">
         </div>
         <div class="ls-modal-actions">
           <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
@@ -4194,10 +4220,17 @@ function openAthleteTestModal(athleteId, testId){
   const select = document.getElementById("test-type-select");
   const forceFields = document.getElementById("test-force-fields");
   const speedFields = document.getElementById("test-speed-fields");
+  const speedLabel = document.getElementById("test-speed-label");
+  const speedInput = document.getElementById("test-speed-input");
   const syncFields = () => {
     const isForce = select.value === "force_membre_inf";
+    const isVam = VAM_INTERVAL_TEST_TYPES.has(select.value);
     forceFields.style.display = isForce ? "" : "none";
     speedFields.style.display = isForce ? "none" : "";
+    if(!isForce){
+      speedLabel.textContent = isVam ? "VAM (m/h)" : "Vitesse (km/h)";
+      speedInput.step = isVam ? "1" : "0.1";
+    }
   };
   select.addEventListener("change", syncFields);
   syncFields();
