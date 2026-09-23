@@ -1375,7 +1375,17 @@ function acwrSeries(sessionsArr){
     const c = rollingAvg(dates, map, i, 28);
     acute.push(a); chronic.push(c);
     acwr.push(c > 0.5 && i >= 13 ? a/c : null);
-    tsb.push(i === 0 ? null : ctlPrev - atlPrev);
+    // TSB exprimé en % de la Forme (CTL) plutôt qu'en écart absolu :
+    // les seuils de lecture (15/-10/-30) viennent de Suunto/TrainingPeaks,
+    // calibrés sur leur propre échelle de TSS (~100 = 1h à l'allure seuil).
+    // La charge de cette appli (TRIMP pondéré par la technicité, voir trimp())
+    // est sur une tout autre échelle numérique -- un écart CTL-ATL brut y est
+    // couramment de plusieurs centaines, ce qui rendait les mêmes seuils
+    // absurdes (quasi tout l'historique en "intensité trop élevée"). En
+    // ramenant l'écart à un % de la Forme du moment, les mêmes seuils
+    // redeviennent interprétables quelle que soit l'unité de charge sous-
+    // jacente (voir échange du 2026-09-23).
+    tsb.push(i === 0 || ctlPrev <= 0 ? null : ((ctlPrev - atlPrev) / ctlPrev) * 100);
     const load = map[d] || 0;
     const ctlToday = ctlPrev + (load - ctlPrev) / 42;
     const atlToday = atlPrev + (load - atlPrev) / 7;
@@ -2021,7 +2031,7 @@ function renderMain(){
 
     <div class="ls-tab-panel" id="tab-panel-etat-forme" ${activeTab!=="etat-forme"?"hidden":""}>
     <div class="ls-stat-grid">
-      <div class="ls-stat"><div class="ls-stat-label">État de forme (TSB)</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(tsbCls.key)});color:${statusInk(tsbCls.key)}">${tsbNow!=null? tsbNow.toFixed(0):"—"} · ${tsbCls.label}</span></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">État de forme (TSB)</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(tsbCls.key)});color:${statusInk(tsbCls.key)}">${tsbNow!=null? tsbNow.toFixed(0)+"%":"—"} · ${tsbCls.label}</span></div></div>
       <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
     </div>
 
@@ -2049,7 +2059,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Forme (TSB)</h3>
-        <div class="ls-chart-sub">TSB = Forme (CTL) − Fatigue (ATL), même convention que le graphique "Forme" de Suunto/TrainingPeaks. ≥ 15 : perdre la forme/récupérer · -10 à 15 : équilibre d'entraînement · -30 à -10 : entraînement productif · &lt; -30 : intensité trop élevée.</div>
+        <div class="ls-chart-sub">TSB relatif = (Forme − Fatigue) ÷ Forme × 100, en % de la charge de fond -- ramené en relatif (et non en écart absolu) pour rester lisible quelle que soit l'échelle de charge de cette appli. Mêmes seuils de lecture que Suunto/TrainingPeaks : ≥ 15 % perdre la forme/récupérer · -10 à 15 % équilibre d'entraînement · -30 à -10 % entraînement productif · &lt; -30 % intensité trop élevée.</div>
         ${periodBarHtml("tsb", "Période partagée avec Forme / Fatigue et ACWR.")}
         <div class="ls-chart-wrap tall"><canvas id="chart-tsb"></canvas></div>
       </div>
@@ -2591,8 +2601,10 @@ function renderEtatFormeTabCharts(cd){
     ]},
     plugins:[tsbZoneBandsPlugin],
     options: baseChartOptions({
-      plugins:{ legend:{display:false} },
-      scales:{ y:{ suggestedMin:-40, suggestedMax:25, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+      plugins:{ legend:{display:false}, tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+        borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Manrope", weight:700}, bodyFont:{family:"IBM Plex Mono"},
+        callbacks:{ label: ctx => ctx.parsed.y==null? "" : ` TSB : ${ctx.parsed.y.toFixed(0)} %` } } },
+      scales:{ y:{ suggestedMin:-70, suggestedMax:25, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted"), callback:v=>v+"%"} } }
     })
   });
 
