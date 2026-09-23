@@ -1531,6 +1531,41 @@ function classifyTSB(v){
   return { key:"critical", label:"Intensité trop élevée" };
 }
 
+function addDaysISO(dateISO, delta){
+  const d = new Date(dateISO+"T00:00:00");
+  d.setDate(d.getDate()+delta);
+  return fmtDate(d);
+}
+
+// Corrige la zone "perte de forme / récupérer" du TSB (ambiguë en soi : un
+// TSB haut peut aussi bien être un affûtage volontaire qu'un désentraînement
+// subi) en la croisant avec le volume réellement couru sur la période
+// sélectionnée. Règle donnée par Maxime le 2026-09-23 : si le volume moyen
+// hebdo de la période est en baisse de plus de 50 % par rapport au volume
+// moyen hebdo des 4 semaines qui précèdent la période, c'est un
+// désentraînement (couleur inchangée -- toujours à surveiller) ; sinon
+// c'est un affûtage réussi, donc un état de forme jugé excellent (couleur
+// verte, comme la zone d'équilibre). Les autres zones (équilibre,
+// entraînement productif, intensité trop élevée) ne sont pas ambiguës et
+// gardent leur classification TSB brute.
+function classifyTSBWithVolume(tsbNow, sessions, periodStart, periodEnd){
+  const base = classifyTSB(tsbNow);
+  if(base.key !== "warning") return base;
+  const periodKm = sessions.reduce((sum,s)=> (s.date>=periodStart && s.date<=periodEnd) ? sum+(s.distance||0) : sum, 0);
+  const periodDays = dateRangeDays(periodStart, periodEnd).length;
+  const periodAvgWeeklyKm = periodDays>0 ? periodKm / periodDays * 7 : 0;
+  const baselineEnd = addDaysISO(periodStart, -1);
+  const baselineStart = addDaysISO(periodStart, -28);
+  const baselineKm = sessions.reduce((sum,s)=> (s.date>=baselineStart && s.date<=baselineEnd) ? sum+(s.distance||0) : sum, 0);
+  const baselineAvgWeeklyKm = baselineKm / 4;
+  if(baselineAvgWeeklyKm <= 0) return base; // pas assez d'historique avant la période pour comparer
+  const drop = 1 - (periodAvgWeeklyKm / baselineAvgWeeklyKm);
+  if(drop > 0.5){
+    return { key:"warning", label:"Désentraînement (volume en baisse de plus de 50 % sur 4 semaines)" };
+  }
+  return { key:"good", label:"Affûtage réussi (volume maintenu, forme fraîche)" };
+}
+
 function isoMonday(dateStr){
   const d = new Date(dateStr);
   const day = (d.getDay() + 6) % 7; // 0 = monday
@@ -2404,7 +2439,7 @@ function renderMain(){
   const ctlNow = valueAtOrBefore(ffDates, ctl, chartPeriod.end);
   const atlNow = valueAtOrBefore(ffDates, atl, chartPeriod.end);
   const tsbNow = valueAtOrBefore(ffDates, tsb, chartPeriod.end);
-  const tsbCls = classifyTSB(tsbNow);
+  const tsbCls = classifyTSBWithVolume(tsbNow, sessions, chartPeriod.start, chartPeriod.end);
   const lastACWR = acwr.length ? acwr[acwr.length-1] : null;
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sessions);
@@ -2609,7 +2644,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Forme (TSB)</h3>
-        <div class="ls-chart-sub">TSB relatif = (Forme − Fatigue) ÷ Forme × 100, en % de la charge de fond -- ramené en relatif (et non en écart absolu) pour rester lisible quelle que soit l'échelle de charge de cette appli (u.a. TRIMP, pas les TSS/heures de Suunto). Mêmes seuils de lecture que Suunto/TrainingPeaks : ≥ 15 % perdre la forme/récupérer · -10 à 15 % équilibre d'entraînement · -30 à -10 % entraînement productif · &lt; -30 % intensité trop élevée.</div>
+        <div class="ls-chart-sub">TSB relatif = (Forme − Fatigue) ÷ Forme × 100, en % de la charge de fond -- ramené en relatif (et non en écart absolu) pour rester lisible quelle que soit l'échelle de charge de cette appli (u.a. TRIMP, pas les TSS/heures de Suunto). Mêmes seuils de lecture que Suunto/TrainingPeaks : ≥ 15 % perdre la forme/récupérer · -10 à 15 % équilibre d'entraînement · -30 à -10 % entraînement productif · &lt; -30 % intensité trop élevée. La zone « perdre la forme/récupérer » est ambiguë en soi (affûtage volontaire ou désentraînement subi) : elle est donc affinée en comparant le volume couru sur la période sélectionnée à celui des 4 semaines précédentes -- baisse de plus de 50 % = désentraînement (orange, à surveiller), sinon affûtage réussi (vert, forme excellente).</div>
         ${periodBarHtml("tsb", "Période partagée avec Forme / Fatigue et ACWR.")}
         <div class="ls-ff-badges">
           <div class="ls-ff-circle" style="border-color:${cssVar(statusVar(tsbCls.key))};color:${cssVar(statusVar(tsbCls.key))}">
