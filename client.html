@@ -1522,9 +1522,9 @@ function classifyTSBWithVolume(tsbNow, sessions, periodStart, periodEnd){
   if(baselineAvgWeeklyKm <= 0) return base; // pas assez d'historique avant la période pour comparer
   const drop = 1 - (periodAvgWeeklyKm / baselineAvgWeeklyKm);
   if(drop > 0.5){
-    return { key:"warning", label:"Désentraînement (volume en baisse de plus de 50 % sur 4 semaines)" };
+    return { key:"warning", label:"Désentraînement" };
   }
-  return { key:"good", label:"Affûtage réussi (volume maintenu, forme fraîche)" };
+  return { key:"good", label:"Affûtage réussi" };
 }
 
 // Bandes de fond colorées derrière la courbe TSB -- même principe que le
@@ -2192,6 +2192,7 @@ function renderMain(){
 
     <div class="ls-tab-panel" id="tab-panel-etat-forme" ${activeTab!=="etat-forme"?"hidden":""}>
     <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">Forme / Fatigue (CTL / ATL)</div><div class="ls-stat-value"><span style="color:${cssVar("--text-primary")}">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span><small> / </small><span style="color:${cssVar("--serious")}">${atlNow!=null? atlNow.toFixed(0):"—"}</span><small> u.a.</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">État de forme (TSB)</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(tsbCls.key)});color:${statusInk(tsbCls.key)}">${tsbNow!=null? tsbNow.toFixed(0)+"%":"—"} · ${tsbCls.label}</span></div></div>
       <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
     </div>
