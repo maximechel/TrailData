@@ -120,6 +120,9 @@
   .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
+  .ls-chart-corner-badge{position:absolute;top:6px;right:8px;z-index:3;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:5px 9px;text-align:right;box-shadow:0 1px 4px rgba(0,0,0,.10);pointer-events:none;}
+  .ls-chart-corner-badge span{display:block;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin-bottom:1px;}
+  .ls-chart-corner-badge b{display:block;font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:var(--text-primary);white-space:nowrap;}
   .ls-ff-badges{display:flex;gap:14px;margin:2px 0 10px;}
   .ls-ff-circle{display:flex;flex-direction:column;align-items:center;justify-content:center;width:60px;height:60px;border-radius:50%;border:3px solid;flex-shrink:0;}
   .ls-ff-circle .ls-ff-value{font-size:16px;font-weight:800;line-height:1;}
@@ -1681,6 +1684,38 @@ function weeklyElevationByCategory(sessions, startISO, endISO){
   return byWeek;
 }
 
+// Comme weeklyKmByCategory, mais par mois calendaire (clé "année-mois",
+// mois 0-indexé) — sert au graphique Volume hebdomadaire, passé en
+// agrégation mensuelle (demande du coach du 2026-09-23).
+function monthlyKmByCategory(sessions, startISO, endISO){
+  const byMonth = {};
+  sessions.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const d = new Date(s.date+"T00:00:00");
+    const key = d.getFullYear()+"-"+d.getMonth();
+    if(!byMonth[key]) byMonth[key] = {};
+    const cat = volumeCategoryOf(s.type);
+    byMonth[key][cat] = (byMonth[key][cat]||0) + s.distance;
+  });
+  return byMonth;
+}
+// Comme weeklyElevationByCategory, mais par mois calendaire — sert au
+// graphique Dénivelé hebdomadaire, même bascule mensuelle.
+function monthlyElevationByCategory(sessions, startISO, endISO){
+  const byMonth = {};
+  sessions.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const d = new Date(s.date+"T00:00:00");
+    const key = d.getFullYear()+"-"+d.getMonth();
+    if(!byMonth[key]) byMonth[key] = {};
+    const cat = volumeCategoryOf(s.type);
+    if(!byMonth[key][cat]) byMonth[key][cat] = { dPlus:0, dMinus:0 };
+    byMonth[key][cat].dPlus += (s.dPlus||0);
+    byMonth[key][cat].dMinus += (s.dMinus||0);
+  });
+  return byMonth;
+}
+
 /* ---------------------------- Rapport environnemental (réplique Enduraw) ---------------------------- */
 // Facteurs déjà calculés côté serveur (strava-webhook / strava-backfill-gap :
 // chaleur WBGT, altitude, vent — voir commentaires de colonnes sur
@@ -1817,6 +1852,25 @@ function monthsBetween(periodStart, periodEnd){
 function monthLabelFr(year, month){
   const label = new Date(year, month, 1).toLocaleDateString("fr-FR", { month:"long", year:"numeric" });
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+// Version courte de monthLabelFr ("Mars 26") — sert d'étiquette d'axe X aux
+// graphiques Volume/Dénivelé mensuels, où le nom complet du mois prendrait
+// trop de place.
+function monthLabelFrShort(year, month){
+  const label = new Date(year, month, 1).toLocaleDateString("fr-FR", { month:"short" });
+  return label.charAt(0).toUpperCase() + label.slice(1) + " " + String(year).slice(-2);
+}
+// Vrai si [startISO, endISO] correspond exactement à un ou plusieurs mois
+// calendaires complets (début = 1er du mois, fin = dernier jour du mois).
+// Sert à savoir si un encadré donnant la valeur exacte de la période
+// sélectionnée doit s'afficher sur les graphiques Volume/Dénivelé (utile
+// seulement quand la période chevauche des mois ou ne fait qu'une semaine —
+// demande du coach du 2026-09-23).
+function periodAlignsToMonths(startISO, endISO){
+  const s = new Date(startISO+"T00:00:00");
+  const e = new Date(endISO+"T00:00:00");
+  const lastDayOfEndMonth = new Date(e.getFullYear(), e.getMonth()+1, 0).getDate();
+  return s.getDate() === 1 && e.getDate() === lastDayOfEndMonth;
 }
 
 // Interpole entre deux couleurs hexadécimales (t=0 -> hexA, t=1 -> hexB) —
@@ -2505,6 +2559,22 @@ function renderMain(){
   const lastACWR = acwr.length ? acwr[acwr.length-1] : null;
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sessions);
+  // Valeur exacte (non arrondie aux bornes des mois) de la période
+  // sélectionnée sur les graphiques Volume/Dénivelé — affichée seulement
+  // quand cette période ne correspond pas à un ou plusieurs mois pleins,
+  // puisque les barres mensuelles suffisent sinon (demande du coach du
+  // 2026-09-23).
+  const periodExactAligned = periodAlignsToMonths(chartPeriod.start, chartPeriod.end);
+  const periodExactKm = sessions.reduce((sum,s)=> (s.date>=chartPeriod.start && s.date<=chartPeriod.end) ? sum+(s.distance||0) : sum, 0);
+  const periodExactElev = sessions.reduce((acc,s)=>{
+    if(s.date<chartPeriod.start || s.date>chartPeriod.end) return acc;
+    const cat = volumeCategoryOf(s.type);
+    if(cat!=="course" && cat!=="velo") return acc;
+    acc.dPlus += (s.dPlus||0); acc.dMinus += (s.dMinus||0);
+    return acc;
+  }, {dPlus:0, dMinus:0});
+  const periodExactBadgeVolume = periodExactAligned ? "" : `<div class="ls-chart-corner-badge" title="Du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}"><span>Période exacte</span><b>${periodExactKm.toFixed(1)} km</b></div>`;
+  const periodExactBadgeElevation = periodExactAligned ? "" : `<div class="ls-chart-corner-badge" title="Du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}"><span>Période exacte</span><b>D+ ${Math.round(periodExactElev.dPlus)} · D- ${Math.round(periodExactElev.dMinus)} m</b></div>`;
   const color = athleteColor(athlete);
   const envSummary = envSummaryFor(sessions, new Date(), MATRIX_WINDOW_WEEKS);
   const envSessions = sessions.filter(s=>s.source==="strava");
@@ -2622,16 +2692,16 @@ function renderMain(){
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card">
-        <h3>Volume hebdomadaire</h3>
-        <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité — survolez une semaine pour le détail</div>
+        <h3>Volume mensuel</h3>
+        <div class="ls-chart-sub">Kilomètres par mois, empilés par type d'activité — survolez un mois pour le détail</div>
         ${periodBarHtml("volume", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
+        <div class="ls-chart-wrap">${periodExactBadgeVolume}<canvas id="chart-volume"></canvas></div>
       </div>
       <div class="ls-chart-card">
-        <h3>Dénivelé hebdomadaire par activité</h3>
+        <h3>Dénivelé mensuel par activité</h3>
         <div class="ls-chart-sub">D+ au-dessus de l'axe, D- en dessous, empilés par type d'activité</div>
         ${periodBarHtml("elevation", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-chart-wrap"><canvas id="chart-elevation"></canvas></div>
+        <div class="ls-chart-wrap">${periodExactBadgeElevation}<canvas id="chart-elevation"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC</h3>
@@ -4270,7 +4340,7 @@ function renderAthleteChartsInner(athlete){
 
 function renderVolumeChargeChartsInner(athlete){
   const common = trainingChartContext(athlete);
-  const { sessions, dailyVals, acute, chronic, color, labels, sl, periodStartStr, periodEndStr, weeks, wkLabels } = common;
+  const { sessions, dailyVals, acute, chronic, color, labels, sl, periodStartStr, periodEndStr, periodStart, periodEnd, weeks, wkLabels } = common;
 
   charts.load = new Chart(document.getElementById("chart-load"), {
     type:"bar",
@@ -4282,15 +4352,24 @@ function renderVolumeChargeChartsInner(athlete){
     options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
   });
 
-  // Kilométrage hebdomadaire empilé par type d'activité — une barre par
-  // semaine, un segment de couleur par catégorie ; la légende (cliquable)
-  // permet de masquer une catégorie, et le survol détaille chaque segment.
-  const volByWeek = weeklyKmByCategory(sessions, periodStartStr, periodEndStr);
+  // Volume et Dénivelé passent en agrégation mensuelle plutôt
+  // qu'hebdomadaire (demande du coach du 2026-09-23) — une barre par mois
+  // calendaire touché par la période, la première et la dernière pouvant
+  // être partielles si la période ne commence/finit pas en début/fin de
+  // mois (voir l'encadré "Période exacte" affiché sur le graphique dans ce
+  // cas, calculé dans renderMain).
+  const months = monthsBetween(periodStart, periodEnd);
+  const moLabels = months.map(m => monthLabelFrShort(m.year, m.month));
+
+  // Kilométrage mensuel empilé par type d'activité — une barre par mois,
+  // un segment de couleur par catégorie ; la légende (cliquable) permet de
+  // masquer une catégorie, et le survol détaille chaque segment.
+  const volByMonth = monthlyKmByCategory(sessions, periodStartStr, periodEndStr);
   charts.volume = new Chart(document.getElementById("chart-volume"), {
     type:"bar",
-    data:{ labels: wkLabels, datasets: VOLUME_CATEGORIES.map(c=>({
+    data:{ labels: moLabels, datasets: VOLUME_CATEGORIES.map(c=>({
       label: c.label,
-      data: weeks.map(w=> +((volByWeek[w.week]?.[c.key]||0).toFixed(1))),
+      data: months.map(m=> +((volByMonth[m.year+"-"+m.month]?.[c.key]||0).toFixed(1))),
       backgroundColor: cssVar(c.colorVar), stack:"vol", borderRadius:2, maxBarThickness:26
     }))},
     options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
@@ -4303,14 +4382,14 @@ function renderVolumeChargeChartsInner(athlete){
   // négatives), même teinte de catégorie pour les deux, D- en version
   // atténuée puisque la position par rapport à l'axe suffit à les distinguer.
   const ELEVATION_CATEGORIES = VOLUME_CATEGORIES.filter(c => c.key==="course" || c.key==="velo");
-  const elevByWeek = weeklyElevationByCategory(sessions, periodStartStr, periodEndStr);
+  const elevByMonth = monthlyElevationByCategory(sessions, periodStartStr, periodEndStr);
   const elevDatasets = ELEVATION_CATEGORIES.flatMap(c => ([
-    { label:`${c.label} (D+)`, data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.dPlus || 0)), backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26 },
-    { label:`${c.label} (D-)`, data: weeks.map(w => -Math.round(elevByWeek[w.week]?.[c.key]?.dMinus || 0)), backgroundColor: cssVar(c.colorVar)+"66", stack:"elev", borderRadius:2, maxBarThickness:26 }
+    { label:`${c.label} (D+)`, data: months.map(m => Math.round(elevByMonth[m.year+"-"+m.month]?.[c.key]?.dPlus || 0)), backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26 },
+    { label:`${c.label} (D-)`, data: months.map(m => -Math.round(elevByMonth[m.year+"-"+m.month]?.[c.key]?.dMinus || 0)), backgroundColor: cssVar(c.colorVar)+"66", stack:"elev", borderRadius:2, maxBarThickness:26 }
   ]));
   charts.elevation = new Chart(document.getElementById("chart-elevation"), {
     type:"bar",
-    data:{ labels: wkLabels, datasets: elevDatasets },
+    data:{ labels: moLabels, datasets: elevDatasets },
     options: baseChartOptions({
       plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
         tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
