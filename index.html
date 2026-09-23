@@ -860,87 +860,96 @@ function nutritionMealLabel(v){ const m = NUTRITION_MEAL_TYPES.find(x=>x.value==
 
 // Catalogue des éléments par rôle, avec une estimation calorique indicative
 // pour une PORTION MOYENNE (portion 2) — multipliée par NUTRITION_PORTIONS
-// selon la taille choisie. Valeurs d'ordre de grandeur usuel par élément
-// (pas une table nutritionnelle de référence), suffisantes pour situer les
-// apports face aux dépenses sans viser un comptage calorique précis.
+// selon la taille choisie. Valeurs recalées le 2026-09-23 sur la table
+// CIQUAL (Anses, composition nutritionnelle des aliments, ciqual.anses.fr)
+// pour la teneur en kcal/100g, appliquée à des portions standards inspirées
+// des recommandations GEMRCN/PNNS (ex. ~150g de viande cuite, ~200g de
+// féculent cuit, ~125g de yaourt...) puis arrondies à la dizaine. Quelques
+// entrées composites ("crudités", "charcuterie"...) sont des moyennes de
+// plusieurs aliments CIQUAL proches plutôt qu'une fiche unique ; la whey et
+// les céréales petit-déjeuner ne sont pas référencées dans CIQUAL (produits
+// industriels hors du périmètre de la table), leur valeur reste une
+// estimation générique de marché — signalé ici pour rester transparent.
+// Reste une comparaison indicative pour situer les apports face aux
+// dépenses, pas un comptage calorique clinique.
 const NUTRITION_ITEMS = {
   entree: [
-    { value:"crudites", label:"Crudités", kcal:60 },
-    { value:"charcuterie", label:"Charcuterie", kcal:180 },
-    { value:"soupe", label:"Soupe / velouté", kcal:90 },
-    { value:"oeuf", label:"Œuf (dur, mayo...)", kcal:140 },
-    { value:"poisson_fume", label:"Poisson fumé / mariné", kcal:120 },
+    { value:"crudites", label:"Crudités", kcal:50 },
+    { value:"charcuterie", label:"Charcuterie", kcal:140 },
+    { value:"soupe", label:"Soupe / velouté", kcal:60 },
+    { value:"oeuf", label:"Œuf (dur, mayo...)", kcal:160 },
+    { value:"poisson_fume", label:"Poisson fumé / mariné", kcal:80 },
     { value:"autre", label:"Autre", kcal:100 },
   ],
   plat_proteine: [
-    { value:"viande_rouge", label:"Viande rouge", kcal:280 },
-    { value:"viande_blanche", label:"Viande blanche", kcal:220 },
-    { value:"poisson", label:"Poisson", kcal:200 },
-    { value:"oeuf", label:"Œuf", kcal:220 },
-    { value:"legumineuses", label:"Légumineuses", kcal:180 },
-    { value:"tofu_soja", label:"Tofu / soja", kcal:160 },
-    { value:"autre", label:"Autre", kcal:220 },
+    { value:"viande_rouge", label:"Viande rouge", kcal:190 },
+    { value:"viande_blanche", label:"Viande blanche", kcal:180 },
+    { value:"poisson", label:"Poisson", kcal:120 },
+    { value:"oeuf", label:"Œuf", kcal:200 },
+    { value:"legumineuses", label:"Légumineuses", kcal:230 },
+    { value:"tofu_soja", label:"Tofu / soja", kcal:170 },
+    { value:"autre", label:"Autre", kcal:180 },
   ],
   plat_feculent: [
-    { value:"riz", label:"Riz", kcal:200 },
-    { value:"pates", label:"Pâtes", kcal:220 },
-    { value:"pomme_de_terre", label:"Pomme de terre", kcal:150 },
-    { value:"quinoa", label:"Quinoa", kcal:180 },
-    { value:"pain", label:"Pain", kcal:180 },
-    { value:"semoule", label:"Semoule", kcal:190 },
-    { value:"autre", label:"Autre", kcal:190 },
+    { value:"riz", label:"Riz", kcal:290 },
+    { value:"pates", label:"Pâtes", kcal:300 },
+    { value:"pomme_de_terre", label:"Pomme de terre", kcal:190 },
+    { value:"quinoa", label:"Quinoa", kcal:240 },
+    { value:"pain", label:"Pain", kcal:190 },
+    { value:"semoule", label:"Semoule", kcal:330 },
+    { value:"autre", label:"Autre", kcal:260 },
   ],
   plat_legume: [
-    { value:"legumes_verts", label:"Légumes verts", kcal:50 },
-    { value:"legumes_racines", label:"Légumes racines", kcal:70 },
+    { value:"legumes_verts", label:"Légumes verts", kcal:70 },
+    { value:"legumes_racines", label:"Légumes racines", kcal:60 },
     { value:"legumes_mixtes", label:"Légumes mixtes", kcal:60 },
     { value:"autre", label:"Autre", kcal:60 },
   ],
   dessert: [
-    { value:"laitage_yaourt", label:"Laitage / yaourt", kcal:90 },
-    { value:"fromage", label:"Fromage", kcal:110 },
+    { value:"laitage_yaourt", label:"Laitage / yaourt", kcal:80 },
+    { value:"fromage", label:"Fromage", kcal:120 },
     { value:"patisserie", label:"Pâtisserie", kcal:280 },
-    { value:"fruit", label:"Fruit", kcal:70 },
+    { value:"fruit", label:"Fruit", kcal:80 },
     { value:"compote", label:"Compote", kcal:90 },
-    { value:"chocolat", label:"Chocolat", kcal:150 },
-    { value:"autre", label:"Autre", kcal:120 },
+    { value:"chocolat", label:"Chocolat", kcal:110 },
+    { value:"autre", label:"Autre", kcal:130 },
   ],
   pdj_feculent: [
-    { value:"pain", label:"Pain", kcal:150 },
+    { value:"pain", label:"Pain", kcal:160 },
     { value:"cereales", label:"Céréales", kcal:150 },
-    { value:"biscottes", label:"Biscottes", kcal:130 },
-    { value:"autre", label:"Autre", kcal:150 },
-  ],
-  pdj_proteine: [
-    { value:"oeuf", label:"Œuf(s)", kcal:150 },
-    { value:"blanc_poulet", label:"Blanc de poulet / dinde", kcal:165 },
-    { value:"jambon", label:"Jambon blanc", kcal:80 },
-    { value:"whey", label:"Protéine en poudre (whey)", kcal:120 },
-    { value:"tofu", label:"Tofu / soja", kcal:120 },
+    { value:"biscottes", label:"Biscottes", kcal:100 },
     { value:"autre", label:"Autre", kcal:140 },
   ],
+  pdj_proteine: [
+    { value:"oeuf", label:"Œuf(s)", kcal:170 },
+    { value:"blanc_poulet", label:"Blanc de poulet / dinde", kcal:120 },
+    { value:"jambon", label:"Jambon blanc", kcal:60 },
+    { value:"whey", label:"Protéine en poudre (whey)", kcal:110 },
+    { value:"tofu", label:"Tofu / soja", kcal:110 },
+    { value:"autre", label:"Autre", kcal:110 },
+  ],
   pdj_laitier: [
-    { value:"lait", label:"Lait", kcal:100 },
-    { value:"yaourt", label:"Yaourt", kcal:90 },
-    { value:"fromage_blanc", label:"Fromage blanc", kcal:100 },
-    { value:"autre", label:"Autre", kcal:100 },
+    { value:"lait", label:"Lait", kcal:90 },
+    { value:"yaourt", label:"Yaourt", kcal:80 },
+    { value:"fromage_blanc", label:"Fromage blanc", kcal:80 },
+    { value:"autre", label:"Autre", kcal:80 },
   ],
   pdj_fruit: [
-    { value:"fruit_frais", label:"Fruit frais", kcal:60 },
+    { value:"fruit_frais", label:"Fruit frais", kcal:80 },
     { value:"jus_fruit", label:"Jus de fruit", kcal:90 },
-    { value:"autre", label:"Autre", kcal:60 },
+    { value:"autre", label:"Autre", kcal:80 },
   ],
   pdj_sucre: [
-    { value:"confiture", label:"Confiture / pâte à tartiner", kcal:180 },
-    { value:"viennoiserie", label:"Viennoiserie", kcal:280 },
+    { value:"confiture", label:"Confiture / pâte à tartiner", kcal:50 },
+    { value:"viennoiserie", label:"Viennoiserie", kcal:250 },
     { value:"aucun", label:"Aucun", kcal:0 },
   ],
   collation: [
-    { value:"fruit", label:"Fruit", kcal:60 },
-    { value:"laitage", label:"Laitage", kcal:90 },
-    { value:"oleagineux", label:"Oléagineux", kcal:170 },
-    { value:"barre_cereale", label:"Barre céréale", kcal:150 },
-    { value:"sucrerie", label:"Sucrerie", kcal:180 },
+    { value:"fruit", label:"Fruit", kcal:80 },
+    { value:"laitage", label:"Laitage", kcal:80 },
+    { value:"oleagineux", label:"Oléagineux", kcal:190 },
+    { value:"barre_cereale", label:"Barre céréale", kcal:120 },
+    { value:"sucrerie", label:"Sucrerie", kcal:160 },
     { value:"autre", label:"Autre", kcal:130 },
   ],
 };
@@ -3241,7 +3250,7 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
   const bmr = profileComplete ? bmrAverage(athlete.sex, athlete.weightKg, athlete.heightCm, bmrAge) : null;
 
   return `
-    <div class="ls-chart-sub" style="margin-bottom:14px;">Journal alimentaire simplifié saisi par l'athlète depuis son espace (méthode de l'assiette : entrée/plat/dessert pour déjeuner et dîner, structure allégée pour petit-déjeuner et collations), comparé à une estimation indicative de la dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis.</div>
+    <div class="ls-chart-sub" style="margin-bottom:14px;">Journal alimentaire simplifié saisi par l'athlète depuis son espace (méthode de l'assiette : entrée/plat/dessert pour déjeuner et dîner, structure allégée pour petit-déjeuner et collations), comparé à une estimation indicative de la dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis. Calories par aliment basées sur la table CIQUAL (Anses), pour des portions standards.</div>
     ${profileWarning}
     <div class="ls-stat-grid" style="margin-bottom:18px;">
       <div class="ls-stat"><div class="ls-stat-label">Métabolisme de base</div><div class="ls-stat-value">${bmr!=null? bmr : "—"}${bmr!=null?"<small>kcal/j</small>":""}</div></div>
