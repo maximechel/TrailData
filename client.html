@@ -2713,7 +2713,14 @@ function renderVolumeChargeTabCharts(athleteObj, cd){
       data: months.map(m=> +((volByMonth[m.year+"-"+m.month]?.[c.key]||0).toFixed(1))),
       backgroundColor: cssVar(c.colorVar), stack:"vol", borderRadius:2, maxBarThickness:26
     }))},
-    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } }),
+    options: baseChartOptions({
+      plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+        tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+          borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Manrope", weight:700}, bodyFont:{family:"IBM Plex Mono"},
+          callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${ctx.formattedValue} km` } } },
+      scales:{ x:{ stacked:true, grid:{display:false} },
+        y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")}, title:{display:true, text:"Kilomètres (km)", color:cssVar("--text-muted"), font:{size:10}} } }
+    }),
     plugins:[{ id:"volumeCornerBadge", afterLayout: c => positionChartCornerBadge(c, volumeBadgeEl) }]
   });
   positionChartCornerBadge(charts.volume, volumeBadgeEl);
