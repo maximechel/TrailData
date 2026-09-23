@@ -120,9 +120,6 @@
   .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
-  .ls-chart-corner-badge{position:absolute;top:6px;right:8px;z-index:3;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:5px 9px;text-align:right;box-shadow:0 1px 4px rgba(0,0,0,.10);pointer-events:none;}
-  .ls-chart-corner-badge span{display:block;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin-bottom:1px;}
-  .ls-chart-corner-badge b{display:block;font-family:var(--font-mono);font-size:12.5px;font-weight:700;color:var(--text-primary);white-space:nowrap;}
   .ls-ff-badges{display:flex;gap:14px;margin:2px 0 10px;}
   .ls-ff-circle{display:flex;flex-direction:column;align-items:center;justify-content:center;width:60px;height:60px;border-radius:50%;border:3px solid;flex-shrink:0;}
   .ls-ff-circle .ls-ff-value{font-size:16px;font-weight:800;line-height:1;}
@@ -2573,8 +2570,9 @@ function renderMain(){
     acc.dPlus += (s.dPlus||0); acc.dMinus += (s.dMinus||0);
     return acc;
   }, {dPlus:0, dMinus:0});
-  const periodExactBadgeVolume = periodExactAligned ? "" : `<div class="ls-chart-corner-badge" title="Du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}"><span>Période exacte</span><b>${periodExactKm.toFixed(1)} km</b></div>`;
-  const periodExactBadgeElevation = periodExactAligned ? "" : `<div class="ls-chart-corner-badge" title="Du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}"><span>Période exacte</span><b>D+ ${Math.round(periodExactElev.dPlus)} · D- ${Math.round(periodExactElev.dMinus)} m</b></div>`;
+  const periodSharedNote = "Période partagée avec les autres graphiques de cet onglet.";
+  const periodExactNoteVolume = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">${periodExactKm.toFixed(1)} km</b>`;
+  const periodExactNoteElevation = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">D+ ${Math.round(periodExactElev.dPlus)} m · D- ${Math.round(periodExactElev.dMinus)} m</b>`;
   const color = athleteColor(athlete);
   const envSummary = envSummaryFor(sessions, new Date(), MATRIX_WINDOW_WEEKS);
   const envSessions = sessions.filter(s=>s.source==="strava");
@@ -2694,14 +2692,14 @@ function renderMain(){
       <div class="ls-chart-card">
         <h3>Volume mensuel</h3>
         <div class="ls-chart-sub">Kilomètres par mois, empilés par type d'activité — survolez un mois pour le détail</div>
-        ${periodBarHtml("volume", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-chart-wrap">${periodExactBadgeVolume}<canvas id="chart-volume"></canvas></div>
+        ${periodBarHtml("volume", periodExactNoteVolume)}
+        <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
       </div>
       <div class="ls-chart-card">
         <h3>Dénivelé mensuel par activité</h3>
         <div class="ls-chart-sub">D+ au-dessus de l'axe, D- en dessous, empilés par type d'activité</div>
-        ${periodBarHtml("elevation", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-chart-wrap">${periodExactBadgeElevation}<canvas id="chart-elevation"></canvas></div>
+        ${periodBarHtml("elevation", periodExactNoteElevation)}
+        <div class="ls-chart-wrap"><canvas id="chart-elevation"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC</h3>
@@ -4338,37 +4336,6 @@ function renderAthleteChartsInner(athlete){
   }
 }
 
-// Positionne l'encadré "Période exacte" (.ls-chart-corner-badge) dans le
-// coin du graphique — gauche ou droite — où les barres montent le moins
-// haut, plutôt qu'à un endroit fixe qui risquerait de masquer des données
-// ou la légende ; ancré sous la légende (chartArea.top, pas le haut du
-// canvas). Rappelé à chaque redessin (afterLayout : resize, clic sur la
-// légende, changement de période) pour rester à jour (demande du coach du
-// 2026-09-23).
-function positionChartCornerBadge(chart, badgeEl){
-  if(!badgeEl || !chart.chartArea) return;
-  const area = chart.chartArea;
-  const n = (chart.data.labels||[]).length;
-  const totals = new Array(n).fill(0);
-  chart.data.datasets.forEach((ds, di) => {
-    if(chart.isDatasetVisible && !chart.isDatasetVisible(di)) return;
-    (ds.data||[]).forEach((v,i)=>{ if(typeof v === "number" && v>0) totals[i]+=v; });
-  });
-  const mid = Math.ceil(n/2);
-  const leftMax = totals.slice(0, mid).reduce((m,v)=>Math.max(m,v), 0);
-  const rightMax = totals.slice(mid).reduce((m,v)=>Math.max(m,v), 0);
-  badgeEl.style.top = (area.top + 6) + "px";
-  if(rightMax <= leftMax){
-    badgeEl.style.left = "auto";
-    badgeEl.style.right = Math.max(6, chart.canvas.clientWidth - area.right + 8) + "px";
-    badgeEl.style.textAlign = "right";
-  } else {
-    badgeEl.style.right = "auto";
-    badgeEl.style.left = (area.left + 8) + "px";
-    badgeEl.style.textAlign = "left";
-  }
-}
-
 function renderVolumeChargeChartsInner(athlete){
   const common = trainingChartContext(athlete);
   const { sessions, dailyVals, acute, chronic, color, labels, sl, periodStartStr, periodEndStr, periodStart, periodEnd, weeks, wkLabels } = common;
@@ -4387,8 +4354,8 @@ function renderVolumeChargeChartsInner(athlete){
   // qu'hebdomadaire (demande du coach du 2026-09-23) — une barre par mois
   // calendaire touché par la période, la première et la dernière pouvant
   // être partielles si la période ne commence/finit pas en début/fin de
-  // mois (voir l'encadré "Période exacte" affiché sur le graphique dans ce
-  // cas, calculé dans renderMain).
+  // mois (voir la note "Période exacte sélectionnée" dans la barre de
+  // période dans ce cas, calculée dans renderMain).
   const months = monthsBetween(periodStart, periodEnd);
   const moLabels = months.map(m => monthLabelFrShort(m.year, m.month));
 
@@ -4396,9 +4363,7 @@ function renderVolumeChargeChartsInner(athlete){
   // un segment de couleur par catégorie ; la légende (cliquable) permet de
   // masquer une catégorie, et le survol détaille chaque segment.
   const volByMonth = monthlyKmByCategory(sessions, periodStartStr, periodEndStr);
-  const volumeCanvas = document.getElementById("chart-volume");
-  const volumeBadgeEl = volumeCanvas.parentElement.querySelector(".ls-chart-corner-badge");
-  charts.volume = new Chart(volumeCanvas, {
+  charts.volume = new Chart(document.getElementById("chart-volume"), {
     type:"bar",
     data:{ labels: moLabels, datasets: VOLUME_CATEGORIES.map(c=>({
       label: c.label,
@@ -4412,10 +4377,8 @@ function renderVolumeChargeChartsInner(athlete){
           callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${ctx.formattedValue} km` } } },
       scales:{ x:{ stacked:true, grid:{display:false} },
         y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")}, title:{display:true, text:"Kilomètres (km)", color:cssVar("--text-muted"), font:{size:10}} } }
-    }),
-    plugins:[{ id:"volumeCornerBadge", afterLayout: c => positionChartCornerBadge(c, volumeBadgeEl) }]
+    })
   });
-  positionChartCornerBadge(charts.volume, volumeBadgeEl);
 
   // Le dénivelé n'a de sens que pour la course à pied et le vélo — musculation,
   // ski et le reste sont écartés du graphique (demande du coach). D+ et D-
@@ -4429,9 +4392,7 @@ function renderVolumeChargeChartsInner(athlete){
     { label:`${c.label} (D+)`, data: months.map(m => Math.round(elevByMonth[m.year+"-"+m.month]?.[c.key]?.dPlus || 0)), backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26 },
     { label:`${c.label} (D-)`, data: months.map(m => -Math.round(elevByMonth[m.year+"-"+m.month]?.[c.key]?.dMinus || 0)), backgroundColor: cssVar(c.colorVar)+"66", stack:"elev", borderRadius:2, maxBarThickness:26 }
   ]));
-  const elevationCanvas = document.getElementById("chart-elevation");
-  const elevationBadgeEl = elevationCanvas.parentElement.querySelector(".ls-chart-corner-badge");
-  charts.elevation = new Chart(elevationCanvas, {
+  charts.elevation = new Chart(document.getElementById("chart-elevation"), {
     type:"bar",
     data:{ labels: moLabels, datasets: elevDatasets },
     options: baseChartOptions({
@@ -4441,10 +4402,8 @@ function renderVolumeChargeChartsInner(athlete){
           callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${Math.abs(ctx.parsed.y)} m` } } },
       scales:{ x:{ stacked:true, grid:{display:false} },
         y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted"), callback:v=>Math.abs(v)}, title:{display:true, text:"D+ (m) / D- (m)", color:cssVar("--text-muted"), font:{size:10}} } }
-    }),
-    plugins:[{ id:"elevationCornerBadge", afterLayout: c => positionChartCornerBadge(c, elevationBadgeEl) }]
+    })
   });
-  positionChartCornerBadge(charts.elevation, elevationBadgeEl);
 
   const zoneColors = [cssVar("--z1"),cssVar("--z2"),cssVar("--z3"),cssVar("--z4"),cssVar("--z5")];
   charts.zones = new Chart(document.getElementById("chart-zones"), {
