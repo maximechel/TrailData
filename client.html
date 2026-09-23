@@ -358,7 +358,7 @@ let nutritionEntries = [];
 let athleteTests = []; // tests de terrain saisis par le coach (lecture seule côté athlète — voir onglet Athlète)
 let santeDraft = null;
 let santeSaving = false;
-let charts = { load: null, formFatigue: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
+let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
 let chartPeriod = null;
 let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
@@ -1406,6 +1406,48 @@ function classifyACWR(v){
   if(v <= 1.5) return { key:"serious", label:"Prudence" };
   return { key:"critical", label:"Risque élevé" };
 }
+
+// Seuils de lecture du TSB (Training Stress Balance = CTL - ATL, voir
+// acwrSeries) -- convention standard TrainingPeaks/Coggan (Performance
+// Management Chart), la même que Suunto/Garmin utilisent : pas un seuil
+// propriétaire, juste la lecture usuelle du même calcul. Voir index.html
+// pour le même graphique côté coach.
+function classifyTSB(v){
+  if(v == null || !isFinite(v)) return { key:"none", label:"Pas assez d'historique" };
+  if(v >= 15) return { key:"warning", label:"Perdre la forme ou récupérer" };
+  if(v >= -10) return { key:"good", label:"Équilibre d'entraînement" };
+  if(v >= -30) return { key:"serious", label:"Entraînement productif" };
+  return { key:"critical", label:"Intensité trop élevée" };
+}
+
+// Bandes de fond colorées derrière la courbe TSB -- même principe que le
+// graphique "Forme" de Suunto (zone de lecture en fond plutôt qu'en légende
+// seule). beforeDatasetsDraw : après le calcul des échelles, avant le tracé
+// de la courbe (donc en fond).
+const tsbZoneBandsPlugin = {
+  id: "tsbZoneBands",
+  beforeDatasetsDraw(chart){
+    if(chart.config.type !== "line" || chart.canvas.id !== "chart-tsb") return;
+    const { ctx, chartArea, scales } = chart;
+    const y = scales.y;
+    if(!chartArea || !y) return;
+    const bands = [
+      { from: 15, to: y.max, key: "warning" },
+      { from: -10, to: 15, key: "good" },
+      { from: -30, to: -10, key: "serious" },
+      { from: y.min, to: -30, key: "critical" },
+    ];
+    ctx.save();
+    bands.forEach(b=>{
+      const top = y.getPixelForValue(Math.min(b.to, y.max));
+      const bottom = y.getPixelForValue(Math.max(b.from, y.min));
+      if(bottom <= top) return;
+      ctx.fillStyle = cssVar(statusVar(b.key)) + "1f";
+      ctx.fillRect(chartArea.left, top, chartArea.right - chartArea.left, bottom - top);
+    });
+    ctx.restore();
+  }
+};
 function isoMonday(dateStr){
   const d = new Date(dateStr);
   const day = (d.getDay() + 6) % 7;
@@ -1805,12 +1847,14 @@ function renderMain(){
     return;
   }
   const sess = sessions.slice().sort((a,b)=> a.date < b.date ? 1 : -1);
-  const { dates: ffDates, acwr, ctl, atl } = acwrSeries(sess);
+  const { dates: ffDates, acwr, ctl, atl, tsb } = acwrSeries(sess);
   const acuteVal = acuteChronicLatest(sess).acute;
   const chronicVal = acuteChronicLatest(sess).chronic;
   ensureChartPeriod();
   const ctlNow = valueAtOrBefore(ffDates, ctl, chartPeriod.end);
   const atlNow = valueAtOrBefore(ffDates, atl, chartPeriod.end);
+  const tsbNow = valueAtOrBefore(ffDates, tsb, chartPeriod.end);
+  const tsbCls = classifyTSB(tsbNow);
   const lastACWR = acwr.length ? acwr[acwr.length-1] : null;
   const cls = classifyACWR(lastACWR);
   const wk = sum7(sess);
@@ -1977,6 +2021,7 @@ function renderMain(){
 
     <div class="ls-tab-panel" id="tab-panel-etat-forme" ${activeTab!=="etat-forme"?"hidden":""}>
     <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">État de forme (TSB)</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(tsbCls.key)});color:${statusInk(tsbCls.key)}">${tsbNow!=null? tsbNow.toFixed(0):"—"} · ${tsbCls.label}</span></div></div>
       <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
     </div>
 
@@ -1986,14 +2031,8 @@ function renderMain(){
 
     <div class="ls-charts">
       <div class="ls-chart-card full">
-        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
-        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
-        ${periodBarHtml("acwr", "Période partagée avec les autres graphiques temporels du portail.")}
-        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
         <h3>Forme / Fatigue (CTL / ATL)</h3>
-        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge pondérée par la technicité du terrain.</div>
+        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge pondérée par la technicité du terrain.</div>
         ${periodBarHtml("formfatigue", "Période partagée avec les autres graphiques temporels du portail.")}
         <div class="ls-ff-badges">
           <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
@@ -2007,6 +2046,18 @@ function renderMain(){
         </div>
         <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeurs à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates ci-dessus pour relire ton état de forme à un autre moment.</div>
         <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Forme (TSB)</h3>
+        <div class="ls-chart-sub">TSB = Forme (CTL) − Fatigue (ATL), même convention que le graphique "Forme" de Suunto/TrainingPeaks. ≥ 15 : perdre la forme/récupérer · -10 à 15 : équilibre d'entraînement · -30 à -10 : entraînement productif · &lt; -30 : intensité trop élevée.</div>
+        ${periodBarHtml("tsb", "Période partagée avec Forme / Fatigue et ACWR.")}
+        <div class="ls-chart-wrap tall"><canvas id="chart-tsb"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
+        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
+        ${periodBarHtml("acwr", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
       </div>
     </div>
 
@@ -2068,7 +2119,7 @@ function renderMain(){
   // l'une déclenche un renderMain() qui remet toutes les autres à jour aussi
   // -- y compris celles des deux autres onglets (Athlète / Volume & Charge /
   // État de forme se partagent ce même état).
-  ["matrix","load","formfatigue","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
+  ["matrix","load","formfatigue","tsb","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
     const startEl = document.getElementById("period-start-"+suffix);
     const endEl = document.getElementById("period-end-"+suffix);
     const resetBtn = document.getElementById("btn-period-reset-"+suffix);
@@ -2288,7 +2339,7 @@ function renderActiveTabCharts(){
 }
 function renderChartsInner(athleteObj){
   const sess = sessions;
-  const { dates, acute, chronic, acwr, ctl, atl } = acwrSeries(sess);
+  const { dates, acute, chronic, acwr, ctl, atl, tsb } = acwrSeries(sess);
   const daily = dailySeries(sess);
   const dailyVals = dates.map(d=>daily[d]||0);
   const color = athleteColor(athleteObj);
@@ -2311,7 +2362,7 @@ function renderChartsInner(athleteObj){
   // construit que les graphiques dont les canvas sont dans son panel (les
   // canvas des onglets non actifs existent dans le DOM mais restent cachés
   // -- voir renderActiveTabCharts).
-  const cd = { sess, dates, acute, chronic, acwr, ctl, atl, dailyVals, color,
+  const cd = { sess, dates, acute, chronic, acwr, ctl, atl, tsb, dailyVals, color,
     periodStart, periodEnd, periodStartStr, periodEndStr, oldLabel, newLabel, sl, labels };
 
   if(activeTab === "athlete"){
@@ -2522,7 +2573,7 @@ function renderVolumeChargeTabCharts(athleteObj, cd){
 
 /* ---------------------------- graphiques : onglet État de forme ---------------------------- */
 function renderEtatFormeTabCharts(cd){
-  const { labels, acwr, ctl, atl } = cd;
+  const { labels, acwr, ctl, atl, tsb } = cd;
 
   charts.formFatigue = new Chart(document.getElementById("chart-form-fatigue"), {
     type:"line",
@@ -2531,6 +2582,18 @@ function renderEtatFormeTabCharts(cd){
       { label:"Fatigue (ATL)", data: cd.sl(atl), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:2 }
     ]},
     options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. (moyenne exp.)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  charts.tsb = new Chart(document.getElementById("chart-tsb"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"TSB", data: cd.sl(tsb), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", borderWidth:2, pointRadius:0, tension:.25, spanGaps:true }
+    ]},
+    plugins:[tsbZoneBandsPlugin],
+    options: baseChartOptions({
+      plugins:{ legend:{display:false} },
+      scales:{ y:{ suggestedMin:-40, suggestedMax:25, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+    })
   });
 
   const acwrColors = cd.sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
