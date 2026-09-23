@@ -422,13 +422,16 @@ let nutritionEntries = [];
 let athleteTests = []; // tests de terrain saisis par le coach (lecture seule côté athlète — voir onglet Athlète)
 let santeDraft = null;
 let santeSaving = false;
-let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
+let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null, nutritionCompare: null };
 let chartPeriod = null;
 let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
 let terrainCompareB = null;
 let activeTab = "athlete";
 let nutritionSelectedDate = null; // "YYYY-MM-DD" — jour affiché/édité dans l'onglet Nutrition ; par défaut aujourd'hui (voir renderNutritionTabHtml).
+let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe et les encarts de l'onglet Analyse de séance & contexte environnemental, indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond.
+let nutritionPeriod = null; // { start, end } — période affichée dans le sous-onglet "Suivi sur une période" de l'onglet Nutrition ; par défaut les 2 dernières semaines.
+let nutritionView = "jour"; // "jour" | "periode" — sous-onglet actif dans l'onglet Nutrition : journal du jour (lecture/écriture) ou suivi sur une période (lecture seule).
 
 /* ---------- onglet Santé : questionnaire de Hooper + avatar de gênes ----------
    Échelle Hooper 1-7 par item : 1 = très mauvais/très élevé, 7 = très bien/très
@@ -519,6 +522,18 @@ function defaultChartPeriod(){
   return { start: fmtDate(start), end: fmtDate(end) };
 }
 function ensureChartPeriod(){ if(!chartPeriod) chartPeriod = defaultChartPeriod(); return chartPeriod; }
+function defaultEnvChartPeriod(){
+  const end = new Date();
+  const start = new Date(end); start.setMonth(start.getMonth()-1);
+  return { start: fmtDate(start), end: fmtDate(end) };
+}
+function ensureEnvChartPeriod(){ if(!envChartPeriod) envChartPeriod = defaultEnvChartPeriod(); return envChartPeriod; }
+function defaultNutritionPeriod(){
+  const end = new Date();
+  const start = new Date(end); start.setDate(start.getDate()-14);
+  return { start: fmtDate(start), end: fmtDate(end) };
+}
+function ensureNutritionPeriod(){ if(!nutritionPeriod) nutritionPeriod = defaultNutritionPeriod(); return nutritionPeriod; }
 function ensureTerrainComparePeriods(periodStartStr, periodEndStr, weeks){
   if(!terrainCompareA){
     const end = new Date(periodStartStr+"T00:00:00");
@@ -1327,6 +1342,134 @@ function renderNutritionTabHtml(){
   `;
 }
 
+// Sous-onglet "Suivi sur une période" de l'onglet Nutrition : équivalent
+// pour l'athlète de la "Vue coach" du dashboard -- journal alimentaire jour
+// par jour sur une période choisie, avec apports estimés (méthode de
+// l'assiette) comparés à la dépense calorique estimée du jour (métabolisme
+// de base x activité + calories de séance si entraînement importé).
+function renderNutritionTrendTabHtml(){
+  const profileComplete = !!(athlete.sex && athlete.activityLevel && athlete.weightKg && athlete.heightCm && athlete.birthDate);
+  const period = ensureNutritionPeriod();
+  const entriesInPeriod = nutritionEntries.filter(n=> n.date >= period.start && n.date <= period.end);
+  const sessionsInPeriod = sessions.filter(s=> s.date >= period.start && s.date <= period.end);
+
+  const dates = Array.from(new Set([...entriesInPeriod.map(n=>n.date), ...sessionsInPeriod.map(s=>s.date)])).sort((a,b)=> a<b?1:-1);
+
+  const dayRows = dates.map(date=>{
+    const dayEntries2 = entriesInPeriod.filter(n=>n.date===date).sort((a,b)=>{
+      const order = { petit_dejeuner:0, collation_matin:1, dejeuner:2, collation:3, diner:4 };
+      return (order[a.mealType]??9) - (order[b.mealType]??9);
+    });
+    const daySessions = sessionsInPeriod.filter(s=>s.date===date);
+    const apports = dayEntries2.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0);
+    const dep = profileComplete ? dailyExpenditure(athlete, daySessions) : null;
+    const sev = dep ? nutritionBalanceSeverity(apports, dep.total) : { key:"none", label:"—" };
+    const mealsLine = dayEntries2.map(e=> `<div><strong>${nutritionMealLabel(e.mealType)}</strong> — ${nutritionMealSummaryLine(e)}</div>`).join("");
+    return `<tr>
+      <td>${fmtDateFr(date)}</td>
+      <td style="font-size:11.5px;line-height:1.6;">${mealsLine || "—"}</td>
+      <td>${dayEntries2.length ? apports + " kcal" : "—"}</td>
+      <td>${dep ? dep.total + " kcal" + (dep.sessionsMissingHr ? ` <span class="ls-legend-note" style="display:inline;">(${dep.sessionsMissingHr} séance${dep.sessionsMissingHr>1?"s":""} sans FC ignorée${dep.sessionsMissingHr>1?"s":""})</span>` : "") : "—"}</td>
+      <td>${dep && dayEntries2.length ? `<span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${sev.label}</span>` : "—"}</td>
+    </tr>`;
+  }).join("");
+
+  const daysWithBoth = dates.filter(date=>{
+    const hasEntry = entriesInPeriod.some(n=>n.date===date);
+    return hasEntry && profileComplete;
+  });
+  const avgApports = daysWithBoth.length ? Math.round(daysWithBoth.reduce((sum,date)=> sum + entriesInPeriod.filter(n=>n.date===date).reduce((s,e)=>s+nutritionEntryKcal(e),0), 0) / daysWithBoth.length) : null;
+  const avgDepense = daysWithBoth.length ? Math.round(daysWithBoth.reduce((sum,date)=>{
+    const dep = dailyExpenditure(athlete, sessionsInPeriod.filter(s=>s.date===date));
+    return sum + (dep ? dep.total : 0);
+  }, 0) / daysWithBoth.length) : null;
+
+  const profileWarning = !profileComplete ? `
+    <div class="ls-panel" style="margin-bottom:16px;">
+      <div class="ls-empty">Ton coach doit renseigner ton profil (sexe, niveau d'activité, taille, poids, date de naissance) pour qu'on puisse estimer ta dépense calorique. Le journal alimentaire reste visible ci-dessous.</div>
+    </div>` : "";
+
+  const bmrAge = profileComplete ? ageFromBirthDate(athlete.birthDate) : null;
+  const bmr = profileComplete ? bmrAverage(athlete.sex, athlete.weightKg, athlete.heightCm, bmrAge) : null;
+
+  return `
+    <div class="ls-chart-sub" style="margin-bottom:14px;">Ton journal alimentaire (méthode de l'assiette), comparé à une estimation indicative de ta dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis. Calories par aliment basées sur la table CIQUAL (Anses), pour des portions standards.</div>
+    ${profileWarning}
+    <div class="ls-stat-grid" style="margin-bottom:18px;">
+      <div class="ls-stat"><div class="ls-stat-label">Métabolisme de base</div><div class="ls-stat-value">${bmr!=null? bmr : "—"}${bmr!=null?"<small>kcal/j</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Jours avec repas (période)</div><div class="ls-stat-value">${new Set(entriesInPeriod.map(n=>n.date)).size}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Apports moyens / jour</div><div class="ls-stat-value">${avgApports!=null? avgApports : "—"}${avgApports!=null?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Dépense moyenne / jour</div><div class="ls-stat-value">${avgDepense!=null? avgDepense : "—"}${avgDepense!=null?"<small>kcal</small>":""}</div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Écart moyen</div><div class="ls-stat-value">${avgApports!=null && avgDepense!=null ? (avgApports-avgDepense>0?"+":"")+(avgApports-avgDepense) : "—"}${avgApports!=null && avgDepense!=null?"<small>kcal</small>":""}</div></div>
+    </div>
+    ${profileComplete ? `
+    <div class="ls-chart-card" style="margin-bottom:18px;">
+      <h3>Apports vs dépense — jour par jour</h3>
+      <div class="ls-chart-sub">Comparaison quotidienne sur la période sélectionnée ci-dessous. Une journée sans repas saisi n'affiche pas de barre "Apports" (pas de donnée saisie, pas un 0 kcal).</div>
+      <div class="ls-chart-wrap tall"><canvas id="chart-nutrition-compare"></canvas></div>
+      <div class="ls-sante-legend-row">
+        <div class="ls-sante-legend-item"><span class="ls-sante-legend-swatch" style="background:var(--cat-2);height:9px;border-radius:2px;"></span>Apports</div>
+        <div class="ls-sante-legend-item"><span class="ls-sante-legend-swatch" style="background:var(--cat-1);height:9px;border-radius:2px;"></span>Dépense</div>
+      </div>
+    </div>` : ""}
+    <div class="ls-period-bar">
+      <div class="ls-field">
+        <label>Période — début</label>
+        <input type="date" id="nutrition-period-start" value="${period.start}" max="${period.end}">
+      </div>
+      <div class="ls-period-arrow">→</div>
+      <div class="ls-field">
+        <label>Période — fin</label>
+        <input type="date" id="nutrition-period-end" value="${period.end}" min="${period.start}">
+      </div>
+      <button class="ls-btn small ghost" type="button" id="btn-nutrition-period-reset">Réinitialiser (2 semaines)</button>
+      <div class="ls-period-note">Par défaut les 2 dernières semaines (repas quotidiens, contrairement aux séances) — élargis pour voir plus loin dans l'historique.</div>
+    </div>
+    ${dates.length === 0
+      ? '<div class="ls-panel"><div class="ls-empty">Aucun repas saisi sur cette période.</div></div>'
+      : `<div class="ls-table-card">
+      <div class="ls-table-head"><h3>Journal (${dates.length} jour${dates.length>1?"s":""})</h3></div>
+      <div class="ls-table-scroll">
+        <table class="ls-log">
+          <thead><tr><th>Date</th><th>Repas</th><th>Apports</th><th>Dépense</th><th>Écart</th></tr></thead>
+          <tbody>${dayRows}</tbody>
+        </table>
+      </div>
+    </div>`}
+  `;
+}
+
+// Graphique "Apports vs dépense — jour par jour" du sous-onglet "Suivi sur
+// une période" -- une barre par jour sur toute la période choisie dans le
+// sélecteur juste en dessous (voir renderNutritionTrendTabHtml).
+function renderNutritionTrendChart(){
+  if(typeof Chart === "undefined") return;
+  const canvas = document.getElementById("chart-nutrition-compare");
+  if(!canvas) return;
+  const period = ensureNutritionPeriod();
+  const dates = dateRangeDays(period.start, period.end);
+  const labels = dates.map(fmtDayMonth);
+  const apportsVals = dates.map(date=>{
+    const dayEntries2 = nutritionEntries.filter(n=>n.date===date);
+    return dayEntries2.length ? dayEntries2.reduce((sum,e)=> sum + nutritionEntryKcal(e), 0) : null;
+  });
+  const depenseVals = dates.map(date=>{
+    const dep = dailyExpenditure(athlete, sessions.filter(s=>s.date===date));
+    return dep ? dep.total : null;
+  });
+  charts.nutritionCompare = new Chart(canvas, {
+    type: "bar",
+    data: { labels, datasets: [
+      { label:"Apports", data: apportsVals, backgroundColor: cssVar("--cat-2"), borderRadius:3, maxBarThickness:22 },
+      { label:"Dépense", data: depenseVals, backgroundColor: cssVar("--cat-1"), borderRadius:3, maxBarThickness:22 }
+    ]},
+    options: baseChartOptions({
+      plugins:{ legend:{ display:false } },
+      scales:{ y:{ title:{display:true, text:"kcal / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+    })
+  });
+}
+
 function bindSanteEvents(main){
   main.querySelectorAll("[data-hooper-item]").forEach(b=> b.addEventListener("click", ()=>
     setSanteHooperValue(b.getAttribute("data-hooper-item"), parseInt(b.getAttribute("data-hooper-value"),10))));
@@ -1686,13 +1829,8 @@ function envAdjustedDurationWithTerrain(s){
   if(combined == null) return s.envAdjustedDuration;
   return s.duration/(1+combined);
 }
-function envSummaryFor(sessionsArr, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  const eligible = sessionsArr.filter(s=>{
-    if(s.envCombinedFactor == null) return false;
-    const d = new Date(s.date+"T00:00:00");
-    return !isNaN(d) && d >= start && d <= endDate;
-  });
+function envSummaryForRange(sessionsArr, startISO, endISO){
+  const eligible = sessionsArr.filter(s=> s.envCombinedFactor != null && s.date >= startISO && s.date <= endISO);
   if(eligible.length === 0) return { count:0 };
   const avg = arr => {
     const vals = arr.filter(v=>v!=null);
@@ -2040,12 +2178,14 @@ function renderMain(){
   const periodExactNoteVolume = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">${periodExactKm.toFixed(1)} km</b>`;
   const periodExactNoteElevation = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">D+ ${Math.round(periodExactElev.dPlus)} m · D- ${Math.round(periodExactElev.dMinus)} m</b>`;
   const color = athleteColor(athlete);
-  const envSummary = envSummaryFor(sess, new Date(), MATRIX_WINDOW_WEEKS);
+  ensureEnvChartPeriod();
+  const envSummary = envSummaryForRange(sess, envChartPeriod.start, envChartPeriod.end);
   const envSessions = sess.filter(s=>s.source==="strava");
   ensureChartPeriod();
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
   ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
   ensureSanteDraft();
+  ensureNutritionPeriod();
   const testsSummary = athleteTestsSummaryFor(athlete.id);
 
   main.innerHTML = `
@@ -2250,8 +2390,21 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
+      <div class="ls-period-bar">
+        <div class="ls-field">
+          <label>Période — début</label>
+          <input type="date" id="env-period-start" value="${envChartPeriod.start}" max="${envChartPeriod.end}">
+        </div>
+        <div class="ls-period-arrow">→</div>
+        <div class="ls-field">
+          <label>Période — fin</label>
+          <input type="date" id="env-period-end" value="${envChartPeriod.end}" min="${envChartPeriod.start}">
+        </div>
+        <button class="ls-btn small ghost" type="button" id="btn-env-period-reset">Réinitialiser (1 mois)</button>
+        <div class="ls-period-note">Filtre les encarts et le graphe ci-dessous sur cette période — par défaut le dernier mois pour rester lisible ; élargis-la pour voir plus loin dans l'historique.</div>
+      </div>
       <div class="ls-stat-grid ls-env-stat-grid" style="margin-bottom:18px;">
-        <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Séances avec données</div><div class="ls-stat-value">${envSummary.count}</div></div>
         <div class="ls-stat"><div class="ls-stat-label">Chaleur — température moyenne</div><div class="ls-stat-value">${envSummary.avgTemp!=null? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Altitude moyenne</div><div class="ls-stat-value">${envSummary.avgAltitude!=null? envSummary.avgAltitude.toFixed(0):"—"}<small>m</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Vent moyen</div><div class="ls-stat-value">${envSummary.avgWind!=null? envSummary.avgWind.toFixed(1):"—"}<small>m/s</small></div></div>
@@ -2260,7 +2413,7 @@ function renderMain(){
       </div>
       <div class="ls-chart-card full">
         <h3>Durée réelle vs ajustée</h3>
-        <div class="ls-chart-sub">Durée de chaque séance Strava (ligne grise en pointillés) comparée à la durée qu'elle aurait donnée en conditions neutres sur terrain roulant (ligne pleine) — permet de comparer équitablement des séances faites dans des conditions différentes.</div>
+        <div class="ls-chart-sub">Durée de chaque séance Strava (ligne grise en pointillés) comparée à la durée qu'elle aurait donnée en conditions neutres sur terrain roulant (ligne pleine) — permet de comparer équitablement des séances faites dans des conditions différentes. Période : du ${fmtDateFr(envChartPeriod.start)} au ${fmtDateFr(envChartPeriod.end)}.</div>
         <div class="ls-chart-wrap" id="env-chart-wrap"><canvas id="chart-env-trend"></canvas></div>
       </div>
       ${envSessions.length === 0
@@ -2279,7 +2432,11 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
-      ${renderNutritionTabHtml()}
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button type="button" class="ls-btn small ${nutritionView==="jour"?"primary":"ghost"}" data-nutrition-view="jour">Journal du jour</button>
+        <button type="button" class="ls-btn small ${nutritionView==="periode"?"primary":"ghost"}" data-nutrition-view="periode">Suivi sur une période</button>
+      </div>
+      ${nutritionView==="periode" ? renderNutritionTrendTabHtml() : renderNutritionTabHtml()}
     </div>
   `;
 
@@ -2353,6 +2510,44 @@ function renderMain(){
     terrainCompareB = { start: v < terrainCompareB.start ? v : terrainCompareB.start, end: v };
     renderMain();
   });
+  const envPeriodStart = document.getElementById("env-period-start");
+  const envPeriodEnd = document.getElementById("env-period-end");
+  const envPeriodResetBtn = document.getElementById("btn-env-period-reset");
+  if(envPeriodStart) envPeriodStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    envChartPeriod = { start: v, end: v > envChartPeriod.end ? v : envChartPeriod.end };
+    renderMain();
+  });
+  if(envPeriodEnd) envPeriodEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    envChartPeriod = { start: v < envChartPeriod.start ? v : envChartPeriod.start, end: v };
+    renderMain();
+  });
+  if(envPeriodResetBtn) envPeriodResetBtn.addEventListener("click", ()=>{
+    envChartPeriod = defaultEnvChartPeriod();
+    renderMain();
+  });
+  const nutritionPeriodStart = document.getElementById("nutrition-period-start");
+  const nutritionPeriodEnd = document.getElementById("nutrition-period-end");
+  const nutritionPeriodResetBtn = document.getElementById("btn-nutrition-period-reset");
+  if(nutritionPeriodStart) nutritionPeriodStart.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    nutritionPeriod = { start: v, end: v > nutritionPeriod.end ? v : nutritionPeriod.end };
+    renderMain();
+  });
+  if(nutritionPeriodEnd) nutritionPeriodEnd.addEventListener("change", e=>{
+    const v = e.target.value; if(!v) return;
+    nutritionPeriod = { start: v < nutritionPeriod.start ? v : nutritionPeriod.start, end: v };
+    renderMain();
+  });
+  if(nutritionPeriodResetBtn) nutritionPeriodResetBtn.addEventListener("click", ()=>{
+    nutritionPeriod = defaultNutritionPeriod();
+    renderMain();
+  });
+  main.querySelectorAll("[data-nutrition-view]").forEach(b=> b.addEventListener("click", ()=>{
+    nutritionView = b.getAttribute("data-nutrition-view");
+    renderMain();
+  }));
   main.querySelectorAll("[data-technicity-session]").forEach(sel=>{
     sel.addEventListener("change", e=>{
       updateTechnicity(e.target.getAttribute("data-technicity-session"), e.target.value);
@@ -2477,12 +2672,13 @@ function renderEnvChart(athleteObj, envSessions){
     wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphique indisponible (bibliothèque non chargée). Recharge la page.</div>';
     return;
   }
+  const { start: envPeriodStart, end: envPeriodEnd } = ensureEnvChartPeriod();
   const eligible = envSessions
-    .filter(s=>s.envAdjustedDuration!=null)
+    .filter(s=>s.envAdjustedDuration!=null && s.date>=envPeriodStart && s.date<=envPeriodEnd)
     .slice()
     .sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   if(eligible.length === 0){
-    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec données environnementales pour le moment.</div>';
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec données environnementales sur cette période.</div>';
     return;
   }
   wrap.innerHTML = '<canvas id="chart-env-trend"></canvas>';
@@ -2519,6 +2715,9 @@ function renderActiveTabCharts(){
     destroyCharts();
     const envSessions = sessions.filter(s=>s.source==="strava");
     renderEnvChart(athlete, envSessions);
+  } else if(activeTab === "nutrition"){
+    destroyCharts();
+    if(nutritionView === "periode") renderNutritionTrendChart();
   } else {
     destroyCharts();
   }
