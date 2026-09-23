@@ -2016,7 +2016,7 @@ function renderMain(){
 
     <div class="ls-charts">
       <div class="ls-chart-card full">
-        <h3>Profil du coureur — Runner Matrix</h3>
+        <h3>Profil coureur</h3>
         <div class="ls-chart-sub">6 branches notées 0-100 par rapport à ton propre historique — pas un barème absolu. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}. Montée et Descente corrigées de la technicité du terrain.</div>
         ${periodBarHtml("matrix", `Période de comparaison (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date) — partagée avec les autres graphiques temporels du portail (onglets Athlète, Volume & Charge, État de forme) : la modifier ici la change partout ailleurs.`)}
         <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
