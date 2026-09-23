@@ -1769,26 +1769,26 @@ function envAdjustedDurationWithTerrain(s){
   return s.duration/(1+combined);
 }
 
-// Résumé du rapport environnemental sur une fenêtre glissante de `weeks`
-// semaines se terminant à `endDate` — uniquement les séances Strava pour
-// lesquelles le calcul a abouti (flux GPS + météo historique disponibles).
-// count = 0 si aucune séance éligible sur la période (renvoie alors un objet
-// minimal, à tester avant de lire les autres champs).
-function envSummaryFor(sessions, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  const eligible = sessions.filter(s=>{
-    if(s.envCombinedFactor == null) return false;
-    const d = new Date(s.date+"T00:00:00");
-    return !isNaN(d) && d >= start && d <= endDate;
-  });
+// Résumé du rapport environnemental sur la période [startISO, endISO] —
+// celle du sélecteur de dates affiché juste en dessous (envChartPeriod).
+// Uniquement les séances Strava pour lesquelles le calcul a abouti (flux
+// GPS + météo historique disponibles). count = 0 si aucune séance éligible
+// sur la période (renvoie alors un objet minimal, à tester avant de lire
+// les autres champs).
+function envSummaryForRange(sessions, startISO, endISO){
+  const eligible = sessions.filter(s=> s.envCombinedFactor != null && s.date >= startISO && s.date <= endISO);
   if(eligible.length === 0) return { count:0 };
-  const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
-  const combined = eligible.map(envCombinedWithTerrain);
+  const avg = arr => {
+    const vals = arr.filter(v=>v!=null);
+    return vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : null;
+  };
   return {
     count: eligible.length,
     avgTemp: avg(eligible.map(s=>s.envTempC)),
-    avgCombined: avg(combined),
-    markedCount: combined.filter(v=>v >= 0.18).length,
+    avgAltitude: avg(eligible.map(s=>s.envMeanAltitudeM)),
+    avgWind: avg(eligible.map(s=>s.envWindMs)),
+    avgTerrain: avg(eligible.map(envTerrainFactor)),
+    avgCombined: avg(eligible.map(envCombinedWithTerrain)),
   };
 }
 
@@ -2574,10 +2574,10 @@ function renderMain(){
   const periodExactNoteVolume = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">${periodExactKm.toFixed(1)} km</b>`;
   const periodExactNoteElevation = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">D+ ${Math.round(periodExactElev.dPlus)} m · D- ${Math.round(periodExactElev.dMinus)} m</b>`;
   const color = athleteColor(athlete);
-  const envSummary = envSummaryFor(sessions, new Date(), MATRIX_WINDOW_WEEKS);
+  ensureEnvChartPeriod();
+  const envSummary = envSummaryForRange(sessions, envChartPeriod.start, envChartPeriod.end);
   const envSessions = sessions.filter(s=>s.source==="strava");
   ensureChartPeriod();
-  ensureEnvChartPeriod();
   ensureNutritionPeriod();
   const nutritionEntriesForAthlete = (state.nutritionEntries||[]).filter(n=>n.athleteId===athlete.id);
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
@@ -2794,12 +2794,13 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) et de la technicité du terrain sur chaque séance Strava, calculé depuis les flux GPS et la météo historique au moment et au lieu de la séance — chaleur (WBGT), altitude (Peronnet 1991), vent (traînée aérodynamique) et technicité du terrain (saisie par séance, colonne « Terrain » du tableau) combinés. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres sur terrain roulant, à titre indicatif.</div>
       <div class="ls-stat-grid" style="margin-bottom:18px;">
-        <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Température moyenne</div><div class="ls-stat-value">${envSummary.count? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Séances avec données</div><div class="ls-stat-value">${envSummary.count}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Chaleur — température moyenne</div><div class="ls-stat-value">${envSummary.avgTemp!=null? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Altitude moyenne</div><div class="ls-stat-value">${envSummary.avgAltitude!=null? envSummary.avgAltitude.toFixed(0):"—"}<small>m</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Vent moyen</div><div class="ls-stat-value">${envSummary.avgWind!=null? envSummary.avgWind.toFixed(1):"—"}<small>m/s</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Terrain moyen</div><div class="ls-stat-value">${envFmtPct(envSummary.avgTerrain)}</div></div>
         <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Séances marquées (≥18%)</div><div class="ls-stat-value">${envSummary.count? envSummary.markedCount + "/" + envSummary.count : "—"}</div></div>
       </div>
       <div class="ls-period-bar">
         <div class="ls-field">

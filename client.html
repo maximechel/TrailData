@@ -1692,13 +1692,17 @@ function envSummaryFor(sessionsArr, endDate, weeks){
     return !isNaN(d) && d >= start && d <= endDate;
   });
   if(eligible.length === 0) return { count:0 };
-  const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
-  const combined = eligible.map(envCombinedWithTerrain);
+  const avg = arr => {
+    const vals = arr.filter(v=>v!=null);
+    return vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : null;
+  };
   return {
     count: eligible.length,
     avgTemp: avg(eligible.map(s=>s.envTempC)),
-    avgCombined: avg(combined),
-    markedCount: combined.filter(v=>v >= 0.18).length,
+    avgAltitude: avg(eligible.map(s=>s.envMeanAltitudeM)),
+    avgWind: avg(eligible.map(s=>s.envWindMs)),
+    avgTerrain: avg(eligible.map(envTerrainFactor)),
+    avgCombined: avg(eligible.map(envCombinedWithTerrain)),
   };
 }
 function envFmtPct(f){ return f==null ? "—" : (f>=0?"+":"") + Math.round(f*100) + "%"; }
@@ -2244,12 +2248,13 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Impact estimé des conditions du jour (chaleur, altitude, vent) et de la technicité du terrain sur chaque séance Strava. La « durée ajustée » est une estimation de ce qu'aurait donné la séance en conditions neutres sur terrain roulant, à titre indicatif. Tu peux renseigner ou corriger la technicité de chaque séance directement dans le tableau ci-dessous.</div>
       <div class="ls-stat-grid" style="margin-bottom:18px;">
         <div class="ls-stat"><div class="ls-stat-label">Séances avec données (${MATRIX_WINDOW_WEEKS} sem.)</div><div class="ls-stat-value">${envSummary.count}</div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Température moyenne</div><div class="ls-stat-value">${envSummary.count? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Chaleur — température moyenne</div><div class="ls-stat-value">${envSummary.avgTemp!=null? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Altitude moyenne</div><div class="ls-stat-value">${envSummary.avgAltitude!=null? envSummary.avgAltitude.toFixed(0):"—"}<small>m</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Vent moyen</div><div class="ls-stat-value">${envSummary.avgWind!=null? envSummary.avgWind.toFixed(1):"—"}<small>m/s</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Terrain moyen</div><div class="ls-stat-value">${envFmtPct(envSummary.avgTerrain)}</div></div>
         <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Séances marquées (≥18%)</div><div class="ls-stat-value">${envSummary.count? envSummary.markedCount + "/" + envSummary.count : "—"}</div></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Durée réelle vs ajustée</h3>
