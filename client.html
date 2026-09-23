@@ -92,6 +92,19 @@
   table.ls-intensity.compact th{padding:4px 8px;font-size:9.5px;}
   table.ls-intensity.compact td{padding:4px 8px;font-size:11.5px;}
   .ls-intensity-card{margin-bottom:18px;}
+  .ls-izone-bar{display:flex;height:40px;border-radius:10px;overflow:hidden;}
+  .ls-izone-labels{display:flex;margin:6px 0 16px;}
+  .ls-izone-labels span{text-align:center;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);}
+  .ls-izone-list{display:flex;flex-direction:column;}
+  .ls-izone-row{display:flex;align-items:center;gap:12px;padding:7px 2px;}
+  .ls-izone-row.ls-izone-head{padding-bottom:6px;}
+  .ls-izone-dot{width:10px;height:10px;border-radius:3px;flex:none;}
+  .ls-izone-name{flex:1;font-size:13px;font-weight:600;color:var(--text-primary);}
+  .ls-izone-head .ls-izone-name{font-weight:700;}
+  .ls-izone-val{font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);text-align:right;white-space:nowrap;}
+  .ls-izone-col-allure{width:112px;flex:none;}
+  .ls-izone-col-fc{width:84px;flex:none;}
+  .ls-izone-head .ls-izone-val{font-family:var(--font-ui);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);}
   @media (max-width:640px){
     .ls-modal.wide{max-width:96vw;}
     table.ls-intensity{table-layout:auto;}
@@ -352,6 +365,52 @@ function paceZoneLabel(athleteObj, i){
   const zones = intensityZonesOf(athleteObj);
   return (zones[i] && zones[i].name) || defaultIntensityZones()[i].name;
 }
+
+// Visualisation de la table d'intensité (barre segmentée + liste compacte),
+// remplace l'ancien tableau à 3 colonnes -- proposition validée par Maxime
+// le 2026-09-23 (voir l'artefact de proposition visuelle : barre + liste avec
+// entêtes "Zone d'allure"/"Zone FC", couleurs Z1-Z7 d'origine conservées pour
+// rester cohérent avec les graphiques de zones de séance). Barre proportionnelle
+// aux plages d'allure quand les 7 zones sont entièrement renseignées, sinon
+// segments à largeur égale (les données ne permettent alors aucun calcul fiable).
+function intensityZonesVisualHtml(athleteObj){
+  const zones = intensityZonesOf(athleteObj);
+  const allComplete = zones.every(z => z.kmh_min!=null && z.kmh_max!=null && z.kmh_max > z.kmh_min);
+  const widths = allComplete ? zones.map(z => z.kmh_max - z.kmh_min) : zones.map(()=>1);
+  const total = widths.reduce((a,b)=>a+b, 0) || 1;
+  const pct = widths.map(w => (w/total*100).toFixed(2));
+
+  const bar = zones.map((z,i)=>
+    `<div style="flex:0 0 ${pct[i]}%;background:${cssVar(PACE_ZONE_VARS[i])};${i<6?`border-right:2px solid ${cssVar("--surface")};`:""}"></div>`
+  ).join("");
+
+  const labels = zones.map((z,i)=> `<span style="flex:0 0 ${pct[i]}%;">Z${i+1}</span>`).join("");
+
+  const rows = zones.map((z,i)=>{
+    const allureTxt = (z.kmh_min!=null || z.kmh_max!=null) ? `${z.kmh_min!=null?z.kmh_min:"?"}–${z.kmh_max!=null?z.kmh_max:"?"} km/h` : "—";
+    const fcTxt = i>=5 ? "—" : ((z.hr_min!=null || z.hr_max!=null) ? `${z.hr_min!=null?z.hr_min:"?"}–${z.hr_max!=null?z.hr_max:"?"}` : "—");
+    return `<div class="ls-izone-row">
+      <span class="ls-izone-dot" style="background:${cssVar(PACE_ZONE_VARS[i])}"></span>
+      <span class="ls-izone-name">${escapeHtml(z.name)}</span>
+      <span class="ls-izone-val ls-izone-col-allure">${allureTxt}</span>
+      <span class="ls-izone-val ls-izone-col-fc">${fcTxt}</span>
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="ls-izone-bar">${bar}</div>
+    <div class="ls-izone-labels">${labels}</div>
+    <div class="ls-izone-list">
+      <div class="ls-izone-row ls-izone-head">
+        <span class="ls-izone-dot" style="background:transparent"></span>
+        <span class="ls-izone-name"></span>
+        <span class="ls-izone-val ls-izone-col-allure">Zone d'allure</span>
+        <span class="ls-izone-val ls-izone-col-fc">Zone FC</span>
+      </div>
+      ${rows}
+    </div>`;
+}
+
 
 let athlete = null;
 let sessions = [];
@@ -1951,18 +2010,8 @@ function renderMain(){
 
     <div class="ls-chart-card ls-intensity-card">
       <h3>Table d'intensité</h3>
-      <div class="ls-chart-sub">Bornes d'allure (km/h) et de FC (bpm) par zone, définies par ton coach.</div>
-      <table class="ls-intensity compact">
-        <colgroup><col class="ls-intensity-col-name"><col><col></colgroup>
-        <thead><tr><th>Zone</th><th>Allure (km/h)</th><th>FC (bpm)</th></tr></thead>
-        <tbody>
-          ${intensityZonesOf(athlete).map((z,i)=>`<tr class="ls-intensity-row">
-            <td class="ls-intensity-name"><span class="ls-intensity-dot" style="background:${cssVar(PACE_ZONE_VARS[i])}"></span>${escapeHtml(z.name)}</td>
-            <td>${z.kmh_min!=null || z.kmh_max!=null ? `${z.kmh_min!=null?z.kmh_min:"?"}–${z.kmh_max!=null?z.kmh_max:"?"}` : "—"}</td>
-            <td>${i>=5? "—" : (z.hr_min!=null || z.hr_max!=null ? `${z.hr_min!=null?z.hr_min:"?"}–${z.hr_max!=null?z.hr_max:"?"}` : "—")}</td>
-          </tr>`).join("")}
-        </tbody>
-      </table>
+      <div class="ls-chart-sub">Bornes d'allure (km/h) et de FC (bpm) par zone, définies par ton coach — largeur des segments proportionnelle à l'étendue d'allure de chaque zone.</div>
+      ${intensityZonesVisualHtml(athlete)}
     </div>
 
     <div class="ls-charts">
