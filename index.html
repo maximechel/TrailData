@@ -2611,6 +2611,13 @@ function renderMain(){
         <h3>Forme (TSB)</h3>
         <div class="ls-chart-sub">TSB relatif = (Forme − Fatigue) ÷ Forme × 100, en % de la charge de fond -- ramené en relatif (et non en écart absolu) pour rester lisible quelle que soit l'échelle de charge de cette appli (u.a. TRIMP, pas les TSS/heures de Suunto). Mêmes seuils de lecture que Suunto/TrainingPeaks : ≥ 15 % perdre la forme/récupérer · -10 à 15 % équilibre d'entraînement · -30 à -10 % entraînement productif · &lt; -30 % intensité trop élevée.</div>
         ${periodBarHtml("tsb", "Période partagée avec Forme / Fatigue et ACWR.")}
+        <div class="ls-ff-badges">
+          <div class="ls-ff-circle" style="border-color:${cssVar(statusVar(tsbCls.key))};color:${cssVar(statusVar(tsbCls.key))}">
+            <span class="ls-ff-value">${tsbNow!=null? tsbNow.toFixed(0)+"%":"—"}</span>
+            <span class="ls-ff-label">TSB</span>
+          </div>
+        </div>
+        <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeur à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates ci-dessus pour relire l'état de forme à un autre moment.</div>
         <div class="ls-chart-wrap tall"><canvas id="chart-tsb"></canvas></div>
       </div>
       <div class="ls-chart-card full">
