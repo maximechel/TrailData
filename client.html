@@ -314,6 +314,21 @@ const TECHNICITY_LEVELS = [
 const TECHNICITY_COEFFICIENTS = { route:1.00, roulant:1.03, normal:1.08, technique:1.15, tres_technique:1.22, extreme:1.30 };
 function technicityCoef(value){ return TECHNICITY_COEFFICIENTS[value] || 1.00; }
 function technicityLabel(value){ const l = TECHNICITY_LEVELS.find(t=>t.value===value); return l ? l.label : "Roulant"; }
+
+// Les tests de terrain (table athlete_tests) : saisis uniquement par le coach
+// (voir index.html) -- ici on ne fait que les LIRE (RLS "athlete can view own
+// athlete_tests"), pour les afficher en lecture seule dans l'onglet Athlète.
+const ATHLETE_TEST_TYPES_META = [
+  { value:"force_membre_inf", label:"Force max membre inférieur (plateforme de force)" },
+  { value:"vma", label:"VMA (test de terrain)" },
+  { value:"seuil1", label:"Seuil 1 — aérobie" },
+  { value:"seuil2", label:"Seuil 2 — anaérobie" },
+  { value:"vam3", label:"VAM 3' (test de côte)" },
+  { value:"vam9", label:"VAM 9' (test de côte)" },
+];
+// VAM = D+ / temps × 60, en m/h (et non km/h comme VMA/seuils) -- voir
+// athleteTestValueLabel côté coach (index.html), reproduit ici pour l'affichage.
+const VAM_INTERVAL_TEST_TYPES = new Set(["vam3", "vam9"]);
 function defaultIntensityZones(){
   return [
     { name:"Échauffement", kmh_min:null, kmh_max:null, hr_min:null, hr_max:null },
@@ -340,6 +355,7 @@ let sessions = [];
 let hooperResponses = [];
 let injuryReports = [];
 let nutritionEntries = [];
+let athleteTests = []; // tests de terrain saisis par le coach (lecture seule côté athlète — voir onglet Athlète)
 let santeDraft = null;
 let santeSaving = false;
 let charts = { load: null, formFatigue: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null };
@@ -347,7 +363,7 @@ let chartPeriod = null;
 let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
 let terrainCompareB = null;
-let activeTab = "training";
+let activeTab = "athlete";
 let nutritionSelectedDate = null; // "YYYY-MM-DD" — jour affiché/édité dans l'onglet Nutrition ; par défaut aujourd'hui (voir renderNutritionTabHtml).
 
 /* ---------- onglet Santé : questionnaire de Hooper + avatar de gênes ----------
@@ -993,6 +1009,53 @@ function nutritionEntryFromApi(n){
   return { id:n.id, athleteId:n.athlete_id, date:n.date, mealType:n.meal_type,
     moment:n.moment||"", items: (n.items && typeof n.items==="object") ? n.items : {},
     note:n.note||"", createdAt:n.created_at };
+}
+// table athlete_tests, lecture seule côté athlète (voir index.html pour le
+// même mapping côté coach, qui lui écrit aussi). force_membre_inf porte
+// valueDroite/valueGauche (N) ; vma/seuil1/seuil2/vam3/vam9 portent value.
+function athleteTestFromApi(t){
+  return { id:t.id, athleteId:t.athlete_id, testType:t.test_type, date:t.date,
+    valueDroite: t.value_droite!=null ? Number(t.value_droite) : null,
+    valueGauche: t.value_gauche!=null ? Number(t.value_gauche) : null,
+    value: t.value!=null ? Number(t.value) : null,
+    note: t.note || "" };
+}
+
+/* ---------------------------- tests de terrain (lecture seule) ---------------------------- */
+
+function latestAthleteTest(athleteId, testType){
+  const tests = athleteTests.filter(t=>t.athleteId===athleteId && t.testType===testType);
+  if(!tests.length) return null;
+  return tests.reduce((latest,t)=> (!latest || t.date > latest.date) ? t : latest, null);
+}
+// Force max membre inférieur (N) = somme droite + gauche du dernier test,
+// ou null si l'un des deux membres n'a pas été saisi.
+function latestForceMax(athleteId){
+  const t = latestAthleteTest(athleteId, "force_membre_inf");
+  if(!t || t.valueDroite==null || t.valueGauche==null) return null;
+  return { value: Math.round((t.valueDroite + t.valueGauche)*10)/10, date: t.date, valueDroite:t.valueDroite, valueGauche:t.valueGauche };
+}
+// VMA / Seuil 1 / Seuil 2 / VAM 3' / VAM 9' du dernier test, ou null.
+function latestSpeedTest(athleteId, testType){
+  const t = latestAthleteTest(athleteId, testType);
+  if(!t || t.value==null) return null;
+  return { value: t.value, date: t.date };
+}
+// Indice VAM3'/VAM9' (%) -- voir index.html (même calcul, même heuristique de coach).
+function vam3To9Ratio(twin){
+  if(!twin || !twin.vam3 || !twin.vam9 || !twin.vam9.value) return null;
+  return (twin.vam3.value / twin.vam9.value) * 100;
+}
+// Résumé des derniers tests de terrain pour l'onglet Athlète (cases ls-stat).
+function athleteTestsSummaryFor(athleteId){
+  return {
+    forceMax: latestForceMax(athleteId),
+    vma: latestSpeedTest(athleteId, "vma"),
+    seuil1: latestSpeedTest(athleteId, "seuil1"),
+    seuil2: latestSpeedTest(athleteId, "seuil2"),
+    vam3: latestSpeedTest(athleteId, "vam3"),
+    vam9: latestSpeedTest(athleteId, "vam9"),
+  };
 }
 
 /* ---------------------------- onglet Santé : état du brouillon et rendu ---------------------------- */
@@ -1694,6 +1757,30 @@ function acuteChronicLatest(sessionsArr){
   const { acute, chronic } = acwrSeries(sessionsArr);
   return { acute: acute.length? acute[acute.length-1]:0, chronic: chronic.length? chronic[chronic.length-1]:0 };
 }
+// Un sélecteur de période par graphique qu'il pilote (matrix, load,
+// formfatigue, acwr, volume, elevation, zones, pace, physio) : un seul état
+// `chartPeriod` partagé entre les 3 onglets Athlète / Volume & Charge / État
+// de forme, mais une instance du contrôle sur chaque carte -- modifier l'une
+// met à jour toutes les autres au prochain rendu. `suffix` distingue les id
+// (uniques dans le DOM, y compris entre onglets puisque tous les panels sont
+// toujours rendus) ; voir les écouteurs dans renderMain().
+function periodBarHtml(suffix, note){
+  return `
+        <div class="ls-period-bar">
+          <div class="ls-field">
+            <label>Période — début</label>
+            <input type="date" id="period-start-${suffix}" value="${chartPeriod.start}" max="${chartPeriod.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Période — fin</label>
+            <input type="date" id="period-end-${suffix}" value="${chartPeriod.end}" min="${chartPeriod.start}">
+          </div>
+          <button class="ls-btn small ghost" type="button" id="btn-period-reset-${suffix}">Réinitialiser (6 mois)</button>
+          <div class="ls-period-note">${note}</div>
+        </div>`;
+}
+
 function buildInsight(sessionsArr, lastACWR, cls){
   if(sessionsArr.length < 5) return "Historique encore limité : l'ACWR se stabilise après environ 4 semaines de données.";
   if(cls.key === "none" || lastACWR == null) return "Pas encore assez d'historique pour calculer un ACWR fiable.";
@@ -1734,6 +1821,7 @@ function renderMain(){
   const cmpWindowWeeks = comparisonWindowWeeksFor(new Date(chartPeriod.start+"T00:00:00"), new Date(chartPeriod.end+"T00:00:00"));
   ensureTerrainComparePeriods(chartPeriod.start, chartPeriod.end, cmpWindowWeeks);
   ensureSanteDraft();
+  const testsSummary = athleteTestsSummaryFor(athlete.id);
 
   main.innerHTML = `
     <div class="ls-athlete-header">
@@ -1750,116 +1838,37 @@ function renderMain(){
     </div>
 
     <div class="ls-tabbar">
-      <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
-      <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
-      <button class="ls-tab-btn ${activeTab==="sante"?"active":""}" data-tab="sante" type="button">Santé</button>
+      <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
+      <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume & Charge</button>
+      <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
+      <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance & contexte environnemental</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
     </div>
 
-    <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
+    <div class="ls-tab-panel" id="tab-panel-athlete" ${activeTab!=="athlete"?"hidden":""}>
+    <div class="ls-chart-sub" style="margin:0 0 8px;">Derniers tests de terrain renseignés par ton coach (lecture seule).</div>
     <div class="ls-stat-grid">
-      <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
-    </div>
-
-    <div class="ls-insight" style="border-left-color:var(${statusVar(cls.key)})">
-      <p>${buildInsight(sess, lastACWR, cls)}</p>
-    </div>
-
-    <div class="ls-period-bar">
-      <div class="ls-field">
-        <label>Période — début</label>
-        <input type="date" id="period-start" value="${chartPeriod.start}" max="${chartPeriod.end}">
-      </div>
-      <div class="ls-period-arrow">→</div>
-      <div class="ls-field">
-        <label>Période — fin</label>
-        <input type="date" id="period-end" value="${chartPeriod.end}" min="${chartPeriod.start}">
-      </div>
-      <button class="ls-btn small ghost" type="button" id="btn-period-reset">Réinitialiser (6 mois)</button>
-      <div class="ls-period-note">Filtre les graphes ci-dessous sur cette période (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date pour le Runner Matrix et le profil terrain).</div>
+      <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${testsSummary.forceMax? testsSummary.forceMax.value.toFixed(0) : "—"}<small> N${testsSummary.forceMax? " · "+fmtDateFr(testsSummary.forceMax.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${testsSummary.vma? testsSummary.vma.value.toFixed(1) : "—"}<small> km/h${testsSummary.vma? " · "+fmtDateFr(testsSummary.vma.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${testsSummary.seuil1? testsSummary.seuil1.value.toFixed(1) : "—"}<small> km/h${testsSummary.seuil1? " · "+fmtDateFr(testsSummary.seuil1.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${testsSummary.seuil2? testsSummary.seuil2.value.toFixed(1) : "—"}<small> km/h${testsSummary.seuil2? " · "+fmtDateFr(testsSummary.seuil2.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value">${testsSummary.vam3? testsSummary.vam3.value.toFixed(0) : "—"}<small> m/h${testsSummary.vam3? " · "+fmtDateFr(testsSummary.vam3.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">VAM 9'</div><div class="ls-stat-value">${testsSummary.vam9? testsSummary.vam9.value.toFixed(0) : "—"}<small> m/h${testsSummary.vam9? " · "+fmtDateFr(testsSummary.vam9.date):""}</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(testsSummary)!=null? vam3To9Ratio(testsSummary).toFixed(0) : "—"}<small>%</small></div></div>
     </div>
 
     <div class="ls-charts">
       <div class="ls-chart-card full">
         <h3>Profil du coureur — Runner Matrix</h3>
         <div class="ls-chart-sub">6 branches notées 0-100 par rapport à ton propre historique — pas un barème absolu. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}. Montée et Descente corrigées de la technicité du terrain.</div>
+        ${periodBarHtml("matrix", `Période de comparaison (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date) — partagée avec les autres graphiques temporels du portail (onglets Athlète, Volume & Charge, État de forme) : la modifier ici la change partout ailleurs.`)}
         <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
         <div class="ls-matrix-note" id="matrix-note"></div>
       </div>
       <div class="ls-chart-card full">
-        <h3>Charge d'entraînement</h3>
-        <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
-        <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Forme / Fatigue (CTL / ATL)</h3>
-        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge pondérée par la technicité du terrain.</div>
-        <div class="ls-ff-badges">
-          <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
-            <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
-            <span class="ls-ff-label">Forme</span>
-          </div>
-          <div class="ls-ff-circle" style="border-color:${cssVar("--serious")};color:${cssVar("--serious")}">
-            <span class="ls-ff-value">${atlNow!=null? atlNow.toFixed(0):"—"}</span>
-            <span class="ls-ff-label">Fatigue</span>
-          </div>
-        </div>
-        <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeurs à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates en haut de l'onglet pour relire ton état de forme à un autre moment.</div>
-        <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
-        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
-        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
-      </div>
-      <div class="ls-chart-card">
-        <h3>Volume hebdomadaire</h3>
-        <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité</div>
-        <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Dénivelé hebdomadaire par activité</h3>
-        <div class="ls-chart-sub">Dénivelé positif et négatif, empilés par type d'activité</div>
-        <div class="ls-subchart-grid">
-          <div>
-            <div class="ls-subchart-label">D+ (m)</div>
-            <div class="ls-chart-wrap"><canvas id="chart-elevation-plus"></canvas></div>
-          </div>
-          <div>
-            <div class="ls-subchart-label">D- (m)</div>
-            <div class="ls-chart-wrap"><canvas id="chart-elevation-minus"></canvas></div>
-          </div>
-        </div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Répartition du temps en zones de FC</h3>
-        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone</div>
-        <div class="ls-chart-wrap"><canvas id="chart-zones"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Répartition du temps en zones de FC — historique complet</h3>
-        <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues</div>
-        <div class="ls-field" style="max-width:280px;">
-          <label>Activité</label>
-          <select id="zones-total-activity">
-            <option value="all" ${zonesTotalActivityFilter==="all"?"selected":""}>Toutes les activités</option>
-            ${Array.from(new Set(sess.map(s=>s.type))).sort((a,b)=>a.localeCompare(b,"fr")).map(t=>`<option value="${escapeHtml(t)}" ${zonesTotalActivityFilter===t?"selected":""}>${escapeHtml(t)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="ls-chart-wrap donut" id="zones-total-chart-wrap"><canvas id="chart-zones-total"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Répartition du temps en zones d'allure</h3>
-        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — course à pied et trail uniquement</div>
-        <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
         <h3>Efficacité physiologique</h3>
         <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}, corrigée de la technicité du terrain saisie par séance</div>
+        ${periodBarHtml("physio", "Période partagée avec les autres graphiques temporels du portail.")}
         <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
       <div class="ls-chart-card full">
@@ -1889,6 +1898,69 @@ function renderMain(){
         <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-volume-charge" ${activeTab!=="volume-charge"?"hidden":""}>
+    <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
+    </div>
+
+    <div class="ls-charts">
+      <div class="ls-chart-card full">
+        <h3>Charge d'entraînement</h3>
+        <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
+        ${periodBarHtml("load", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
+      </div>
+      <div class="ls-chart-card">
+        <h3>Volume hebdomadaire</h3>
+        <div class="ls-chart-sub">Kilomètres par semaine, empilés par type d'activité</div>
+        ${periodBarHtml("volume", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Dénivelé hebdomadaire par activité</h3>
+        <div class="ls-chart-sub">Dénivelé positif et négatif, empilés par type d'activité</div>
+        ${periodBarHtml("elevation", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-subchart-grid">
+          <div>
+            <div class="ls-subchart-label">D+ (m)</div>
+            <div class="ls-chart-wrap"><canvas id="chart-elevation-plus"></canvas></div>
+          </div>
+          <div>
+            <div class="ls-subchart-label">D- (m)</div>
+            <div class="ls-chart-wrap"><canvas id="chart-elevation-minus"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones de FC</h3>
+        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone</div>
+        ${periodBarHtml("zones", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-chart-wrap"><canvas id="chart-zones"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones de FC — historique complet</h3>
+        <div class="ls-chart-sub">Temps cumulé par zone, toutes séances confondues</div>
+        <div class="ls-field" style="max-width:280px;">
+          <label>Activité</label>
+          <select id="zones-total-activity">
+            <option value="all" ${zonesTotalActivityFilter==="all"?"selected":""}>Toutes les activités</option>
+            ${Array.from(new Set(sess.map(s=>s.type))).sort((a,b)=>a.localeCompare(b,"fr")).map(t=>`<option value="${escapeHtml(t)}" ${zonesTotalActivityFilter===t?"selected":""}>${escapeHtml(t)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="ls-chart-wrap donut" id="zones-total-chart-wrap"><canvas id="chart-zones-total"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Répartition du temps en zones d'allure</h3>
+        <div class="ls-chart-sub">Minutes cumulées par semaine et par zone de vitesse — course à pied et trail uniquement</div>
+        ${periodBarHtml("pace", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
+      </div>
+    </div>
 
     <div class="ls-table-card">
       <div class="ls-table-head">
@@ -1901,6 +1973,44 @@ function renderMain(){
         </table>
       </div>
     </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-etat-forme" ${activeTab!=="etat-forme"?"hidden":""}>
+    <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
+    </div>
+
+    <div class="ls-insight" style="border-left-color:var(${statusVar(cls.key)})">
+      <p>${buildInsight(sess, lastACWR, cls)}</p>
+    </div>
+
+    <div class="ls-charts">
+      <div class="ls-chart-card full">
+        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
+        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
+        ${periodBarHtml("acwr", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Forme / Fatigue (CTL / ATL)</h3>
+        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge pondérée par la technicité du terrain.</div>
+        ${periodBarHtml("formfatigue", "Période partagée avec les autres graphiques temporels du portail.")}
+        <div class="ls-ff-badges">
+          <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
+            <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
+            <span class="ls-ff-label">Forme</span>
+          </div>
+          <div class="ls-ff-circle" style="border-color:${cssVar("--serious")};color:${cssVar("--serious")}">
+            <span class="ls-ff-value">${atlNow!=null? atlNow.toFixed(0):"—"}</span>
+            <span class="ls-ff-label">Fatigue</span>
+          </div>
+        </div>
+        <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeurs à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates ci-dessus pour relire ton état de forme à un autre moment.</div>
+        <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
+      </div>
+    </div>
+
+    ${renderSanteTab()}
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
@@ -1931,10 +2041,6 @@ function renderMain(){
       </div>`}
     </div>
 
-    <div class="ls-tab-panel" id="tab-panel-sante" ${activeTab!=="sante"?"hidden":""}>
-      ${renderSanteTab()}
-    </div>
-
     <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
       ${renderNutritionTabHtml()}
     </div>
@@ -1957,22 +2063,29 @@ function renderMain(){
     if(entry) openNutritionEntryModal(entry);
   }));
   main.querySelectorAll("[data-del-nutrition]").forEach(b=> b.addEventListener("click", ()=> deleteNutritionEntry(b.getAttribute("data-del-nutrition"))));
-  const periodStartEl = document.getElementById("period-start");
-  if(periodStartEl) periodStartEl.addEventListener("change", e=>{
-    const v = e.target.value; if(!v) return;
-    chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
-    renderMain();
-  });
-  const periodEndEl = document.getElementById("period-end");
-  if(periodEndEl) periodEndEl.addEventListener("change", e=>{
-    const v = e.target.value; if(!v) return;
-    chartPeriod = { start: v < chartPeriod.start ? v : chartPeriod.start, end: v };
-    renderMain();
-  });
-  const periodResetEl = document.getElementById("btn-period-reset");
-  if(periodResetEl) periodResetEl.addEventListener("click", ()=>{
-    chartPeriod = defaultChartPeriod();
-    renderMain();
+  // Une instance du sélecteur de période par graphique qu'il pilote (voir
+  // periodBarHtml) : toutes partagent le même état chartPeriod, donc changer
+  // l'une déclenche un renderMain() qui remet toutes les autres à jour aussi
+  // -- y compris celles des deux autres onglets (Athlète / Volume & Charge /
+  // État de forme se partagent ce même état).
+  ["matrix","load","formfatigue","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
+    const startEl = document.getElementById("period-start-"+suffix);
+    const endEl = document.getElementById("period-end-"+suffix);
+    const resetBtn = document.getElementById("btn-period-reset-"+suffix);
+    if(startEl) startEl.addEventListener("change", e=>{
+      const v = e.target.value; if(!v) return;
+      chartPeriod = { start: v, end: v > chartPeriod.end ? v : chartPeriod.end };
+      renderMain();
+    });
+    if(endEl) endEl.addEventListener("change", e=>{
+      const v = e.target.value; if(!v) return;
+      chartPeriod = { start: v < chartPeriod.start ? v : chartPeriod.start, end: v };
+      renderMain();
+    });
+    if(resetBtn) resetBtn.addEventListener("click", ()=>{
+      chartPeriod = defaultChartPeriod();
+      renderMain();
+    });
   });
   const zonesTotalSelect = document.getElementById("zones-total-activity");
   if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
@@ -2103,7 +2216,7 @@ const zoneDonutLeaderLabelsPlugin = {
 };
 function destroyCharts(){ Object.keys(charts).forEach(k=>{ if(charts[k]){ charts[k].destroy(); charts[k]=null; } }); }
 function renderCharts(){
-  if(!athlete || !document.getElementById("chart-load")) { return; }
+  if(!athlete || !document.getElementById("tab-panel-"+activeTab)) { return; }
   destroyCharts();
   if(typeof Chart === "undefined"){
     document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
@@ -2163,7 +2276,7 @@ function renderEnvChart(athleteObj, envSessions){
 }
 function renderActiveTabCharts(){
   if(!athlete){ destroyCharts(); return; }
-  if(activeTab === "training"){
+  if(activeTab === "athlete" || activeTab === "volume-charge" || activeTab === "etat-forme"){
     renderCharts();
   } else if(activeTab === "env"){
     destroyCharts();
@@ -2192,6 +2305,27 @@ function renderChartsInner(athleteObj){
   while(ei >= 0 && dates[ei] > periodEndStr) ei--;
   const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
   const labels = sl(dates).map(d=> fmtDayMonth(d));
+
+  // Données communes aux 3 onglets qui dépendent de chartPeriod (Athlète,
+  // Volume & Charge, État de forme) -- un seul calcul, chaque onglet ne
+  // construit que les graphiques dont les canvas sont dans son panel (les
+  // canvas des onglets non actifs existent dans le DOM mais restent cachés
+  // -- voir renderActiveTabCharts).
+  const cd = { sess, dates, acute, chronic, acwr, ctl, atl, dailyVals, color,
+    periodStart, periodEnd, periodStartStr, periodEndStr, oldLabel, newLabel, sl, labels };
+
+  if(activeTab === "athlete"){
+    renderAthleteTabCharts(athleteObj, cd);
+  } else if(activeTab === "volume-charge"){
+    renderVolumeChargeTabCharts(athleteObj, cd);
+  } else if(activeTab === "etat-forme"){
+    renderEtatFormeTabCharts(cd);
+  }
+}
+
+/* ---------------------------- graphiques : onglet Athlète ---------------------------- */
+function renderAthleteTabCharts(athleteObj, cd){
+  const { sess, dates, chronic, acwr, color, periodStart, periodEnd, periodStartStr, newLabel, oldLabel } = cd;
 
   const matrixWrap = document.getElementById("matrix-chart-wrap");
   const matrixNote = document.getElementById("matrix-note");
@@ -2225,41 +2359,74 @@ function renderChartsInner(athleteObj){
     if(matrixNote) matrixNote.textContent = "";
   }
 
+  const physioWrap = document.getElementById("physio-chart-wrap");
+  const physioMonths = monthsBetween(periodStart, periodEnd);
+  const physioMonthData = physioMonths.map(m=>{
+    const monthSessions = sess.filter(s=>{
+      if(s.date < periodStartStr || s.date > cd.periodEndStr) return false;
+      const d = new Date(s.date+"T00:00:00");
+      return d.getFullYear() === m.year && d.getMonth() === m.month;
+    });
+    return { label: monthLabelFr(m.year, m.month), gapZ: gapZoneAverageOf(monthSessions) };
+  }).filter(m => m.gapZ.some(v=>v!=null));
+  const hasGapData = physioMonthData.length > 0;
+  if(hasGapData && physioWrap){
+    const mutedColor = cssVar("--text-muted");
+    const n = physioMonthData.length;
+    charts.physio = new Chart(document.getElementById("chart-physio"), {
+      type:"line",
+      data:{ labels: ZONE_LABELS, datasets: physioMonthData.map((m,i)=>{
+        const t = n>1 ? i/(n-1) : 1;
+        const lineColor = mixHexColors(mutedColor, color, t);
+        return {
+          label: m.label, data: m.gapZ, borderColor: lineColor, backgroundColor: lineColor,
+          borderWidth: n>1 ? 1.5+1.5*t : 2, tension: 0.3, spanGaps: true,
+          pointRadius: 3, pointHoverRadius: 5, fill: false
+        };
+      })},
+      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+    });
+  } else if(physioWrap){
+    physioWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment.</div>';
+  }
+
+  const terrainWrap = document.getElementById("terrain-chart-wrap");
+  const terrainAStartDate = new Date(terrainCompareA.start+"T00:00:00");
+  const terrainAEndDate = new Date(terrainCompareA.end+"T23:59:59");
+  const terrainBStartDate = new Date(terrainCompareB.start+"T00:00:00");
+  const terrainBEndDate = new Date(terrainCompareB.end+"T23:59:59");
+  const gradePast = gapGradeAverageInRange(sess, terrainAStartDate, terrainAEndDate);
+  const gradeNow = gapGradeAverageInRange(sess, terrainBStartDate, terrainBEndDate);
+  const terrainLabelA = "Référence (" + fmtDateFr(terrainCompareA.start) + "–" + fmtDateFr(terrainCompareA.end) + ")";
+  const terrainLabelB = "Récente (" + fmtDateFr(terrainCompareB.start) + "–" + fmtDateFr(terrainCompareB.end) + ")";
+  const hasGradeData = gradeNow.some(v=>v!=null) || gradePast.some(v=>v!=null);
+  if(hasGradeData && terrainWrap){
+    charts.terrain = new Chart(document.getElementById("chart-terrain"), {
+      type:"bar",
+      data:{ labels: GRADE_BUCKET_LABELS, datasets:[
+        { label: terrainLabelA, data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
+        { label: terrainLabelB, data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
+      ]},
+      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} },
+        x:{ ticks:{ color:cssVar("--text-muted"), font:{size:10.5} } } } })
+    });
+  } else if(terrainWrap){
+    terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment sur ces deux périodes.</div>';
+  }
+}
+
+/* ---------------------------- graphiques : onglet Volume & Charge ---------------------------- */
+function renderVolumeChargeTabCharts(athleteObj, cd){
+  const { sess, labels, dailyVals, acute, chronic, color, periodStartStr, periodEndStr } = cd;
+
   charts.load = new Chart(document.getElementById("chart-load"), {
     type:"bar",
     data:{ labels, datasets:[
-      { type:"bar", label:"Charge quotidienne", data: sl(dailyVals), backgroundColor: color+"55", borderRadius:3, order:3 },
-      { type:"line", label:"Aiguë (7j)", data: sl(acute), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
-      { type:"line", label:"Chronique (28j)", data: sl(chronic), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3], order:2 }
+      { type:"bar", label:"Charge quotidienne", data: cd.sl(dailyVals), backgroundColor: color+"55", borderRadius:3, order:3 },
+      { type:"line", label:"Aiguë (7j)", data: cd.sl(acute), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
+      { type:"line", label:"Chronique (28j)", data: cd.sl(chronic), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3], order:2 }
     ]},
     options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-  });
-
-  charts.formFatigue = new Chart(document.getElementById("chart-form-fatigue"), {
-    type:"line",
-    data:{ labels, datasets:[
-      { label:"Forme (CTL)", data: sl(ctl), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
-      { label:"Fatigue (ATL)", data: sl(atl), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:2 }
-    ]},
-    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. (moyenne exp.)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-  });
-
-  const acwrColors = sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
-  charts.acwr = new Chart(document.getElementById("chart-acwr"), {
-    type:"line",
-    data:{ labels, datasets:[
-      { label:"ACWR", data: sl(acwr), borderColor: cssVar("--accent"), backgroundColor:"transparent", borderWidth:2, pointRadius:2,
-        pointBackgroundColor: acwrColors, spanGaps:true,
-        segment:{ borderColor: ctx => {
-          const v = ctx.p1.parsed.y; if(v==null) return cssVar("--text-muted");
-          return cssVar(statusVar(classifyACWR(v).key));
-        }}
-      }
-    ]},
-    options: baseChartOptions({
-      plugins:{ legend:{display:false} },
-      scales:{ y:{ suggestedMin:0, suggestedMax:2, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
-    })
   });
 
   const weeks = weeklyAggregates(sess, periodStartStr, periodEndStr);
@@ -2351,61 +2518,38 @@ function renderChartsInner(athleteObj){
   } else if(paceWrap){
     paceWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment.</div>';
   }
+}
 
-  const physioWrap = document.getElementById("physio-chart-wrap");
-  const physioMonths = monthsBetween(periodStart, periodEnd);
-  const physioMonthData = physioMonths.map(m=>{
-    const monthSessions = sess.filter(s=>{
-      if(s.date < periodStartStr || s.date > periodEndStr) return false;
-      const d = new Date(s.date+"T00:00:00");
-      return d.getFullYear() === m.year && d.getMonth() === m.month;
-    });
-    return { label: monthLabelFr(m.year, m.month), gapZ: gapZoneAverageOf(monthSessions) };
-  }).filter(m => m.gapZ.some(v=>v!=null));
-  const hasGapData = physioMonthData.length > 0;
-  if(hasGapData && physioWrap){
-    const mutedColor = cssVar("--text-muted");
-    const n = physioMonthData.length;
-    charts.physio = new Chart(document.getElementById("chart-physio"), {
-      type:"line",
-      data:{ labels: ZONE_LABELS, datasets: physioMonthData.map((m,i)=>{
-        const t = n>1 ? i/(n-1) : 1;
-        const lineColor = mixHexColors(mutedColor, color, t);
-        return {
-          label: m.label, data: m.gapZ, borderColor: lineColor, backgroundColor: lineColor,
-          borderWidth: n>1 ? 1.5+1.5*t : 2, tension: 0.3, spanGaps: true,
-          pointRadius: 3, pointHoverRadius: 5, fill: false
-        };
-      })},
-      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-    });
-  } else if(physioWrap){
-    physioWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment.</div>';
-  }
+/* ---------------------------- graphiques : onglet État de forme ---------------------------- */
+function renderEtatFormeTabCharts(cd){
+  const { labels, acwr, ctl, atl } = cd;
 
-  const terrainWrap = document.getElementById("terrain-chart-wrap");
-  const terrainAStartDate = new Date(terrainCompareA.start+"T00:00:00");
-  const terrainAEndDate = new Date(terrainCompareA.end+"T23:59:59");
-  const terrainBStartDate = new Date(terrainCompareB.start+"T00:00:00");
-  const terrainBEndDate = new Date(terrainCompareB.end+"T23:59:59");
-  const gradePast = gapGradeAverageInRange(sess, terrainAStartDate, terrainAEndDate);
-  const gradeNow = gapGradeAverageInRange(sess, terrainBStartDate, terrainBEndDate);
-  const terrainLabelA = "Référence (" + fmtDateFr(terrainCompareA.start) + "–" + fmtDateFr(terrainCompareA.end) + ")";
-  const terrainLabelB = "Récente (" + fmtDateFr(terrainCompareB.start) + "–" + fmtDateFr(terrainCompareB.end) + ")";
-  const hasGradeData = gradeNow.some(v=>v!=null) || gradePast.some(v=>v!=null);
-  if(hasGradeData && terrainWrap){
-    charts.terrain = new Chart(document.getElementById("chart-terrain"), {
-      type:"bar",
-      data:{ labels: GRADE_BUCKET_LABELS, datasets:[
-        { label: terrainLabelA, data: gradePast, backgroundColor: cssVar("--text-muted")+"66", borderRadius:4, maxBarThickness:36 },
-        { label: terrainLabelB, data: gradeNow, backgroundColor: color, borderRadius:4, maxBarThickness:36 }
-      ]},
-      options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"km/h équivalent plat", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} },
-        x:{ ticks:{ color:cssVar("--text-muted"), font:{size:10.5} } } } })
-    });
-  } else if(terrainWrap){
-    terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment sur ces deux périodes.</div>';
-  }
+  charts.formFatigue = new Chart(document.getElementById("chart-form-fatigue"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"Forme (CTL)", data: cd.sl(ctl), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
+      { label:"Fatigue (ATL)", data: cd.sl(atl), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:2 }
+    ]},
+    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. (moyenne exp.)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  const acwrColors = cd.sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
+  charts.acwr = new Chart(document.getElementById("chart-acwr"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"ACWR", data: cd.sl(acwr), borderColor: cssVar("--accent"), backgroundColor:"transparent", borderWidth:2, pointRadius:2,
+        pointBackgroundColor: acwrColors, spanGaps:true,
+        segment:{ borderColor: ctx => {
+          const v = ctx.p1.parsed.y; if(v==null) return cssVar("--text-muted");
+          return cssVar(statusVar(classifyACWR(v).key));
+        }}
+      }
+    ]},
+    options: baseChartOptions({
+      plugins:{ legend:{display:false} },
+      scales:{ y:{ suggestedMin:0, suggestedMax:2, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+    })
+  });
 }
 
 /* ---------------------------- technicité (seule écriture permise) ---------------------------- */
@@ -2494,6 +2638,7 @@ async function loadAthleteData(){
     hooperResponses = [];
     injuryReports = [];
     nutritionEntries = [];
+    athleteTests = [];
     renderMain();
     return;
   }
@@ -2511,6 +2656,12 @@ async function loadAthleteData(){
   injuryReports = iErr ? [] : (injuryRows||[]).map(injuryFromApi);
   const { data: nutritionRows, error: nErr } = await sb.from("nutrition_entries").select("*").eq("athlete_id", athlete.id);
   nutritionEntries = nErr ? [] : (nutritionRows||[]).map(nutritionEntryFromApi);
+  // Tests de terrain saisis par le coach (RLS "athlete can view own athlete_tests")
+  // -- lecture seule, affichés dans l'onglet Athlète. Aucun test enregistré
+  // n'est pas une erreur : athleteTests reste un tableau vide et les cases
+  // ls-stat affichent "—" (voir athleteTestsSummaryFor / latestAthleteTest).
+  const { data: testRows, error: tErr } = await sb.from("athlete_tests").select("*").eq("athlete_id", athlete.id);
+  athleteTests = tErr ? [] : (testRows||[]).map(athleteTestFromApi);
   santeDraft = null;
   renderMain();
 }
@@ -2524,7 +2675,7 @@ function showLoggedOutUI(){
   document.getElementById("login-screen").hidden = false;
   document.getElementById("main-panel").hidden = true;
   document.getElementById("btn-logout").hidden = true;
-  athlete = null; sessions = []; hooperResponses = []; injuryReports = []; nutritionEntries = []; santeDraft = null;
+  athlete = null; sessions = []; hooperResponses = []; injuryReports = []; nutritionEntries = []; athleteTests = []; santeDraft = null;
 }
 
 async function init(){
