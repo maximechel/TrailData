@@ -490,10 +490,12 @@ let twinVolumeIncludeBike = false;
 // période affichée plus haut). null tant qu'elles n'ont pas été initialisées.
 let terrainCompareA = null;
 let terrainCompareB = null;
-// Onglet actif du panneau principal : "training" (tableau de bord habituel) ou
-// "env" (rapport environnemental — chaleur/altitude/vent). Partagé entre
-// athlètes (pas remis à zéro au changement d'athlète).
-let activeTab = "training";
+// Onglet actif du panneau principal : "athlete" (profil/tests de terrain),
+// "volume-charge" (charge et volume d'entraînement), "etat-forme" (ACWR,
+// forme/fatigue, Hooper, blessures), "env" (rapport environnemental —
+// chaleur/altitude/vent), "twin" (jumeau numérique) ou "nutrition". Partagé
+// entre athlètes (pas remis à zéro au changement d'athlète).
+let activeTab = "athlete";
 // Vue affichée dans #main-panel : "athlete" (tableau de bord de activeAthleteId,
 // comportement historique) ou "leads" (liste des demandes de contact laissées
 // sur l'outil public rapport-seance.html, indépendante de tout athlète).
@@ -2413,26 +2415,15 @@ function renderMain(){
     </div>
 
     <div class="ls-tabbar pdf-hide">
-      <button class="ls-tab-btn ${activeTab==="training"?"active":""}" data-tab="training" type="button">Entraînement</button>
-      <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Rapport environnemental</button>
+      <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
+      <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume &amp; Charge</button>
+      <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
+      <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance &amp; contexte environnemental</button>
       <button class="ls-tab-btn ${activeTab==="twin"?"active":""}" data-tab="twin" type="button">Jumeau numérique</button>
-      <button class="ls-tab-btn ${activeTab==="sante"?"active":""}" data-tab="sante" type="button">Santé</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
     </div>
 
-    <div class="ls-tab-panel" id="tab-panel-training" ${activeTab!=="training"?"hidden":""}>
-    <div class="ls-stat-grid">
-      <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
-    </div>
-
-    <div class="ls-insight" style="border-left-color:var(${statusVar(cls.key)})">
-      <p>${buildInsight(sessions, lastACWR, cls)}</p>
-    </div>
-
+    <div class="ls-tab-panel" id="tab-panel-athlete" ${activeTab!=="athlete"?"hidden":""}>
     <div class="ls-chart-sub" style="margin:0 0 8px;">Derniers tests de terrain (voir l'onglet Jumeau numérique pour l'historique complet et en ajouter de nouveaux).</div>
     <div class="ls-stat-grid">
       <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${twin.forceMax? twin.forceMax.value.toFixed(0) : "—"}<small> N${twin.forceMax? " · "+fmtDateFr(twin.forceMax.date):""}</small></div></div>
@@ -2452,33 +2443,54 @@ function renderMain(){
         <div class="ls-matrix-note" id="twin-radar-note"></div>
       </div>
       <div class="ls-chart-card full">
-        <h3>Charge d'entraînement</h3>
-        <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
-        ${periodBarHtml("load", `Période partagée par les 8 graphiques de cet onglet qui en dépendent — modifiable depuis n'importe lequel d'entre eux. Sert aussi de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).`)}
-        <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
+        <h3>Efficacité physiologique</h3>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)} (dégradé : mois ancien en terne → mois récent en couleur pleine). Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance.</div>
+        ${periodBarHtml("physio", "Période partagée avec plusieurs graphiques du dashboard, notamment « Charge d'entraînement » dans l'onglet Volume & Charge — modifiable depuis n'importe lequel d'entre eux.")}
+        <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
       </div>
       <div class="ls-chart-card full">
-        <h3>Forme / Fatigue (CTL / ATL)</h3>
-        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique ci-dessus — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge basée sur les zones de FC, pondérée par la technicité du terrain ; pas encore par l'environnement (chaleur/altitude/vent).</div>
-        ${periodBarHtml("formfatigue", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-ff-badges">
-          <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
-            <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
-            <span class="ls-ff-label">Forme</span>
+        <h3>Profil terrain</h3>
+        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(terrainCompareA.start)}–${fmtDateFr(terrainCompareA.end)} vs ${fmtDateFr(terrainCompareB.start)}–${fmtDateFr(terrainCompareB.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance (bouton « Modifier » sur chaque ligne du journal).</div>
+        <div class="ls-period-bar pdf-hide" style="margin-bottom:12px;">
+          <div class="ls-field">
+            <label>Référence — début</label>
+            <input type="date" id="terrain-a-start" value="${terrainCompareA.start}" max="${terrainCompareA.end}">
           </div>
-          <div class="ls-ff-circle" style="border-color:${cssVar("--serious")};color:${cssVar("--serious")}">
-            <span class="ls-ff-value">${atlNow!=null? atlNow.toFixed(0):"—"}</span>
-            <span class="ls-ff-label">Fatigue</span>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Référence — fin</label>
+            <input type="date" id="terrain-a-end" value="${terrainCompareA.end}" min="${terrainCompareA.start}">
+          </div>
+          <div class="ls-period-arrow">vs</div>
+          <div class="ls-field">
+            <label>Récente — début</label>
+            <input type="date" id="terrain-b-start" value="${terrainCompareB.start}" max="${terrainCompareB.end}">
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Récente — fin</label>
+            <input type="date" id="terrain-b-end" value="${terrainCompareB.end}" min="${terrainCompareB.start}">
           </div>
         </div>
-        <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeurs à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates ci-dessus pour relire l'état de forme à un autre moment.</div>
-        <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
+        <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
+    </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-volume-charge" ${activeTab!=="volume-charge"?"hidden":""}>
+    <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
+    </div>
+
+    <div class="ls-charts">
       <div class="ls-chart-card full">
-        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
-        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
-        ${periodBarHtml("acwr", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
+        <h3>Charge d'entraînement</h3>
+        <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
+        ${periodBarHtml("load", `Période partagée par plusieurs graphiques du dashboard, répartis entre les onglets Volume & Charge, État de forme et Athlète — modifiable depuis n'importe lequel d'entre eux. Sert aussi de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).`)}
+        <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card">
         <h3>Volume hebdomadaire</h3>
@@ -2525,38 +2537,6 @@ function renderMain(){
         ${periodBarHtml("pace", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap" id="pace-chart-wrap"><canvas id="chart-pace-zones"></canvas></div>
       </div>
-      <div class="ls-chart-card full">
-        <h3>Efficacité physiologique</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente (équivalent plat) par zone de FC, une courbe par mois du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)} (dégradé : mois ancien en terne → mois récent en couleur pleine). Une courbe plus haute à FC égale traduit une amélioration du moteur aérobie. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance.</div>
-        ${periodBarHtml("physio", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-chart-wrap" id="physio-chart-wrap"><canvas id="chart-physio"></canvas></div>
-      </div>
-      <div class="ls-chart-card full">
-        <h3>Profil terrain</h3>
-        <div class="ls-chart-sub">Vitesse ajustée à la pente par tranche de pente — ${fmtDateFr(terrainCompareA.start)}–${fmtDateFr(terrainCompareA.end)} vs ${fmtDateFr(terrainCompareB.start)}–${fmtDateFr(terrainCompareB.end)}. Une barre plus haute qu'une autre montre où l'athlète performe mieux (ou moins bien) que ce que prédit le modèle de coût par rapport au plat. Calculé depuis les séances Strava, corrigé de la technicité du terrain saisie par séance (bouton « Modifier » sur chaque ligne du journal).</div>
-        <div class="ls-period-bar pdf-hide" style="margin-bottom:12px;">
-          <div class="ls-field">
-            <label>Référence — début</label>
-            <input type="date" id="terrain-a-start" value="${terrainCompareA.start}" max="${terrainCompareA.end}">
-          </div>
-          <div class="ls-period-arrow">→</div>
-          <div class="ls-field">
-            <label>Référence — fin</label>
-            <input type="date" id="terrain-a-end" value="${terrainCompareA.end}" min="${terrainCompareA.start}">
-          </div>
-          <div class="ls-period-arrow">vs</div>
-          <div class="ls-field">
-            <label>Récente — début</label>
-            <input type="date" id="terrain-b-start" value="${terrainCompareB.start}" max="${terrainCompareB.end}">
-          </div>
-          <div class="ls-period-arrow">→</div>
-          <div class="ls-field">
-            <label>Récente — fin</label>
-            <input type="date" id="terrain-b-end" value="${terrainCompareB.end}" min="${terrainCompareB.start}">
-          </div>
-        </div>
-        <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
-      </div>
     </div>
 
     <div class="ls-table-card pdf-hide">
@@ -2570,6 +2550,44 @@ function renderMain(){
         </table>
       </div>
     </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-etat-forme" ${activeTab!=="etat-forme"?"hidden":""}>
+    <div class="ls-stat-grid">
+      <div class="ls-stat"><div class="ls-stat-label">ACWR</div><div class="ls-stat-value"><span class="ls-status-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${lastACWR!=null? lastACWR.toFixed(2):"—"} · ${cls.label}</span></div></div>
+    </div>
+
+    <div class="ls-insight" style="border-left-color:var(${statusVar(cls.key)})">
+      <p>${buildInsight(sessions, lastACWR, cls)}</p>
+    </div>
+
+    <div class="ls-charts">
+      <div class="ls-chart-card full">
+        <h3>Forme / Fatigue (CTL / ATL)</h3>
+        <div class="ls-chart-sub">Moyennes exponentielles (42j / 7j) du même TRIMP quotidien que le graphique « Charge d'entraînement » (onglet Volume & Charge) — Forme (CTL) : charge de fond accumulée. Fatigue (ATL) : charge récente. Charge basée sur les zones de FC, pondérée par la technicité du terrain ; pas encore par l'environnement (chaleur/altitude/vent).</div>
+        ${periodBarHtml("formfatigue", "Période partagée avec le graphique ACWR ci-dessous, et avec les graphiques de l'onglet Volume & Charge.")}
+        <div class="ls-ff-badges">
+          <div class="ls-ff-circle" style="border-color:${cssVar("--text-primary")};color:${cssVar("--text-primary")}">
+            <span class="ls-ff-value">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span>
+            <span class="ls-ff-label">Forme</span>
+          </div>
+          <div class="ls-ff-circle" style="border-color:${cssVar("--serious")};color:${cssVar("--serious")}">
+            <span class="ls-ff-value">${atlNow!=null? atlNow.toFixed(0):"—"}</span>
+            <span class="ls-ff-label">Fatigue</span>
+          </div>
+        </div>
+        <div class="ls-chart-sub" style="margin:-6px 0 8px;">Valeurs à la fin de la période sélectionnée (${fmtDateFr(chartPeriod.end)}) — change les dates ci-dessus pour relire l'état de forme à un autre moment.</div>
+        <div class="ls-chart-wrap tall"><canvas id="chart-form-fatigue"></canvas></div>
+      </div>
+      <div class="ls-chart-card full">
+        <h3>Ratio charge aiguë / chronique (ACWR)</h3>
+        <div class="ls-chart-sub">&lt; 0.8 sous-charge · 0.8–1.3 zone optimale · 1.3–1.5 prudence · &gt; 1.5 risque élevé</div>
+        ${periodBarHtml("acwr", "Période partagée avec le graphique Forme / Fatigue ci-dessus.")}
+        <div class="ls-chart-wrap"><canvas id="chart-acwr"></canvas></div>
+      </div>
+    </div>
+
+    ${renderSanteTabHtml(athlete, sessions)}
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
@@ -2688,10 +2706,6 @@ function renderMain(){
       <div id="sim-results"></div>
     </div>
 
-    <div class="ls-tab-panel" id="tab-panel-sante" ${activeTab!=="sante"?"hidden":""}>
-      ${renderSanteTabHtml(athlete, sessions)}
-    </div>
-
     <div class="ls-tab-panel" id="tab-panel-nutrition" ${activeTab!=="nutrition"?"hidden":""}>
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button type="button" class="ls-btn small ${nutritionView==="coach"?"primary":"ghost"}" data-nutrition-view="coach">Vue coach</button>
@@ -2794,7 +2808,7 @@ function renderMain(){
   const zonesTotalSelect = document.getElementById("zones-total-activity");
   if(zonesTotalSelect) zonesTotalSelect.addEventListener("change", e=>{
     zonesTotalActivityFilter = e.target.value;
-    renderCharts();
+    renderVolumeChargeCharts(athlete);
   });
   const twinVolRunCb = document.getElementById("twin-volume-run");
   if(twinVolRunCb) twinVolRunCb.addEventListener("change", e=>{
@@ -3754,22 +3768,95 @@ const zoneDonutLeaderLabelsPlugin = {
 
 function destroyCharts(){ Object.keys(charts).forEach(k=>{ if(charts[k]){ charts[k].destroy(); charts[k]=null; } }); }
 
-function renderCharts(){
-  if(!state) return;
-  const athlete = state.athletes.find(a=>a.id===activeAthleteId);
-  if(!athlete || !document.getElementById("chart-load")) { return; }
+// Contexte commun aux graphiques "temporels" partagés entre les onglets
+// Athlète (Efficacité physiologique), Volume & Charge (Charge d'entraînement,
+// Volume, Dénivelé, Zones de FC, Zones d'allure) et État de forme (Forme /
+// Fatigue, ACWR) : charge quotidienne, séries ACWR/CTL/ATL, période
+// sélectionnée (chartPeriod, partagée entre les trois onglets) et agrégats
+// hebdomadaires. Calculé une fois par onglet actif pour éviter de dupliquer
+// cette logique dans les trois fonctions de rendu de graphiques ci-dessous
+// (anciennement une seule fonction renderChartsInner, avant la scission de
+// l'onglet Entraînement en trois onglets).
+function trainingChartContext(athlete){
+  const sessions = state.sessions.filter(s=>s.athleteId===athlete.id);
+  const { dates, acute, chronic, acwr, ctl, atl } = acwrSeries(sessions);
+  const daily = dailySeries(sessions);
+  const dailyVals = dates.map(d=>daily[d]||0);
+  const color = athleteColor(athlete);
+
+  ensureChartPeriod();
+  const periodStartStr = chartPeriod.start, periodEndStr = chartPeriod.end;
+  const periodStart = new Date(periodStartStr+"T00:00:00");
+  const periodEnd = new Date(periodEndStr+"T00:00:00");
+
+  // Slice les séries journalières (Charge / ACWR / CTL / ATL) sur la période
+  // choisie plutôt que sur une fenêtre glissante fixe.
+  let si = dates.findIndex(d=> d >= periodStartStr);
+  if(si === -1) si = dates.length;
+  let ei = dates.length - 1;
+  while(ei >= 0 && dates[ei] > periodEndStr) ei--;
+  const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
+  const labels = sl(dates).map(d=> fmtDayMonth(d));
+
+  const weeks = weeklyAggregates(sessions, periodStartStr, periodEndStr);
+  const wkLabels = weeks.map(w=> fmtDayMonth(w.week));
+
+  return { sessions, dates, acute, chronic, acwr, ctl, atl, daily, dailyVals, color,
+    periodStartStr, periodEndStr, periodStart, periodEnd, sl, labels, weeks, wkLabels };
+}
+
+function renderAthleteCharts(athlete){
+  if(!state || !athlete || !document.getElementById("chart-twin-radar")) return;
   destroyCharts();
   if(typeof Chart === "undefined"){
-    document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
+    document.querySelectorAll("#tab-panel-athlete .ls-chart-wrap").forEach(el=>{
       el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphiques indisponibles (bibliothèque non chargée). Rechargez la page.</div>';
     });
     return;
   }
   try{
-    renderChartsInner(athlete);
+    renderAthleteChartsInner(athlete);
   }catch(e){
-    console.error("Erreur lors de l'affichage des graphiques", e);
-    document.querySelectorAll(".ls-chart-wrap").forEach(el=>{
+    console.error("Erreur lors de l'affichage des graphiques (onglet Athlète)", e);
+    document.querySelectorAll("#tab-panel-athlete .ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Impossible d\'afficher ce graphique.</div>';
+    });
+  }
+}
+
+function renderVolumeChargeCharts(athlete){
+  if(!state || !athlete || !document.getElementById("chart-load")) return;
+  destroyCharts();
+  if(typeof Chart === "undefined"){
+    document.querySelectorAll("#tab-panel-volume-charge .ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphiques indisponibles (bibliothèque non chargée). Rechargez la page.</div>';
+    });
+    return;
+  }
+  try{
+    renderVolumeChargeChartsInner(athlete);
+  }catch(e){
+    console.error("Erreur lors de l'affichage des graphiques (onglet Volume & Charge)", e);
+    document.querySelectorAll("#tab-panel-volume-charge .ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Impossible d\'afficher ce graphique.</div>';
+    });
+  }
+}
+
+function renderEtatFormeTrainingCharts(athlete){
+  if(!state || !athlete || !document.getElementById("chart-acwr")) return;
+  destroyCharts();
+  if(typeof Chart === "undefined"){
+    document.querySelectorAll("#tab-panel-etat-forme .ls-chart-wrap").forEach(el=>{
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Graphiques indisponibles (bibliothèque non chargée). Rechargez la page.</div>';
+    });
+    return;
+  }
+  try{
+    renderEtatFormeTrainingChartsInner(athlete);
+  }catch(e){
+    console.error("Erreur lors de l'affichage des graphiques (onglet État de forme)", e);
+    document.querySelectorAll("#tab-panel-etat-forme .ls-chart-wrap").forEach(el=>{
       el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Impossible d\'afficher ce graphique.</div>';
     });
   }
@@ -3877,16 +3964,28 @@ function renderTwinVamChart(stravaSessions){
 }
 
 // Point d'entrée unique pour (re)construire les graphiques de l'onglet actif
-// (entraînement, rapport environnemental ou jumeau numérique) — utilisé au
-// premier rendu, lors d'un changement de thème et lors du basculement
-// d'onglet, pour éviter de dupliquer cette logique de dispatch à plusieurs
-// endroits.
+// (athlète, volume & charge, état de forme, rapport environnemental, jumeau
+// numérique ou nutrition) — utilisé au premier rendu, lors d'un changement de
+// thème et lors du basculement d'onglet, pour éviter de dupliquer cette
+// logique de dispatch à plusieurs endroits.
 function renderActiveTabCharts(){
   if(!state) return;
   const athlete = state.athletes.find(a=>a.id===activeAthleteId);
   if(!athlete){ destroyCharts(); return; }
-  if(activeTab === "training"){
-    renderCharts();
+  if(activeTab === "athlete"){
+    renderAthleteCharts(athlete);
+  } else if(activeTab === "volume-charge"){
+    renderVolumeChargeCharts(athlete);
+  } else if(activeTab === "etat-forme"){
+    // Deux groupes de graphiques indépendants dans cet onglet fusionné :
+    // ACWR/Forme-Fatigue (ex-onglet Entraînement) et Hooper/corrélation
+    // (ex-onglet Santé) — renderEtatFormeTrainingCharts fait déjà son propre
+    // destroyCharts() avant de construire les deux siens, donc
+    // renderSanteCharts (qui n'en fait pas) peut s'ajouter juste après sans
+    // effacer ce qui vient d'être construit.
+    renderEtatFormeTrainingCharts(athlete);
+    const athleteSessions = state.sessions.filter(s=>s.athleteId===athlete.id);
+    renderSanteCharts(athlete, athleteSessions);
   } else if(activeTab === "env"){
     destroyCharts();
     const envSessions = state.sessions.filter(s=>s.athleteId===athlete.id && s.source==="strava");
@@ -3895,10 +3994,6 @@ function renderActiveTabCharts(){
     destroyCharts();
     const stravaSessions = state.sessions.filter(s=>s.athleteId===athlete.id && s.source==="strava");
     renderTwinVamChart(stravaSessions);
-  } else if(activeTab === "sante"){
-    destroyCharts();
-    const athleteSessions = state.sessions.filter(s=>s.athleteId===athlete.id);
-    renderSanteCharts(athlete, athleteSessions);
   } else if(activeTab === "nutrition"){
     destroyCharts();
     if(nutritionView === "coach"){
@@ -3911,26 +4006,9 @@ function renderActiveTabCharts(){
   }
 }
 
-function renderChartsInner(athlete){
-  const sessions = state.sessions.filter(s=>s.athleteId===athlete.id);
-  const { dates, acute, chronic, acwr, ctl, atl } = acwrSeries(sessions);
-  const daily = dailySeries(sessions);
-  const dailyVals = dates.map(d=>daily[d]||0);
-  const color = athleteColor(athlete);
-
-  ensureChartPeriod();
-  const periodStartStr = chartPeriod.start, periodEndStr = chartPeriod.end;
-  const periodStart = new Date(periodStartStr+"T00:00:00");
-  const periodEnd = new Date(periodEndStr+"T00:00:00");
-
-  // Slice les séries journalières (Charge / ACWR) sur la période choisie
-  // plutôt que sur une fenêtre glissante fixe.
-  let si = dates.findIndex(d=> d >= periodStartStr);
-  if(si === -1) si = dates.length;
-  let ei = dates.length - 1;
-  while(ei >= 0 && dates[ei] > periodEndStr) ei--;
-  const sl = arr => (si <= ei) ? arr.slice(si, ei+1) : [];
-  const labels = sl(dates).map(d=> fmtDayMonth(d));
+function renderAthleteChartsInner(athlete){
+  const common = trainingChartContext(athlete);
+  const { sessions, color, periodStart, periodEnd, periodStartStr, periodEndStr } = common;
 
   const twinRadarWrap = document.getElementById("twin-radar-chart-wrap");
   const twinRadarNote = document.getElementById("twin-radar-note");
@@ -3962,152 +4040,6 @@ function renderChartsInner(athlete){
   } else if(twinRadarWrap){
     twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite au moins deux tests de terrain ou séances Strava par paramètre pour calculer un score.</div>';
     if(twinRadarNote) twinRadarNote.textContent = "";
-  }
-
-  charts.load = new Chart(document.getElementById("chart-load"), {
-    type:"bar",
-    data:{ labels, datasets:[
-      { type:"bar", label:"Charge quotidienne", data: sl(dailyVals), backgroundColor: color+"55", borderRadius:3, order:3 },
-      { type:"line", label:"Aiguë (7j)", data: sl(acute), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
-      { type:"line", label:"Chronique (28j)", data: sl(chronic), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3], order:2 }
-    ]},
-    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-  });
-
-  charts.formFatigue = new Chart(document.getElementById("chart-form-fatigue"), {
-    type:"line",
-    data:{ labels, datasets:[
-      { label:"Forme (CTL)", data: sl(ctl), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
-      { label:"Fatigue (ATL)", data: sl(atl), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:2 }
-    ]},
-    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. (moyenne exp.)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-  });
-
-  const acwrColors = sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
-  charts.acwr = new Chart(document.getElementById("chart-acwr"), {
-    type:"line",
-    data:{ labels, datasets:[
-      { label:"ACWR", data: sl(acwr), borderColor: cssVar("--accent"), backgroundColor:"transparent", borderWidth:2, pointRadius:2,
-        pointBackgroundColor: acwrColors, spanGaps:true,
-        segment:{ borderColor: ctx => {
-          const v = ctx.p1.parsed.y; if(v==null) return cssVar("--text-muted");
-          return cssVar(statusVar(classifyACWR(v).key));
-        }}
-      }
-    ]},
-    options: baseChartOptions({
-      plugins:{ legend:{display:false} },
-      scales:{ y:{ suggestedMin:0, suggestedMax:2, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
-    })
-  });
-
-  const weeks = weeklyAggregates(sessions, periodStartStr, periodEndStr);
-  const wkLabels = weeks.map(w=> fmtDayMonth(w.week));
-
-  // Kilométrage hebdomadaire empilé par type d'activité — une barre par
-  // semaine, un segment de couleur par catégorie ; la légende (cliquable)
-  // permet de masquer une catégorie, et le survol détaille chaque segment.
-  const volByWeek = weeklyKmByCategory(sessions, periodStartStr, periodEndStr);
-  charts.volume = new Chart(document.getElementById("chart-volume"), {
-    type:"bar",
-    data:{ labels: wkLabels, datasets: VOLUME_CATEGORIES.map(c=>({
-      label: c.label,
-      data: weeks.map(w=> +((volByWeek[w.week]?.[c.key]||0).toFixed(1))),
-      backgroundColor: cssVar(c.colorVar), stack:"vol", borderRadius:2, maxBarThickness:26
-    }))},
-    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-  });
-
-  // Le dénivelé n'a de sens que pour la course à pied et le vélo — musculation,
-  // ski et le reste sont écartés du graphique (demande du coach).
-  const ELEVATION_CATEGORIES = VOLUME_CATEGORIES.filter(c => c.key==="course" || c.key==="velo");
-  const elevByWeek = weeklyElevationByCategory(sessions, periodStartStr, periodEndStr);
-  const elevDatasets = (metric) => ELEVATION_CATEGORIES.map(c => ({
-    label: c.label,
-    data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.[metric] || 0)),
-    backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26
-  }));
-  const elevOptions = baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } });
-  charts.elevationPlus = new Chart(document.getElementById("chart-elevation-plus"), {
-    type:"bar",
-    data:{ labels: wkLabels, datasets: elevDatasets("dPlus") },
-    options: elevOptions
-  });
-  charts.elevationMinus = new Chart(document.getElementById("chart-elevation-minus"), {
-    type:"bar",
-    data:{ labels: wkLabels, datasets: elevDatasets("dMinus") },
-    options: elevOptions
-  });
-
-  const zoneColors = [cssVar("--z1"),cssVar("--z2"),cssVar("--z3"),cssVar("--z4"),cssVar("--z5")];
-  charts.zones = new Chart(document.getElementById("chart-zones"), {
-    type:"bar",
-    data:{ labels: wkLabels, datasets: ZONE_LABELS.map((lab,i)=>({
-      label: lab, data: weeks.map(w=>w.zones[i]), backgroundColor: zoneColors[i], stack:"z", borderRadius:2, maxBarThickness:28
-    }))},
-    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-  });
-
-  // Donut "zones de FC — historique complet" : indépendant de la période
-  // choisie plus haut, filtrable par activité (sélecteur dans renderMain).
-  const zonesTotalWrap = document.getElementById("zones-total-chart-wrap");
-  // Le sélecteur d'activité rappelle renderCharts() seul (sans renderMain()),
-  // donc si le tour précédent avait remplacé ce wrap par le message "aucune
-  // donnée", il faut réinsérer le <canvas> avant de retenter — sinon
-  // document.getElementById("chart-zones-total") renverrait null.
-  if(zonesTotalWrap){
-    zonesTotalWrap.innerHTML = '<canvas id="chart-zones-total"></canvas>';
-    const zonesTotalSessions = zonesTotalActivityFilter === "all" ? sessions : sessions.filter(s=>s.type===zonesTotalActivityFilter);
-    const zonesTotalMinutes = [0,0,0,0,0];
-    zonesTotalSessions.forEach(s=> s.zones.forEach((m,i)=> zonesTotalMinutes[i]+=(m||0)));
-    const zonesTotalSum = zonesTotalMinutes.reduce((a,b)=>a+b,0);
-    if(zonesTotalSum > 0){
-      charts.zonesTotal = new Chart(document.getElementById("chart-zones-total"), {
-        type:"doughnut",
-        data:{ labels: ZONE_LABELS, datasets:[{ data: zonesTotalMinutes, backgroundColor: zoneColors, borderColor: cssVar("--surface"), borderWidth:2 }] },
-        options:{
-          responsive:true, maintainAspectRatio:false, cutout:"62%",
-          layout:{ padding:{ top:18, bottom:34, left:100, right:100 } },
-          plugins:{
-            legend:{ position:"top", labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
-            tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
-              borderColor: cssVar("--border"), borderWidth:1, padding:10,
-              callbacks:{ label: ctx => ` ${fmtHoursMinutes(ctx.parsed)} (${(ctx.parsed/zonesTotalSum*100).toFixed(2).replace(".",",")} %)` } },
-            centerText:{ text: fmtHoursMinutes(zonesTotalSum) }
-          }
-        },
-        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin, zoneDonutLegendGapPlugin]
-      });
-    } else {
-      zonesTotalWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec zones de FC renseignées pour cette activité.</div>';
-    }
-  }
-
-  // Zones d'allure = contrainte liée à la vitesse de course. Les bornes (km/h)
-  // sont calibrées pour la course à pied : un vélo ou une autre activité plus
-  // rapide y atterrirait artificiellement dans les zones hautes (anaérobie)
-  // sans que l'effort réel le justifie. On ne garde donc que Course à pied et
-  // Trail, en réutilisant les mêmes semaines que les autres graphiques
-  // (weeklyAggregates sur le sous-ensemble filtré, réaligné sur `weeks` pour
-  // que les semaines sans course à pied affichent bien une barre à 0 plutôt
-  // que d'être absentes ou décalées).
-  const paceSessions = sessions.filter(s => s.type === "Course à pied" || s.type === "Trail");
-  const paceWeeksRaw = weeklyAggregates(paceSessions, periodStartStr, periodEndStr);
-  const paceByWeek = {};
-  paceWeeksRaw.forEach(w => { paceByWeek[w.week] = w; });
-  const hasPaceData = weeks.some(w => paceByWeek[w.week]?.hasPaceData);
-  const paceWrap = document.getElementById("pace-chart-wrap");
-  if(hasPaceData && paceWrap){
-    const paceColors = PACE_ZONE_VARS.map(v=>cssVar(v));
-    charts.pace = new Chart(document.getElementById("chart-pace-zones"), {
-      type:"bar",
-      data:{ labels: wkLabels, datasets: [0,1,2,3,4,5,6].map(i=>({
-        label: paceZoneLabel(athlete, i), data: weeks.map(w=>paceByWeek[w.week]?.paceZones[i] || 0), backgroundColor: paceColors[i], stack:"p", borderRadius:2, maxBarThickness:28
-      }))},
-      options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
-    });
-  } else if(paceWrap){
-    paceWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava et une table d\'intensité complète (bouton « Table d\'intensité » ci-dessus).</div>';
   }
 
   const physioWrap = document.getElementById("physio-chart-wrap");
@@ -4172,6 +4104,161 @@ function renderChartsInner(athlete){
     terrainWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment sur ces deux périodes — nécessite des séances importées depuis Strava.</div>';
   }
 }
+
+function renderVolumeChargeChartsInner(athlete){
+  const common = trainingChartContext(athlete);
+  const { sessions, dailyVals, acute, chronic, color, labels, sl, periodStartStr, periodEndStr, weeks, wkLabels } = common;
+
+  charts.load = new Chart(document.getElementById("chart-load"), {
+    type:"bar",
+    data:{ labels, datasets:[
+      { type:"bar", label:"Charge quotidienne", data: sl(dailyVals), backgroundColor: color+"55", borderRadius:3, order:3 },
+      { type:"line", label:"Aiguë (7j)", data: sl(acute), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
+      { type:"line", label:"Chronique (28j)", data: sl(chronic), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, borderDash:[4,3], order:2 }
+    ]},
+    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. / jour", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  // Kilométrage hebdomadaire empilé par type d'activité — une barre par
+  // semaine, un segment de couleur par catégorie ; la légende (cliquable)
+  // permet de masquer une catégorie, et le survol détaille chaque segment.
+  const volByWeek = weeklyKmByCategory(sessions, periodStartStr, periodEndStr);
+  charts.volume = new Chart(document.getElementById("chart-volume"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: VOLUME_CATEGORIES.map(c=>({
+      label: c.label,
+      data: weeks.map(w=> +((volByWeek[w.week]?.[c.key]||0).toFixed(1))),
+      backgroundColor: cssVar(c.colorVar), stack:"vol", borderRadius:2, maxBarThickness:26
+    }))},
+    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  // Le dénivelé n'a de sens que pour la course à pied et le vélo — musculation,
+  // ski et le reste sont écartés du graphique (demande du coach).
+  const ELEVATION_CATEGORIES = VOLUME_CATEGORIES.filter(c => c.key==="course" || c.key==="velo");
+  const elevByWeek = weeklyElevationByCategory(sessions, periodStartStr, periodEndStr);
+  const elevDatasets = (metric) => ELEVATION_CATEGORIES.map(c => ({
+    label: c.label,
+    data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.[metric] || 0)),
+    backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26
+  }));
+  const elevOptions = baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } });
+  charts.elevationPlus = new Chart(document.getElementById("chart-elevation-plus"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: elevDatasets("dPlus") },
+    options: elevOptions
+  });
+  charts.elevationMinus = new Chart(document.getElementById("chart-elevation-minus"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: elevDatasets("dMinus") },
+    options: elevOptions
+  });
+
+  const zoneColors = [cssVar("--z1"),cssVar("--z2"),cssVar("--z3"),cssVar("--z4"),cssVar("--z5")];
+  charts.zones = new Chart(document.getElementById("chart-zones"), {
+    type:"bar",
+    data:{ labels: wkLabels, datasets: ZONE_LABELS.map((lab,i)=>({
+      label: lab, data: weeks.map(w=>w.zones[i]), backgroundColor: zoneColors[i], stack:"z", borderRadius:2, maxBarThickness:28
+    }))},
+    options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  // Donut "zones de FC — historique complet" : indépendant de la période
+  // choisie plus haut, filtrable par activité (sélecteur dans renderMain).
+  const zonesTotalWrap = document.getElementById("zones-total-chart-wrap");
+  // Le sélecteur d'activité rappelle renderVolumeChargeCharts() seul (sans
+  // renderMain()), donc si le tour précédent avait remplacé ce wrap par le
+  // message "aucune donnée", il faut réinsérer le <canvas> avant de
+  // retenter — sinon document.getElementById("chart-zones-total") renverrait
+  // null.
+  if(zonesTotalWrap){
+    zonesTotalWrap.innerHTML = '<canvas id="chart-zones-total"></canvas>';
+    const zonesTotalSessions = zonesTotalActivityFilter === "all" ? sessions : sessions.filter(s=>s.type===zonesTotalActivityFilter);
+    const zonesTotalMinutes = [0,0,0,0,0];
+    zonesTotalSessions.forEach(s=> s.zones.forEach((m,i)=> zonesTotalMinutes[i]+=(m||0)));
+    const zonesTotalSum = zonesTotalMinutes.reduce((a,b)=>a+b,0);
+    if(zonesTotalSum > 0){
+      charts.zonesTotal = new Chart(document.getElementById("chart-zones-total"), {
+        type:"doughnut",
+        data:{ labels: ZONE_LABELS, datasets:[{ data: zonesTotalMinutes, backgroundColor: zoneColors, borderColor: cssVar("--surface"), borderWidth:2 }] },
+        options:{
+          responsive:true, maintainAspectRatio:false, cutout:"62%",
+          layout:{ padding:{ top:18, bottom:34, left:100, right:100 } },
+          plugins:{
+            legend:{ position:"top", labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+            tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+              borderColor: cssVar("--border"), borderWidth:1, padding:10,
+              callbacks:{ label: ctx => ` ${fmtHoursMinutes(ctx.parsed)} (${(ctx.parsed/zonesTotalSum*100).toFixed(2).replace(".",",")} %)` } },
+            centerText:{ text: fmtHoursMinutes(zonesTotalSum) }
+          }
+        },
+        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin, zoneDonutLegendGapPlugin]
+      });
+    } else {
+      zonesTotalWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec zones de FC renseignées pour cette activité.</div>';
+    }
+  }
+
+  // Zones d'allure = contrainte liée à la vitesse de course. Les bornes (km/h)
+  // sont calibrées pour la course à pied : un vélo ou une autre activité plus
+  // rapide y atterrirait artificiellement dans les zones hautes (anaérobie)
+  // sans que l'effort réel le justifie. On ne garde donc que Course à pied et
+  // Trail, en réutilisant les mêmes semaines que les autres graphiques
+  // (weeklyAggregates sur le sous-ensemble filtré, réaligné sur `weeks` pour
+  // que les semaines sans course à pied affichent bien une barre à 0 plutôt
+  // que d'être absentes ou décalées).
+  const paceSessions = sessions.filter(s => s.type === "Course à pied" || s.type === "Trail");
+  const paceWeeksRaw = weeklyAggregates(paceSessions, periodStartStr, periodEndStr);
+  const paceByWeek = {};
+  paceWeeksRaw.forEach(w => { paceByWeek[w.week] = w; });
+  const hasPaceData = weeks.some(w => paceByWeek[w.week]?.hasPaceData);
+  const paceWrap = document.getElementById("pace-chart-wrap");
+  if(hasPaceData && paceWrap){
+    const paceColors = PACE_ZONE_VARS.map(v=>cssVar(v));
+    charts.pace = new Chart(document.getElementById("chart-pace-zones"), {
+      type:"bar",
+      data:{ labels: wkLabels, datasets: [0,1,2,3,4,5,6].map(i=>({
+        label: paceZoneLabel(athlete, i), data: weeks.map(w=>paceByWeek[w.week]?.paceZones[i] || 0), backgroundColor: paceColors[i], stack:"p", borderRadius:2, maxBarThickness:28
+      }))},
+      options: baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+    });
+  } else if(paceWrap){
+    paceWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite des séances importées depuis Strava et une table d\'intensité complète (bouton « Table d\'intensité » ci-dessus).</div>';
+  }
+}
+
+function renderEtatFormeTrainingChartsInner(athlete){
+  const common = trainingChartContext(athlete);
+  const { ctl, atl, acwr, labels, sl } = common;
+
+  charts.formFatigue = new Chart(document.getElementById("chart-form-fatigue"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"Forme (CTL)", data: sl(ctl), borderColor: cssVar("--text-primary"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:1 },
+      { label:"Fatigue (ATL)", data: sl(atl), borderColor: cssVar("--serious"), backgroundColor:"transparent", tension:.3, pointRadius:0, borderWidth:2, order:2 }
+    ]},
+    options: baseChartOptions({ scales:{ y:{ title:{display:true,text:"u.a. (moyenne exp.)", color:cssVar("--text-muted"), font:{size:10}}, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } })
+  });
+
+  const acwrColors = sl(acwr).map(v => v==null? cssVar("--text-muted") : cssVar(statusVar(classifyACWR(v).key)));
+  charts.acwr = new Chart(document.getElementById("chart-acwr"), {
+    type:"line",
+    data:{ labels, datasets:[
+      { label:"ACWR", data: sl(acwr), borderColor: cssVar("--accent"), backgroundColor:"transparent", borderWidth:2, pointRadius:2,
+        pointBackgroundColor: acwrColors, spanGaps:true,
+        segment:{ borderColor: ctx => {
+          const v = ctx.p1.parsed.y; if(v==null) return cssVar("--text-muted");
+          return cssVar(statusVar(classifyACWR(v).key));
+        }}
+      }
+    ]},
+    options: baseChartOptions({
+      plugins:{ legend:{display:false} },
+      scales:{ y:{ suggestedMin:0, suggestedMax:2, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } }
+    })
+  });
+}
+
 
 /* ---------------------------- modals: session ---------------------------- */
 
