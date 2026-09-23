@@ -532,7 +532,7 @@ const CLIENT_PORTAL_URL = "https://maximechel.github.io/TrailData/client.html";
 
 let state = null;
 let activeAthleteId = null;
-let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevationPlus: null, elevationMinus: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, twinRadar: null, envTrend: null, twinVam: null, santeHooper: null, santeCorrelation: null, nutritionCompare: null };
+let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, twinRadar: null, envTrend: null, twinVam: null, santeHooper: null, santeCorrelation: null, nutritionCompare: null };
 let santeHistoryView = "last"; // "last" | "history" — bascule d'affichage de la carte "Localisation des gênes" de l'onglet Santé
 let chartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée/comparée sur les graphes, choisie par le coach
 let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe "Durée réelle vs ajustée" (onglet Rapport environnemental), indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond, affinable via son propre sélecteur.
@@ -2627,20 +2627,11 @@ function renderMain(){
         ${periodBarHtml("volume", "Période partagée avec les autres graphiques de cet onglet.")}
         <div class="ls-chart-wrap"><canvas id="chart-volume"></canvas></div>
       </div>
-      <div class="ls-chart-card full">
+      <div class="ls-chart-card">
         <h3>Dénivelé hebdomadaire par activité</h3>
-        <div class="ls-chart-sub">Dénivelé positif et négatif, empilés par type d'activité</div>
+        <div class="ls-chart-sub">D+ au-dessus de l'axe, D- en dessous, empilés par type d'activité</div>
         ${periodBarHtml("elevation", "Période partagée avec les autres graphiques de cet onglet.")}
-        <div class="ls-subchart-grid">
-          <div>
-            <div class="ls-subchart-label">D+ (m)</div>
-            <div class="ls-chart-wrap"><canvas id="chart-elevation-plus"></canvas></div>
-          </div>
-          <div>
-            <div class="ls-subchart-label">D- (m)</div>
-            <div class="ls-chart-wrap"><canvas id="chart-elevation-minus"></canvas></div>
-          </div>
-        </div>
+        <div class="ls-chart-wrap"><canvas id="chart-elevation"></canvas></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Répartition du temps en zones de FC</h3>
@@ -4306,24 +4297,28 @@ function renderVolumeChargeChartsInner(athlete){
   });
 
   // Le dénivelé n'a de sens que pour la course à pied et le vélo — musculation,
-  // ski et le reste sont écartés du graphique (demande du coach).
+  // ski et le reste sont écartés du graphique (demande du coach). D+ et D-
+  // fusionnés dans un seul graphique (au lieu de deux côte à côte) pour
+  // épurer la page : D+ au-dessus de l'axe, D- en dessous (valeurs
+  // négatives), même teinte de catégorie pour les deux, D- en version
+  // atténuée puisque la position par rapport à l'axe suffit à les distinguer.
   const ELEVATION_CATEGORIES = VOLUME_CATEGORIES.filter(c => c.key==="course" || c.key==="velo");
   const elevByWeek = weeklyElevationByCategory(sessions, periodStartStr, periodEndStr);
-  const elevDatasets = (metric) => ELEVATION_CATEGORIES.map(c => ({
-    label: c.label,
-    data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.[metric] || 0)),
-    backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26
-  }));
-  const elevOptions = baseChartOptions({ scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")} } } });
-  charts.elevationPlus = new Chart(document.getElementById("chart-elevation-plus"), {
+  const elevDatasets = ELEVATION_CATEGORIES.flatMap(c => ([
+    { label:`${c.label} (D+)`, data: weeks.map(w => Math.round(elevByWeek[w.week]?.[c.key]?.dPlus || 0)), backgroundColor: cssVar(c.colorVar), stack:"elev", borderRadius:2, maxBarThickness:26 },
+    { label:`${c.label} (D-)`, data: weeks.map(w => -Math.round(elevByWeek[w.week]?.[c.key]?.dMinus || 0)), backgroundColor: cssVar(c.colorVar)+"66", stack:"elev", borderRadius:2, maxBarThickness:26 }
+  ]));
+  charts.elevation = new Chart(document.getElementById("chart-elevation"), {
     type:"bar",
-    data:{ labels: wkLabels, datasets: elevDatasets("dPlus") },
-    options: elevOptions
-  });
-  charts.elevationMinus = new Chart(document.getElementById("chart-elevation-minus"), {
-    type:"bar",
-    data:{ labels: wkLabels, datasets: elevDatasets("dMinus") },
-    options: elevOptions
+    data:{ labels: wkLabels, datasets: elevDatasets },
+    options: baseChartOptions({
+      plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Manrope", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
+        tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
+          borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Manrope", weight:700}, bodyFont:{family:"IBM Plex Mono"},
+          callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${Math.abs(ctx.parsed.y)} m` } } },
+      scales:{ x:{ stacked:true, grid:{display:false} },
+        y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted"), callback:v=>Math.abs(v)}, title:{display:true, text:"D+ (m) / D- (m)", color:cssVar("--text-muted"), font:{size:10}} } }
+    })
   });
 
   const zoneColors = [cssVar("--z1"),cssVar("--z2"),cssVar("--z3"),cssVar("--z4"),cssVar("--z5")];
