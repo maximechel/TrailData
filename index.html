@@ -2796,14 +2796,6 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
-      <div class="ls-stat-grid ls-env-stat-grid" style="margin-bottom:18px;">
-        <div class="ls-stat"><div class="ls-stat-label">Séances avec données</div><div class="ls-stat-value">${envSummary.count}</div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Chaleur — température moyenne</div><div class="ls-stat-value">${envSummary.avgTemp!=null? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Altitude moyenne</div><div class="ls-stat-value">${envSummary.avgAltitude!=null? envSummary.avgAltitude.toFixed(0):"—"}<small>m</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Vent moyen</div><div class="ls-stat-value">${envSummary.avgWind!=null? envSummary.avgWind.toFixed(1):"—"}<small>m/s</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Impact du terrain moyen</div><div class="ls-stat-value">${envFmtPct(envSummary.avgTerrain)}</div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
-      </div>
       <div class="ls-period-bar">
         <div class="ls-field">
           <label>Période — début</label>
@@ -2815,7 +2807,15 @@ function renderMain(){
           <input type="date" id="env-period-end" value="${envChartPeriod.end}" min="${envChartPeriod.start}">
         </div>
         <button class="ls-btn small ghost" type="button" id="btn-env-period-reset">Réinitialiser (1 mois)</button>
-        <div class="ls-period-note">Filtre le graphe ci-dessous sur cette période — par défaut le dernier mois pour rester lisible ; élargissez-la pour voir plus loin dans l'historique.</div>
+        <div class="ls-period-note">Filtre les encarts et le graphe ci-dessous sur cette période — par défaut le dernier mois pour rester lisible ; élargissez-la pour voir plus loin dans l'historique.</div>
+      </div>
+      <div class="ls-stat-grid ls-env-stat-grid" style="margin-bottom:18px;">
+        <div class="ls-stat"><div class="ls-stat-label">Séances avec données</div><div class="ls-stat-value">${envSummary.count}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Chaleur — température moyenne</div><div class="ls-stat-value">${envSummary.avgTemp!=null? envSummary.avgTemp.toFixed(1):"—"}<small>°C</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Altitude moyenne</div><div class="ls-stat-value">${envSummary.avgAltitude!=null? envSummary.avgAltitude.toFixed(0):"—"}<small>m</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Vent moyen</div><div class="ls-stat-value">${envSummary.avgWind!=null? envSummary.avgWind.toFixed(1):"—"}<small>m/s</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Impact du terrain moyen</div><div class="ls-stat-value">${envFmtPct(envSummary.avgTerrain)}</div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Facteur combiné moyen</div><div class="ls-stat-value">${envSummary.count? `<span class="ls-status-pill" style="background:var(${statusVar(envSeverity(envSummary.avgCombined).key)});color:${statusInk(envSeverity(envSummary.avgCombined).key)}">${envFmtPct(envSummary.avgCombined)}</span>` : "—"}</div></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Durée réelle vs ajustée</h3>
