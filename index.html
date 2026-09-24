@@ -2296,6 +2296,21 @@ function athleteTestSessions(athleteTests){
   });
   return Object.keys(latestDateOf).sort((a,b)=> latestDateOf[b].localeCompare(latestDateOf[a]));
 }
+// Libellé suggéré pour une nouvelle session : "Session N", N = le plus grand
+// numéro déjà utilisé (parmi les libellés qui suivent ce format) + 1 --
+// jamais basé sur la date (le coach la saisit séparément par test via le
+// sélecteur de date, voir openAthleteTestModal ; demande du coach du
+// 2026-09-24, qui a aussi remplacé les libellés "Session du JJ/MM/AAAA"
+// existants par cette numérotation, voir migration
+// rename_session_labels_to_sequential).
+function nextSessionLabel(sessionLabels){
+  let max = 0;
+  sessionLabels.forEach(l=>{
+    const m = /^Session (\d+)$/.exec(l);
+    if(m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return "Session " + (max + 1);
+}
 // Date de référence d'une session : celle de son test le plus récent -- sert
 // à ancrer la recherche du point le plus proche dans les séries Volume/
 // Descente (voir sessionParamValue), qui n'ont pas de session au sens propre
@@ -4801,7 +4816,7 @@ function openAthleteTestModal(athleteId, testId){
   const existing = testId ? (state.athleteTests||[]).find(t=>t.id===testId) : null;
   const sessionLabels = athleteTestSessions((state.athleteTests||[]).filter(t=>t.athleteId===athleteId));
   const existingSessionKnown = existing && existing.sessionLabel && sessionLabels.includes(existing.sessionLabel);
-  const suggestedNewSession = "Session du " + fmtDateFr(existing? existing.date : new Date());
+  const suggestedNewSession = nextSessionLabel(sessionLabels);
   const root = document.getElementById("modal-root");
   root.innerHTML = `
   <div class="ls-modal-overlay" id="modal-overlay">
