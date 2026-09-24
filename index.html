@@ -315,8 +315,6 @@
       <span>Espace coach</span>
     </div>
     <div class="ls-header-actions">
-      <button class="ls-btn ghost small" id="btn-theme" type="button">Thème : Automatique</button>
-      <button class="ls-btn" id="btn-export" type="button">Exporter (JSON)</button>
       <button class="ls-btn" id="btn-export-pdf" type="button">Exporter en PDF</button>
       <button class="ls-btn primary" id="btn-add-athlete" type="button">+ Athlète</button>
     </div>
@@ -343,6 +341,7 @@
         <div class="ls-athlete-sub" id="terrain-backfill-status" style="text-align:center;"></div>
         <button class="ls-btn small ghost" id="btn-avghr-backfill" type="button" title="Récupère la FC moyenne (avg_hr) des séances Strava déjà synchronisées avant que ce champ ne soit collecté à l'import (fix du 20/09) — nécessaire pour que la dépense calorique varie selon l'intensité de chaque séance, pas seulement le profil. Maintenance ponctuelle, à ne lancer qu'une fois. Séances Garmin non concernées (fichier source indisponible).">Rattrapage FC moyenne (dépense)</button>
         <div class="ls-athlete-sub" id="avghr-backfill-status" style="text-align:center;"></div>
+        <button class="ls-btn small ghost" id="btn-export" type="button">Exporter (JSON)</button>
       </div>
     </aside>
 
@@ -2443,11 +2442,6 @@ function applyTheme(mode){
   const btn = document.getElementById("btn-theme");
   if(btn) btn.textContent = "Thème : " + labels[mode];
   renderActiveTabCharts();
-}
-function cycleTheme(){
-  const order = ["system","light","dark"];
-  const next = order[(order.indexOf(currentThemeMode())+1) % order.length];
-  applyTheme(next);
 }
 function cssVar(name){
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -5393,7 +5387,6 @@ async function ensureCoachKey(){
 function init(){
   applyTheme(currentThemeMode());
 
-  document.getElementById("btn-theme").addEventListener("click", cycleTheme);
   document.getElementById("btn-view-leads").addEventListener("click", ()=>{ activeView = "leads"; renderAll(); });
   document.getElementById("btn-add-athlete").addEventListener("click", ()=>openAthleteModal(null));
   document.getElementById("btn-export").addEventListener("click", exportJSON);
