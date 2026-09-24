@@ -2763,7 +2763,7 @@ function renderMain(){
     <div class="ls-charts">
       <div class="ls-chart-card full">
         <h3>Profil coureur</h3>
-        <div class="ls-chart-sub">8 paramètres notés de 0 à 10 par rapport à leur propre plage observée chez cet athlète (0 = son plus bas niveau, 10 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre deux sessions de tests (voir libellé de session dans le formulaire d'ajout de test) : Force/VMA/Seuils/VAM viennent du test exact de chaque session, Volume/Descente de l'instantané Strava le plus proche de sa date de référence.</div>
+        <div class="ls-chart-sub">6 paramètres issus des tests de terrain (Force, VMA, Seuils, VAM), notés de 0 à 10 par rapport à leur propre plage observée chez cet athlète (0 = son plus bas niveau, 10 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre deux sessions de tests (voir libellé de session dans le formulaire d'ajout de test), chaque valeur venant du test exact de la session choisie.</div>
         ${radarSessions.length ? `<div class="ls-period-bar pdf-hide" style="margin-bottom:12px;">
           <div class="ls-field">
             <label>Session A (référence)</label>
@@ -4395,17 +4395,21 @@ function renderAthleteChartsInner(athlete){
   const radarValueB = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
   const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i]));
   const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i]));
-  const hasAnyTwinScore = radarScoresA.some(v=>v!=null) || radarScoresB.some(v=>v!=null);
-  if(!radarSessions.length){
-    if(twinRadarWrap) twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucun test avec une session renseignée pour le moment — ajoutez un test et indiquez son libellé de session (ex. « Session du 12/03/2026 ») pour activer la comparaison entre deux sessions.</div>';
-    if(twinRadarNote) twinRadarNote.textContent = "";
-  } else if(hasAnyTwinScore && twinRadarWrap){
-    const missingA = RADAR_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
-    const missingB = RADAR_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
+  // Le radar reste toujours affiché (axes vides à 0 si besoin) plutôt que
+  // d'être remplacé par un message texte -- seule la note sous le graphique
+  // explique les données manquantes, pour que le visuel ne disparaisse
+  // jamais du profil.
+  if(twinRadarWrap){
     const noteParts = [];
-    if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
-    if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
-    twinRadarNote.textContent = noteParts.length
+    if(!radarSessions.length){
+      noteParts.push("Aucun test avec une session renseignée pour le moment — ajoutez un test et indiquez son libellé de session (ex. « Session 1 ») pour activer la comparaison entre deux sessions.");
+    } else {
+      const missingA = RADAR_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
+      const missingB = RADAR_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
+      if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
+      if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
+    }
+    if(twinRadarNote) twinRadarNote.textContent = noteParts.length
       ? `${noteParts.join(" — ")} — ces axes s'affichent à 0 en attendant plus de données.`
       : "";
     const mutedColor = cssVar("--text-muted");
@@ -4430,9 +4434,6 @@ function renderAthleteChartsInner(athlete){
           pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Space Grotesk", size:11.5, weight:600} } } }
       }
     });
-  } else if(twinRadarWrap){
-    twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite au moins deux tests de terrain ou séances Strava par paramètre pour calculer un score.</div>';
-    if(twinRadarNote) twinRadarNote.textContent = "";
   }
 
   const physioWrap = document.getElementById("physio-chart-wrap");
