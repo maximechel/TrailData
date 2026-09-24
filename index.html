@@ -883,6 +883,9 @@ function apiSaveAthleteTest(test){
 function apiDeleteAthleteTest(id){
   return apiFetch("/athlete-tests?id=" + encodeURIComponent(id), { method:"DELETE" });
 }
+function apiSaveAthleteTestObjective(athleteId, testType, objectiveValue){
+  return apiFetch("/athlete-test-objectives", { method:"POST", body: JSON.stringify({ athlete_id: athleteId, test_type: testType, objective_value: objectiveValue }) });
+}
 function apiDeleteReportLead(id){
   return apiFetch("/report-leads?id=" + encodeURIComponent(id), { method:"DELETE" });
 }
@@ -1288,6 +1291,15 @@ function athleteTestToApi(t){
     session_label: t.sessionLabel || null };
   if(t.id) row.id = t.id;
   return row;
+}
+// Objectifs chiffrés par type de test (table athlete_test_objectives) --
+// une valeur active par (athleteId, testType), même unité que athlete_tests
+// (N pour force_membre_inf, km/h pour vma/seuil1/seuil2, m/h pour vam3/vam9).
+// Alimentent le score du radar "Profil coureur" (voir twinRadarScoreFromSeries).
+function athleteTestObjectiveFromApi(o){
+  return { id:o.id, athleteId:o.athlete_id, testType:o.test_type,
+    objectiveValue: o.objective_value!=null ? Number(o.objective_value) : null,
+    updatedAt: o.updated_at };
 }
 
 /* ---------------------------- Strava connect ---------------------------- */
@@ -2273,16 +2285,41 @@ function simSliderPct(value, min, max){
   return Math.max(4, Math.min(96, p));
 }
 
-// Score 0-10 d'un paramètre du jumeau numérique par rapport à sa propre
-// plage observée chez cet athlète (0 = son plus bas, 10 = son plus haut) --
-// alimente le radar "Profil du coureur" (onglet Entraînement), qui a
-// remplacé l'ancien Runner Matrix basé sur l'historique GAP par zone/pente.
-// Réutilise directement les séries du simulateur (simParamSeries) : au
-// moins 2 points sont nécessaires pour établir une plage (un paramètre
-// jamais testé/observé deux fois renvoie null, affiché à 0 avec une note
-// dédiée plutôt qu'un score trompeur).
-function twinRadarScoreFromSeries(series, currentValue){
-  if(currentValue == null || series.length < 2) return null;
+// Valeur du point de `series` (voir simParamSeries) immédiatement antérieur
+// à `beforeDate` -- sert de référence "test précédent" au score par objectif
+// ci-dessous (twinRadarScoreFromSeries). null si aucun point plus ancien
+// n'existe (première mesure de ce paramètre chez cet athlète).
+function previousSeriesValue(series, beforeDate){
+  let best = null;
+  series.forEach(p=>{ if(p.date < beforeDate && (!best || p.date > best.date)) best = p; });
+  return best ? best.value : null;
+}
+
+// Score 0-10 d'un paramètre du jumeau numérique, alimente le radar "Profil
+// coureur" (onglet Athlète). Deux logiques, selon qu'un objectif chiffré
+// (table athlete_test_objectives) est défini pour ce paramètre chez cet
+// athlète :
+//  - Objectif défini (demande du coach du 2026-09-24) : échelle ancrée sur
+//    l'objectif (= 10) et une baisse de 30% par rapport au test précédent
+//    de ce même paramètre (= 0) -- currentDate sert à retrouver ce test
+//    précédent dans `series` (previousSeriesValue). Sans test antérieur
+//    (première mesure), la valeur courante sert elle-même de référence pour
+//    le bas de l'échelle, pour rester exploitable dès le premier test.
+//  - Sinon (comportement historique, inchangé) : score par rapport à la
+//    propre plage observée chez cet athlète (min de la série = 0, max = 10)
+//    -- au moins 2 points sont nécessaires pour établir une plage, un
+//    paramètre jamais testé/observé deux fois renvoie null (affiché à 0 avec
+//    une note dédiée plutôt qu'un score trompeur).
+function twinRadarScoreFromSeries(series, currentValue, currentDate, objective){
+  if(currentValue == null) return null;
+  if(objective != null){
+    const prevValue = currentDate ? previousSeriesValue(series, currentDate) : null;
+    const floor = (prevValue!=null ? prevValue : currentValue) * 0.7;
+    const span = objective - floor;
+    if(span < 1e-9) return currentValue >= objective ? 10 : 0;
+    return Math.round(Math.max(0, Math.min(10, (currentValue-floor)/span*10)));
+  }
+  if(series.length < 2) return null;
   const vals = series.map(p=>p.value);
   const min = Math.min(...vals), max = Math.max(...vals);
   if(max - min < 1e-9) return 5;
@@ -2351,6 +2388,27 @@ function sessionParamValue(athleteTests, sessionLabel, key, series){
   if(!match) return null;
   if(key==="force") return (match.valueDroite!=null && match.valueGauche!=null) ? match.valueDroite+match.valueGauche : null;
   return match.value;
+}
+// Date du test physio (force/vma/seuil1/seuil2/vam3/vam9) exact d'une session
+// -- sert de `currentDate` à twinRadarScoreFromSeries pour retrouver le test
+// précédent de ce paramètre quand un objectif est défini. RADAR_PARAMS
+// n'inclut plus que ces clés physio (voir plus haut), donc pas de branche
+// volume/descente ici contrairement à sessionParamValue.
+function sessionParamDate(athleteTests, sessionLabel, key){
+  if(!sessionLabel) return null;
+  const testType = key==="force" ? "force_membre_inf" : key;
+  let match = null;
+  athleteTests.forEach(t=>{
+    if(t.sessionLabel===sessionLabel && t.testType===testType && (!match || t.date>match.date)) match = t;
+  });
+  return match ? new Date(match.date+"T00:00:00") : null;
+}
+// Objectif chiffré (table athlete_test_objectives) pour un athlète et une clé
+// RADAR_PARAMS/SIM_PARAMS donnée, ou null si non défini.
+function athleteTestObjectiveValue(objectives, athleteId, key){
+  const testType = key==="force" ? "force_membre_inf" : key;
+  const match = (objectives||[]).find(o=>o.athleteId===athleteId && o.testType===testType);
+  return match ? match.objectiveValue : null;
 }
 // Revalide/initialise la sélection de sessions comparées sur le radar pour
 // cet athlète : si la session actuellement retenue a été supprimée (ou
@@ -2984,6 +3042,7 @@ function renderMain(){
 
     <div class="ls-tab-panel" id="tab-panel-tests" ${activeTab!=="tests"?"hidden":""}>
       <div class="ls-chart-sub" style="margin-bottom:14px;">Tests de terrain périodiques (Force, VMA, Seuils, VAM 3'/9') -- saisis ici, ils alimentent le radar « Profil coureur » (onglet Athlète) et le jumeau numérique (onglet Jumeau numérique). Regroupe les tests par session (voir champ Session du formulaire) pour comparer deux prises de mesure dans le temps sur le radar.</div>
+      ${athleteTestObjectivesPanelHtml(athlete)}
       <div class="ls-table-head" style="margin-bottom:10px;">
         <h3>Tests de terrain</h3>
         <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
@@ -3195,6 +3254,25 @@ function renderMain(){
   main.querySelectorAll("[data-del-test]").forEach(b=> b.addEventListener("click", ()=> deleteAthleteTest(b.getAttribute("data-del-test"))));
   const addTestBtn = document.getElementById("btn-add-athlete-test");
   if(addTestBtn) addTestBtn.addEventListener("click", ()=> openAthleteTestModal(athlete.id));
+  main.querySelectorAll("[data-save-objective]").forEach(b=> b.addEventListener("click", async ()=>{
+    const key = b.getAttribute("data-save-objective"); // clé RADAR_PARAMS (force/vma/seuil1/seuil2/vam3/vam9)
+    const testType = key==="force" ? "force_membre_inf" : key; // athlete_tests.test_type / athlete_test_objectives.test_type
+    const input = document.getElementById("objective-input-"+key);
+    const raw = (input.value||"").trim();
+    if(!raw){ showToast("Renseignez une valeur avant d'enregistrer.", "--warning"); return; }
+    const value = +raw;
+    if(!isFinite(value) || value<=0){ showToast("Valeur d'objectif invalide.", "--critical"); return; }
+    b.disabled = true;
+    try{
+      await apiSaveAthleteTestObjective(athlete.id, testType, value);
+      showToast("Objectif enregistré.", "--good");
+      await refreshData();
+    }catch(err){
+      if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      showToast("Enregistrement impossible : " + err.message, "--critical");
+      b.disabled = false;
+    }
+  }));
 
   const simSel1 = document.getElementById("sim-param-1");
   const simSel2 = document.getElementById("sim-param-2");
@@ -3298,6 +3376,39 @@ function athleteTestValueLabel(test){
     return test.value!=null ? test.value.toFixed(0)+" m/h" : "—";
   }
   return test.value!=null ? test.value.toFixed(1)+" km/h" : "—";
+}
+// Unité d'affichage d'un objectif de test (table athlete_test_objectives),
+// mêmes unités que athlete_tests / simFormatValue.
+function athleteTestObjectiveUnit(key){
+  if(key==="force") return "N";
+  if(key==="vma" || key==="seuil1" || key==="seuil2") return "km/h";
+  return "m/h"; // vam3, vam9
+}
+// Panneau "Objectifs" de l'onglet Tests de terrain : une valeur cible par
+// test physio (voir RADAR_PARAMS), éditable et enregistrée individuellement.
+// Alimente le score du radar "Profil coureur" (voir twinRadarScoreFromSeries)
+// dès qu'un objectif est renseigné.
+function athleteTestObjectivesPanelHtml(athlete){
+  return `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
+    <div class="ls-table-head"><h3>Objectifs</h3></div>
+    <div class="ls-chart-sub" style="margin:0 0 10px;">Valeur cible par test, même unité que la saisie -- dès qu'un objectif est renseigné, il sert de repère sur le radar « Profil coureur » : 10/10 = objectif atteint, 0/10 = une baisse de 30% par rapport au test précédent de ce paramètre.</div>
+    <div class="ls-table-scroll">
+      <table class="ls-log">
+        <thead><tr><th>Test</th><th>Objectif</th><th></th></tr></thead>
+        <tbody>${RADAR_PARAMS.map(p=>{
+          const current = athleteTestObjectiveValue(state.athleteTestObjectives, athlete.id, p.key);
+          const unit = athleteTestObjectiveUnit(p.key);
+          return `<tr>
+            <td>${p.label}</td>
+            <td><div class="ls-field" style="margin:0;width:130px;display:inline-block;vertical-align:middle;">
+              <input type="number" min="0" step="0.1" id="objective-input-${p.key}" value="${current!=null? current : ""}" placeholder="—">
+            </div> <span class="ls-athlete-sub">${unit}</span></td>
+            <td><button class="ls-btn small ghost" type="button" data-save-objective="${p.key}">Enregistrer</button></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>
+  </div>`;
 }
 function athleteTestRowHtml(test){
   return `<tr>
@@ -4393,8 +4504,11 @@ function renderAthleteChartsInner(athlete){
   const twinRadarSeries = RADAR_PARAMS.map(p=> simParamSeries(sessions, athleteTestsForRadar, p.key));
   const radarValueA = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
   const radarValueB = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
-  const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i]));
-  const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i]));
+  const radarDateA = RADAR_PARAMS.map(p=> sessionParamDate(athleteTestsForRadar, radarSel.a, p.key));
+  const radarDateB = RADAR_PARAMS.map(p=> sessionParamDate(athleteTestsForRadar, radarSel.b, p.key));
+  const radarObjectives = RADAR_PARAMS.map(p=> athleteTestObjectiveValue(state.athleteTestObjectives, athlete.id, p.key));
+  const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i], radarDateA[i], radarObjectives[i]));
+  const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i], radarDateB[i], radarObjectives[i]));
   // Le radar reste toujours affiché (axes vides à 0 si besoin) plutôt que
   // d'être remplacé par un message texte -- seule la note sous le graphique
   // explique les données manquantes, pour que le visuel ne disparaisse
@@ -4404,10 +4518,16 @@ function renderAthleteChartsInner(athlete){
     if(!radarSessions.length){
       noteParts.push("Aucun test avec une session renseignée pour le moment — ajoutez un test et indiquez son libellé de session (ex. « Session 1 ») pour activer la comparaison entre deux sessions.");
     } else {
-      const missingA = RADAR_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
-      const missingB = RADAR_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
-      if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
-      if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
+      // Un score reste null soit faute de test pour ce paramètre sur cette
+      // session (radarValue*[i]==null), soit -- seulement en l'absence
+      // d'objectif -- faute d'historique suffisant pour établir une plage
+      // (voir twinRadarScoreFromSeries : avec un objectif défini, un score
+      // est toujours calculable dès qu'une valeur existe).
+      const missingLabel = (p,i,values)=> values[i]==null ? `${p.label} (aucun test)` : `${p.label} (historique insuffisant)`;
+      const missingA = RADAR_PARAMS.map((p,i)=> radarScoresA[i]==null ? missingLabel(p,i,radarValueA) : null).filter(Boolean);
+      const missingB = RADAR_PARAMS.map((p,i)=> radarScoresB[i]==null ? missingLabel(p,i,radarValueB) : null).filter(Boolean);
+      if(missingA.length) noteParts.push(`${radarSel.a} : ${missingA.join(", ")}`);
+      if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : ${missingB.join(", ")}`);
     }
     if(twinRadarNote) twinRadarNote.textContent = noteParts.length
       ? `${noteParts.join(" — ")} — ces axes s'affichent à 0 en attendant plus de données.`
@@ -4428,7 +4548,9 @@ function renderAthleteChartsInner(athlete){
               const key = RADAR_PARAMS[ctx.dataIndex].key;
               const val = ctx.datasetIndex===0 ? radarValueA[ctx.dataIndex] : radarValueB[ctx.dataIndex];
               const score = ctx.datasetIndex===0 ? radarScoresA[ctx.dataIndex] : radarScoresB[ctx.dataIndex];
-              return ` ${ctx.dataset.label} — ${simFormatValue(key, val)} · ${score??0}/10`;
+              const objective = radarObjectives[ctx.dataIndex];
+              const objectivePart = objective!=null ? ` (objectif ${simFormatValue(key, objective)})` : "";
+              return ` ${ctx.dataset.label} — ${simFormatValue(key, val)}${objectivePart} · ${score??0}/10`;
             } } } },
         scales:{ r:{ min:0, max:10, ticks:{ display:false, stepSize:2 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
           pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Space Grotesk", size:11.5, weight:600} } } }
@@ -5320,7 +5442,8 @@ async function refreshData(){
     reportLeads: (data.reportLeads || []).map(reportLeadFromApi),
     hooperResponses: (data.hooperResponses || []).map(hooperResponseFromApi),
     injuryReports: (data.injuryReports || []).map(injuryReportFromApi),
-    nutritionEntries: (data.nutritionEntries || []).map(nutritionEntryFromApi) };
+    nutritionEntries: (data.nutritionEntries || []).map(nutritionEntryFromApi),
+    athleteTestObjectives: (data.athleteTestObjectives || []).map(athleteTestObjectiveFromApi) };
   if(keepAthlete && state.athletes.some(a=>a.id===keepAthlete)) activeAthleteId = keepAthlete;
   else {
     const stored = localStorage.getItem(ACTIVE_ATHLETE_STORAGE);
