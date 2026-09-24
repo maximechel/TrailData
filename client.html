@@ -1985,6 +1985,10 @@ const SIM_PARAMS = [
   { key:"volume", label:"Volume hebdo", category:"charge" },
   { key:"descente", label:"Descente (VAM moy.)", category:"perf" },
 ];
+// Sous-ensemble de SIM_PARAMS utilisé par le radar "Profil coureur" :
+// seulement les tests de terrain (Force/VMA/Seuils/VAM), sans Volume ni
+// Descente (calculés depuis Strava) -- voir même choix côté index.html.
+const RADAR_PARAMS = SIM_PARAMS.filter(p=>p.category==="physio");
 const SIM_SNAPSHOT_WINDOW_WEEKS = 8;   // fenêtre glissante pour les instantanés Volume/Descente
 const SIM_SNAPSHOT_STEP_WEEKS = 2;     // pas entre deux instantanés successifs
 // Types de séance retenus pour le Volume -- côté coach c'est un réglage
@@ -2894,9 +2898,9 @@ function renderAthleteTabCharts(athleteObj, cd){
   const athleteTestsForRadar = athleteTests.filter(t=>t.athleteId===athleteObj.id);
   const radarSessions = athleteTestSessions(athleteTestsForRadar);
   const radarSel = ensureRadarSessionSelection(athleteObj.id, radarSessions);
-  const twinRadarSeries = SIM_PARAMS.map(p=> simParamSeries(sess, athleteTestsForRadar, p.key));
-  const radarValueA = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
-  const radarValueB = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
+  const twinRadarSeries = RADAR_PARAMS.map(p=> simParamSeries(sess, athleteTestsForRadar, p.key));
+  const radarValueA = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
+  const radarValueB = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
   const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i]));
   const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i]));
   const hasAnyTwinScore = radarScoresA.some(v=>v!=null) || radarScoresB.some(v=>v!=null);
@@ -2904,8 +2908,8 @@ function renderAthleteTabCharts(athleteObj, cd){
     if(twinRadarWrap) twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucun test avec une session renseignée pour le moment — ton coach doit d\'abord ajouter des tests de terrain groupés par session.</div>';
     if(twinRadarNote) twinRadarNote.textContent = "";
   } else if(hasAnyTwinScore && twinRadarWrap){
-    const missingA = SIM_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
-    const missingB = SIM_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
+    const missingA = RADAR_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
+    const missingB = RADAR_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
     const noteParts = [];
     if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
     if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
@@ -2915,7 +2919,7 @@ function renderAthleteTabCharts(athleteObj, cd){
     const mutedColor = cssVar("--text-muted");
     charts.twinRadar = new Chart(document.getElementById("chart-twin-radar"), {
       type:"radar",
-      data:{ labels: SIM_PARAMS.map(p=>p.label), datasets:[
+      data:{ labels: RADAR_PARAMS.map(p=>p.label), datasets:[
         { label: radarSel.a || "Session A", data: radarScoresA.map(v=>v??0), borderColor: mutedColor, backgroundColor: mutedColor+"22", borderWidth:2, borderDash:[5,4], pointRadius:3, pointBackgroundColor: mutedColor },
         { label: radarSel.b || "Session B", data: radarScoresB.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
       ]},
@@ -2925,7 +2929,7 @@ function renderAthleteTabCharts(athleteObj, cd){
           tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
             borderColor: cssVar("--border"), borderWidth:1, padding:10,
             callbacks:{ label: ctx => {
-              const key = SIM_PARAMS[ctx.dataIndex].key;
+              const key = RADAR_PARAMS[ctx.dataIndex].key;
               const val = ctx.datasetIndex===0 ? radarValueA[ctx.dataIndex] : radarValueB[ctx.dataIndex];
               const score = ctx.datasetIndex===0 ? radarScoresA[ctx.dataIndex] : radarScoresB[ctx.dataIndex];
               return ` ${ctx.dataset.label} — ${simFormatValue(key, val)} · ${score??0}/10`;

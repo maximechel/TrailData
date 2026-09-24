@@ -2124,6 +2124,12 @@ const SIM_PARAMS = [
   { key:"volume", label:"Volume hebdo", category:"charge" },
   { key:"descente", label:"Descente (VAM moy.)", category:"perf" },
 ];
+// Sous-ensemble de SIM_PARAMS utilisé uniquement par le radar "Profil
+// coureur" (onglet Athlète) : seulement les tests de terrain saisis à la
+// main (Force/VMA/Seuils/VAM), sans Volume ni Descente (calculés depuis
+// Strava) -- le simulateur (onglet Jumeau numérique) continue lui à
+// utiliser SIM_PARAMS en entier.
+const RADAR_PARAMS = SIM_PARAMS.filter(p=>p.category==="physio");
 const SIM_SNAPSHOT_WINDOW_WEEKS = 8;   // fenêtre glissante pour les instantanés Volume/Montée/Descente
 const SIM_SNAPSHOT_STEP_WEEKS = 2;     // pas entre deux instantanés successifs
 const SIM_MAX_GAP_DAYS = 21;           // écart temporel max pour apparier deux observations
@@ -4384,9 +4390,9 @@ function renderAthleteChartsInner(athlete){
   const athleteTestsForRadar = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id);
   const radarSessions = athleteTestSessions(athleteTestsForRadar);
   const radarSel = ensureRadarSessionSelection(athlete.id, radarSessions);
-  const twinRadarSeries = SIM_PARAMS.map(p=> simParamSeries(sessions, athleteTestsForRadar, p.key));
-  const radarValueA = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
-  const radarValueB = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
+  const twinRadarSeries = RADAR_PARAMS.map(p=> simParamSeries(sessions, athleteTestsForRadar, p.key));
+  const radarValueA = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
+  const radarValueB = RADAR_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
   const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i]));
   const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i]));
   const hasAnyTwinScore = radarScoresA.some(v=>v!=null) || radarScoresB.some(v=>v!=null);
@@ -4394,8 +4400,8 @@ function renderAthleteChartsInner(athlete){
     if(twinRadarWrap) twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucun test avec une session renseignée pour le moment — ajoutez un test et indiquez son libellé de session (ex. « Session du 12/03/2026 ») pour activer la comparaison entre deux sessions.</div>';
     if(twinRadarNote) twinRadarNote.textContent = "";
   } else if(hasAnyTwinScore && twinRadarWrap){
-    const missingA = SIM_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
-    const missingB = SIM_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
+    const missingA = RADAR_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
+    const missingB = RADAR_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
     const noteParts = [];
     if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
     if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
@@ -4405,7 +4411,7 @@ function renderAthleteChartsInner(athlete){
     const mutedColor = cssVar("--text-muted");
     charts.twinRadar = new Chart(document.getElementById("chart-twin-radar"), {
       type:"radar",
-      data:{ labels: SIM_PARAMS.map(p=>p.label), datasets:[
+      data:{ labels: RADAR_PARAMS.map(p=>p.label), datasets:[
         { label: radarSel.a || "Session A", data: radarScoresA.map(v=>v??0), borderColor: mutedColor, backgroundColor: mutedColor+"22", borderWidth:2, borderDash:[5,4], pointRadius:3, pointBackgroundColor: mutedColor },
         { label: radarSel.b || "Session B", data: radarScoresB.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
       ]},
@@ -4415,7 +4421,7 @@ function renderAthleteChartsInner(athlete){
           tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
             borderColor: cssVar("--border"), borderWidth:1, padding:10,
             callbacks:{ label: ctx => {
-              const key = SIM_PARAMS[ctx.dataIndex].key;
+              const key = RADAR_PARAMS[ctx.dataIndex].key;
               const val = ctx.datasetIndex===0 ? radarValueA[ctx.dataIndex] : radarValueB[ctx.dataIndex];
               const score = ctx.datasetIndex===0 ? radarScoresA[ctx.dataIndex] : radarScoresB[ctx.dataIndex];
               return ` ${ctx.dataset.label} — ${simFormatValue(key, val)} · ${score??0}/10`;
