@@ -570,6 +570,13 @@ let twinVolumeIncludeBike = false;
 // période affichée plus haut). null tant qu'elles n'ont pas été initialisées.
 let terrainCompareA = null;
 let terrainCompareB = null;
+// Sélection courante des deux sessions comparées sur le radar "Profil
+// coureur", par athlète (les libellés de session sont propres à chaque
+// athlète, contrairement à chartPeriod etc. qui restent partagés — voir
+// activeTab). { [athleteId]: { a: sessionLabel, b: sessionLabel } } ; a =
+// session de référence, b = session comparée (affichée dans la couleur de
+// l'athlète). Revalidé à chaque rendu par ensureRadarSessionSelection.
+let radarSessionSelection = {};
 // Onglet actif du panneau principal : "athlete" (profil/tests de terrain),
 // "volume-charge" (charge et volume d'entraînement), "etat-forme" (ACWR,
 // forme/fatigue, Hooper, blessures), "env" (rapport environnemental —
@@ -1256,7 +1263,8 @@ function athleteTestFromApi(t){
     valueDroite: t.value_droite!=null ? Number(t.value_droite) : null,
     valueGauche: t.value_gauche!=null ? Number(t.value_gauche) : null,
     value: t.value!=null ? Number(t.value) : null,
-    note: t.note || "" };
+    note: t.note || "",
+    sessionLabel: t.session_label || "" };
 }
 // Demandes de contact laissées sur l'outil public rapport-seance.html
 // (table report_leads, écriture seule pour un visiteur anonyme — lue ici via
@@ -1283,7 +1291,8 @@ function injuryReportFromApi(r){
 function athleteTestToApi(t){
   const row = { athlete_id:t.athleteId, test_type:t.testType, date:t.date,
     value_droite: t.valueDroite ?? null, value_gauche: t.valueGauche ?? null,
-    value: t.value ?? null, note: t.note || null };
+    value: t.value ?? null, note: t.note || null,
+    session_label: t.sessionLabel || null };
   if(t.id) row.id = t.id;
   return row;
 }
@@ -2272,6 +2281,67 @@ function twinRadarScoreFromSeries(series, currentValue){
   if(max - min < 1e-9) return 5;
   return Math.round(Math.max(0, Math.min(10, (currentValue-min)/(max-min)*10)));
 }
+
+// Libellés de session distincts présents parmi `athleteTests` (déjà filtrés
+// sur un athlète), triés du plus récent au plus ancien (date du test le plus
+// récent de chaque session) -- alimente les deux sélecteurs de comparaison du
+// radar "Profil coureur" ainsi que le formulaire d'ajout de test.
+function athleteTestSessions(athleteTests){
+  const latestDateOf = {};
+  athleteTests.forEach(t=>{
+    if(!t.sessionLabel) return;
+    if(!latestDateOf[t.sessionLabel] || t.date > latestDateOf[t.sessionLabel]) latestDateOf[t.sessionLabel] = t.date;
+  });
+  return Object.keys(latestDateOf).sort((a,b)=> latestDateOf[b].localeCompare(latestDateOf[a]));
+}
+// Date de référence d'une session : celle de son test le plus récent -- sert
+// à ancrer la recherche du point le plus proche dans les séries Volume/
+// Descente (voir sessionParamValue), qui n'ont pas de session au sens propre
+// (dérivées en continu des séances Strava par fenêtres glissantes).
+function sessionLatestTestDate(athleteTests, sessionLabel){
+  let latest = null;
+  athleteTests.forEach(t=>{ if(t.sessionLabel===sessionLabel && (!latest || t.date>latest)) latest = t.date; });
+  return latest;
+}
+// Valeur d'un paramètre SIM_PARAMS pour une session de tests donnée :
+//  - physio (force/vma/seuil1/seuil2/vam3/vam9) : le test exact de cette
+//    session pour ce type de test (le plus récent si plusieurs partagent le
+//    même libellé) -- jamais interpolé.
+//  - charge/perf (volume/descente) : pas de session au sens propre (séries
+//    continues dérivées des séances Strava) -- on prend l'instantané de
+//    `series` le plus proche dans le temps de la date de référence de la
+//    session.
+function sessionParamValue(athleteTests, sessionLabel, key, series){
+  if(!sessionLabel) return null;
+  if(key==="volume" || key==="descente"){
+    const refDate = sessionLatestTestDate(athleteTests, sessionLabel);
+    if(!refDate || !series.length) return null;
+    const ref = new Date(refDate+"T00:00:00");
+    let best = null, bestDiff = Infinity;
+    series.forEach(p=>{ const diff = Math.abs(p.date-ref); if(diff < bestDiff){ bestDiff = diff; best = p; } });
+    return best ? best.value : null;
+  }
+  const testType = key==="force" ? "force_membre_inf" : key;
+  let match = null;
+  athleteTests.forEach(t=>{
+    if(t.sessionLabel===sessionLabel && t.testType===testType && (!match || t.date>match.date)) match = t;
+  });
+  if(!match) return null;
+  if(key==="force") return (match.valueDroite!=null && match.valueGauche!=null) ? match.valueDroite+match.valueGauche : null;
+  return match.value;
+}
+// Revalide/initialise la sélection de sessions comparées sur le radar pour
+// cet athlète : si la session actuellement retenue a été supprimée (ou
+// n'existe pas encore), retombe sur les deux plus récentes (b = la plus
+// récente = "actuelle", a = la précédente = "référence" ; b = a s'il n'y en
+// a qu'une, les deux null s'il n'y en a aucune).
+function ensureRadarSessionSelection(athleteId, sessionLabels){
+  let sel = radarSessionSelection[athleteId];
+  if(!sel) sel = radarSessionSelection[athleteId] = { a:null, b:null };
+  if(!sel.b || !sessionLabels.includes(sel.b)) sel.b = sessionLabels[0] || null;
+  if(!sel.a || !sessionLabels.includes(sel.a)) sel.a = sessionLabels[1] || sessionLabels[0] || null;
+  return sel;
+}
 // Pour chaque paramètre non déplacé, prédit sa valeur (moyenne des
 // prédictions si deux paramètres sont déplacés) via la régression sur
 // l'historique de l'athlète, ou bascule sur un repère qualitatif si trop peu
@@ -2567,6 +2637,13 @@ function renderMain(){
   const sessions = state.sessions.filter(s=>s.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
   const athleteTests = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id).sort((a,b)=> a.date < b.date ? 1 : -1);
   const twin = digitalTwinParams(athlete.id, sessions, new Date());
+  // Sessions de tests disponibles pour le radar "Profil coureur" (voir plus
+  // bas) -- calculées ici (avant le template HTML) pour être utilisables à
+  // la fois dans le markup des deux sélecteurs et dans les listeners
+  // attachés plus bas dans renderMain.
+  const athleteTestsForRadar = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id);
+  const radarSessions = athleteTestSessions(athleteTestsForRadar);
+  const radarSel = ensureRadarSessionSelection(athlete.id, radarSessions);
   const simSeriesCache = {};
   SIM_PARAMS.forEach(p=> simSeriesCache[p.key] = simParamSeries(sessions, athleteTests, p.key));
   const simCurrentValues = {};
@@ -2673,7 +2750,18 @@ function renderMain(){
     <div class="ls-charts">
       <div class="ls-chart-card full">
         <h3>Profil coureur</h3>
-        <div class="ls-chart-sub">7 paramètres notés de 0 à 10 par rapport à leur propre plage observée chez cet athlète (0 = son plus bas niveau, 10 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Instantané à la date du jour : Force/VMA/Seuils viennent du dernier test de terrain, Volume/Montée/Descente des séances Strava récentes.</div>
+        <div class="ls-chart-sub">8 paramètres notés de 0 à 10 par rapport à leur propre plage observée chez cet athlète (0 = son plus bas niveau, 10 = son plus haut) — pas un barème absolu ni une comparaison à d'autres coureurs. Comparaison entre deux sessions de tests (voir libellé de session dans le formulaire d'ajout de test) : Force/VMA/Seuils/VAM viennent du test exact de chaque session, Volume/Descente de l'instantané Strava le plus proche de sa date de référence.</div>
+        ${radarSessions.length ? `<div class="ls-period-bar pdf-hide" style="margin-bottom:12px;">
+          <div class="ls-field">
+            <label>Session A (référence)</label>
+            <select id="radar-session-a">${radarSessions.map(l=>`<option value="${escapeHtml(l)}" ${l===radarSel.a?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select>
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Session B (comparée)</label>
+            <select id="radar-session-b">${radarSessions.map(l=>`<option value="${escapeHtml(l)}" ${l===radarSel.b?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select>
+          </div>
+        </div>` : ""}
         <div class="ls-chart-wrap radar" id="twin-radar-chart-wrap"><canvas id="chart-twin-radar"></canvas></div>
         <div class="ls-matrix-note" id="twin-radar-note"></div>
       </div>
@@ -2893,7 +2981,7 @@ function renderMain(){
         <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
         <div class="ls-table-scroll">
           <table class="ls-log">
-            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th>Session</th><th></th></tr></thead>
             <tbody>${athleteTests.map(athleteTestRowHtml).join("")}</tbody>
           </table>
         </div>
@@ -3086,6 +3174,16 @@ function renderMain(){
     terrainCompareB = { start: v < terrainCompareB.start ? v : terrainCompareB.start, end: v };
     renderMain();
   });
+  const radarSessionASel = document.getElementById("radar-session-a");
+  const radarSessionBSel = document.getElementById("radar-session-b");
+  if(radarSessionASel) radarSessionASel.addEventListener("change", e=>{
+    const sel = radarSessionSelection[athlete.id]; if(sel) sel.a = e.target.value;
+    renderMain();
+  });
+  if(radarSessionBSel) radarSessionBSel.addEventListener("change", e=>{
+    const sel = radarSessionSelection[athlete.id]; if(sel) sel.b = e.target.value;
+    renderMain();
+  });
   main.querySelectorAll("[data-edit-session]").forEach(b=> b.addEventListener("click", ()=> openSessionModal(athlete.id, b.getAttribute("data-edit-session"))));
   main.querySelectorAll("[data-del-session]").forEach(b=> b.addEventListener("click", ()=> deleteSession(b.getAttribute("data-del-session"))));
   main.querySelectorAll("[data-edit-test]").forEach(b=> b.addEventListener("click", ()=> openAthleteTestModal(athlete.id, b.getAttribute("data-edit-test"))));
@@ -3201,6 +3299,7 @@ function athleteTestRowHtml(test){
     <td>${fmtDateFr(test.date)}</td>
     <td>${escapeHtml(athleteTestTypeLabel(test.testType))}</td>
     <td>${athleteTestValueLabel(test)}</td>
+    <td>${test.sessionLabel? escapeHtml(test.sessionLabel) : "—"}</td>
     <td><span class="ls-row-actions">
       <button class="ls-icon-btn" data-edit-test="${test.id}" title="Modifier">✎</button>
       <button class="ls-icon-btn" data-del-test="${test.id}" title="Supprimer">✕</button>
@@ -4284,26 +4383,44 @@ function renderAthleteChartsInner(athlete){
   const twinRadarWrap = document.getElementById("twin-radar-chart-wrap");
   const twinRadarNote = document.getElementById("twin-radar-note");
   const athleteTestsForRadar = (state.athleteTests||[]).filter(t=>t.athleteId===athlete.id);
+  const radarSessions = athleteTestSessions(athleteTestsForRadar);
+  const radarSel = ensureRadarSessionSelection(athlete.id, radarSessions);
   const twinRadarSeries = SIM_PARAMS.map(p=> simParamSeries(sessions, athleteTestsForRadar, p.key));
-  const twinRadarCurrent = twinRadarSeries.map(s=> s.length ? s[s.length-1].value : null);
-  const twinRadarScores = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, twinRadarCurrent[i]));
-  const hasAnyTwinScore = twinRadarScores.some(v=>v!=null);
-  if(hasAnyTwinScore && twinRadarWrap){
-    const missing = SIM_PARAMS.filter((p,i)=>twinRadarScores[i]==null).map(p=>p.label);
-    twinRadarNote.textContent = missing.length
-      ? `Historique encore insuffisant pour : ${missing.join(", ")} — ces axes s'affichent à 0 en attendant plus de données.`
+  const radarValueA = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
+  const radarValueB = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
+  const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i]));
+  const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i]));
+  const hasAnyTwinScore = radarScoresA.some(v=>v!=null) || radarScoresB.some(v=>v!=null);
+  if(!radarSessions.length){
+    if(twinRadarWrap) twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucun test avec une session renseignée pour le moment — ajoutez un test et indiquez son libellé de session (ex. « Session du 12/03/2026 ») pour activer la comparaison entre deux sessions.</div>';
+    if(twinRadarNote) twinRadarNote.textContent = "";
+  } else if(hasAnyTwinScore && twinRadarWrap){
+    const missingA = SIM_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
+    const missingB = SIM_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
+    const noteParts = [];
+    if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
+    if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
+    twinRadarNote.textContent = noteParts.length
+      ? `${noteParts.join(" — ")} — ces axes s'affichent à 0 en attendant plus de données.`
       : "";
+    const mutedColor = cssVar("--text-muted");
     charts.twinRadar = new Chart(document.getElementById("chart-twin-radar"), {
       type:"radar",
       data:{ labels: SIM_PARAMS.map(p=>p.label), datasets:[
-        { label:"Actuel", data: twinRadarScores.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
+        { label: radarSel.a || "Session A", data: radarScoresA.map(v=>v??0), borderColor: mutedColor, backgroundColor: mutedColor+"22", borderWidth:2, borderDash:[5,4], pointRadius:3, pointBackgroundColor: mutedColor },
+        { label: radarSel.b || "Session B", data: radarScoresB.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{ display:false },
+        plugins:{ legend:{ display:true, labels:{ color: cssVar("--text-secondary"), font:{family:"Space Grotesk", size:11.5, weight:600}, boxWidth:14, padding:12 } },
           tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
             borderColor: cssVar("--border"), borderWidth:1, padding:10,
-            callbacks:{ label: ctx => ` ${simFormatValue(SIM_PARAMS[ctx.dataIndex].key, twinRadarCurrent[ctx.dataIndex])} · ${twinRadarScores[ctx.dataIndex]??0}/10` } } },
+            callbacks:{ label: ctx => {
+              const key = SIM_PARAMS[ctx.dataIndex].key;
+              const val = ctx.datasetIndex===0 ? radarValueA[ctx.dataIndex] : radarValueB[ctx.dataIndex];
+              const score = ctx.datasetIndex===0 ? radarScoresA[ctx.dataIndex] : radarScoresB[ctx.dataIndex];
+              return ` ${ctx.dataset.label} — ${simFormatValue(key, val)} · ${score??0}/10`;
+            } } } },
         scales:{ r:{ min:0, max:10, ticks:{ display:false, stepSize:2 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
           pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Space Grotesk", size:11.5, weight:600} } } }
       }
@@ -4681,12 +4798,15 @@ async function deleteSession(id){
 
 function openAthleteTestModal(athleteId, testId){
   const existing = testId ? (state.athleteTests||[]).find(t=>t.id===testId) : null;
+  const sessionLabels = athleteTestSessions((state.athleteTests||[]).filter(t=>t.athleteId===athleteId));
+  const existingSessionKnown = existing && existing.sessionLabel && sessionLabels.includes(existing.sessionLabel);
+  const suggestedNewSession = "Session du " + fmtDateFr(existing? existing.date : new Date());
   const root = document.getElementById("modal-root");
   root.innerHTML = `
   <div class="ls-modal-overlay" id="modal-overlay">
     <div class="ls-modal">
       <h3>${existing? "Modifier le test":"Ajouter un test"}</h3>
-      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h. VAM 3'/9' : vitesse ascensionnelle moyenne en m/h sur une côte standardisée (VAM = D+ / temps × 60) — à refaire sur la même pente/revêtement pour rester comparable dans le temps.</div>
+      <div class="ls-modal-sub">Force max : test unilatéral sur plateforme de force, droite et gauche saisies séparément (leur somme est le paramètre utilisé par le jumeau numérique). VMA et seuils : vitesse en km/h. VAM 3'/9' : vitesse ascensionnelle moyenne en m/h sur une côte standardisée (VAM = D+ / temps × 60) — à refaire sur la même pente/revêtement pour rester comparable dans le temps. Session : regroupe les tests faits sur une même période (ex. une semaine de tests) pour pouvoir comparer deux sessions sur le radar « Profil coureur ».</div>
       <form id="athlete-test-form">
         <div class="ls-field-row">
           <div class="ls-field"><label>Test</label><select name="testType" id="test-type-select">${ATHLETE_TEST_TYPES_META.map(m=>`<option value="${m.value}" ${(existing?existing.testType:"force_membre_inf")===m.value?"selected":""}>${escapeHtml(m.label)}</option>`).join("")}</select></div>
@@ -4699,6 +4819,19 @@ function openAthleteTestModal(athleteId, testId){
         <div class="ls-field" id="test-speed-fields">
           <label id="test-speed-label">Vitesse (km/h)</label>
           <input type="number" min="0" step="0.1" name="value" id="test-speed-input" value="${existing&&existing.value!=null? existing.value:""}">
+        </div>
+        <div class="ls-field-row">
+          <div class="ls-field">
+            <label>Session</label>
+            <select name="sessionChoice" id="test-session-select">
+              ${sessionLabels.map(l=>`<option value="${escapeHtml(l)}" ${existingSessionKnown && existing.sessionLabel===l?"selected":""}>${escapeHtml(l)}</option>`).join("")}
+              <option value="__new__" ${!existingSessionKnown?"selected":""}>+ Nouvelle session…</option>
+            </select>
+          </div>
+          <div class="ls-field" id="test-session-new-wrap">
+            <label>Libellé de la nouvelle session</label>
+            <input type="text" id="test-session-new" name="sessionNew" placeholder="${escapeHtml(suggestedNewSession)}" value="${!existingSessionKnown && existing&&existing.sessionLabel? escapeHtml(existing.sessionLabel):""}">
+          </div>
         </div>
         <div class="ls-modal-actions">
           <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
@@ -4726,18 +4859,32 @@ function openAthleteTestModal(athleteId, testId){
   select.addEventListener("change", syncFields);
   syncFields();
 
+  const sessionSelect = document.getElementById("test-session-select");
+  const sessionNewWrap = document.getElementById("test-session-new-wrap");
+  const sessionNewInput = document.getElementById("test-session-new");
+  const syncSessionField = () => {
+    const isNew = sessionSelect.value === "__new__";
+    sessionNewWrap.style.display = isNew ? "" : "none";
+    if(isNew && !sessionNewInput.value) sessionNewInput.value = suggestedNewSession;
+  };
+  sessionSelect.addEventListener("change", syncSessionField);
+  syncSessionField();
+
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
   document.getElementById("athlete-test-form").addEventListener("submit", async e=>{
     e.preventDefault();
     const fd = new FormData(e.target);
     const testType = fd.get("testType");
+    const sessionChoice = fd.get("sessionChoice");
+    const sessionLabel = (sessionChoice==="__new__" ? (fd.get("sessionNew")||"").trim() : sessionChoice) || null;
     const test = {
       id: existing? existing.id : undefined,
       athleteId, testType, date: fd.get("date"),
       valueDroite: testType==="force_membre_inf" && fd.get("valueDroite") ? +fd.get("valueDroite") : null,
       valueGauche: testType==="force_membre_inf" && fd.get("valueGauche") ? +fd.get("valueGauche") : null,
       value: testType!=="force_membre_inf" && fd.get("value") ? +fd.get("value") : null,
+      sessionLabel,
     };
     const submitBtn = e.target.querySelector('button[type=submit]');
     submitBtn.disabled = true;
