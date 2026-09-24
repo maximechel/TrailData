@@ -2726,12 +2726,12 @@ function renderMain(){
 
     <div class="ls-tabbar pdf-hide">
       <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
-      <button class="ls-tab-btn ${activeTab==="tests"?"active":""}" data-tab="tests" type="button">Tests de terrain</button>
       <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume &amp; Charge</button>
       <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance &amp; contexte environnemental</button>
       <button class="ls-tab-btn ${activeTab==="twin"?"active":""}" data-tab="twin" type="button">Jumeau numérique</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
+      <button class="ls-tab-btn ${activeTab==="tests"?"active":""}" data-tab="tests" type="button">Tests de terrain</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-athlete" ${activeTab!=="athlete"?"hidden":""}>
@@ -2802,23 +2802,6 @@ function renderMain(){
         <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
-    </div>
-
-    <div class="ls-tab-panel" id="tab-panel-tests" ${activeTab!=="tests"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Tests de terrain périodiques (Force, VMA, Seuils, VAM 3'/9') -- saisis ici, ils alimentent le radar « Profil coureur » (onglet Athlète) et le jumeau numérique (onglet Jumeau numérique). Regroupe les tests par session (voir champ Session du formulaire) pour comparer deux prises de mesure dans le temps sur le radar.</div>
-      <div class="ls-table-head" style="margin-bottom:10px;">
-        <h3>Tests de terrain</h3>
-        <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
-      </div>
-      ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
-        <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
-        <div class="ls-table-scroll">
-          <table class="ls-log">
-            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th>Session</th><th></th></tr></thead>
-            <tbody>${athleteTests.map(athleteTestRowHtml).join("")}</tbody>
-          </table>
-        </div>
-      </div>`}
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-volume-charge" ${activeTab!=="volume-charge"?"hidden":""}>
@@ -3049,6 +3032,23 @@ function renderMain(){
         <button type="button" class="ls-btn small ${nutritionView==="athlete"?"primary":"ghost"}" data-nutrition-view="athlete">Vue athlète (prise en main)</button>
       </div>
       ${nutritionView==="athlete" ? renderNutritionAthleteLiveHtml(athlete, sessions, nutritionEntriesForAthlete) : renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-tests" ${activeTab!=="tests"?"hidden":""}>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Tests de terrain périodiques (Force, VMA, Seuils, VAM 3'/9') -- saisis ici, ils alimentent le radar « Profil coureur » (onglet Athlète) et le jumeau numérique (onglet Jumeau numérique). Regroupe les tests par session (voir champ Session du formulaire) pour comparer deux prises de mesure dans le temps sur le radar.</div>
+      <div class="ls-table-head" style="margin-bottom:10px;">
+        <h3>Tests de terrain</h3>
+        <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
+      </div>
+      ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
+        <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
+        <div class="ls-table-scroll">
+          <table class="ls-log">
+            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th>Session</th><th></th></tr></thead>
+            <tbody>${athleteTests.map(athleteTestRowHtml).join("")}</tbody>
+          </table>
+        </div>
+      </div>`}
     </div>
   `;
 
