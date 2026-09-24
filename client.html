@@ -2054,8 +2054,12 @@ function sum7(sessionsArr){
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6);
   const cutoffStr = fmtDate(cutoff);
   return sessionsArr.filter(s=>s.date >= cutoffStr).reduce((acc,s)=>{
-    acc.km += s.distance; acc.dPlus += s.dPlus; acc.dMinus += s.dMinus; return acc;
-  }, {km:0, dPlus:0, dMinus:0});
+    acc.km += s.distance; acc.dPlus += s.dPlus; acc.dMinus += s.dMinus;
+    const cat = volumeCategoryOf(s.type);
+    if(cat==="course") acc.kmCourse += s.distance;
+    else if(cat==="velo") acc.kmVelo += s.distance;
+    return acc;
+  }, {km:0, dPlus:0, dMinus:0, kmCourse:0, kmVelo:0});
 }
 
 /* ---------------------------- thème ---------------------------- */
@@ -2310,7 +2314,7 @@ function renderMain(){
     <div class="ls-stat-grid">
       <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value"><span style="color:${cssVar('--cat-2')}">${wk.kmCourse.toFixed(0)}</span><small> km course / </small><span style="color:${cssVar('--cat-1')}">${wk.kmVelo.toFixed(0)}</span><small> km vélo</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
     </div>
 

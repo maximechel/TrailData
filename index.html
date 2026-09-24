@@ -1975,8 +1975,16 @@ function sum7(sessions){
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6);
   const cutoffStr = fmtDate(cutoff);
   return sessions.filter(s=>s.date >= cutoffStr).reduce((acc,s)=>{
-    acc.km += s.distance; acc.dPlus += s.dPlus; acc.dMinus += s.dMinus; return acc;
-  }, {km:0, dPlus:0, dMinus:0});
+    acc.km += s.distance; acc.dPlus += s.dPlus; acc.dMinus += s.dMinus;
+    // Répartition course à pied / vélo (voir volumeCategoryOf) -- alimente
+    // l'encart récapitulatif de l'onglet Volume & Charge, qui distingue les
+    // deux plutôt que d'afficher un seul volume combiné (demande du coach
+    // du 2026-09-24).
+    const cat = volumeCategoryOf(s.type);
+    if(cat==="course") acc.kmCourse += s.distance;
+    else if(cat==="velo") acc.kmVelo += s.distance;
+    return acc;
+  }, {km:0, dPlus:0, dMinus:0, kmCourse:0, kmVelo:0});
 }
 
 /* ---------------------------- Jumeau numérique : agrégation des 7 paramètres ---------------------------- */
@@ -2454,19 +2462,14 @@ function renderAthleteList(){
     return;
   }
   list.innerHTML = state.athletes.map(a => {
-    const sessions = state.sessions.filter(s=>s.athleteId===a.id);
-    const { acwr } = acwrSeries(sessions);
-    const last = acwr.length ? acwr[acwr.length-1] : null;
-    const cls = classifyACWR(last);
-    const wk = sum7(sessions);
     const active = (activeView==="athlete" && a.id === activeAthleteId) ? "active" : "";
+    // Uniquement le nom et prénom dans la liste (plus de sport/volume/ACWR
+    // ici -- demande du coach du 2026-09-24, ces infos restent consultables
+    // sur la fiche de l'athlète une fois sélectionné).
     return `<button class="ls-athlete-card ${active}" data-athlete="${a.id}">
-      <span class="ls-dot" style="background:${athleteColor(a)}"></span>
       <span class="ls-athlete-meta">
         <div class="ls-athlete-name">${escapeHtml(a.name)}</div>
-        <div class="ls-athlete-sub">${escapeHtml(a.sport)} · ${wk.km.toFixed(0)} km/7j</div>
       </span>
-      <span class="ls-pill" style="background:var(${statusVar(cls.key)});color:${statusInk(cls.key)}">${last!=null? last.toFixed(2):"—"}</span>
     </button>`;
   }).join("");
   list.querySelectorAll("[data-athlete]").forEach(btn=>{
@@ -2804,7 +2807,7 @@ function renderMain(){
     <div class="ls-stat-grid">
       <div class="ls-stat"><div class="ls-stat-label">Charge aiguë (7j)</div><div class="ls-stat-value">${acuteVal.toFixed(0)}<small>u.a./j</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">Charge chronique (28j)</div><div class="ls-stat-value">${chronicVal.toFixed(0)}<small>u.a./j</small></div></div>
-      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value">${wk.km.toFixed(0)}<small>km</small></div></div>
+      <div class="ls-stat"><div class="ls-stat-label">Volume 7 derniers jours</div><div class="ls-stat-value"><span style="color:${cssVar('--cat-2')}">${wk.kmCourse.toFixed(0)}</span><small> km course / </small><span style="color:${cssVar('--cat-1')}">${wk.kmVelo.toFixed(0)}</span><small> km vélo</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">D+ / D- (7j)</div><div class="ls-stat-value">${wk.dPlus.toFixed(0)}<small>m</small> / ${wk.dMinus.toFixed(0)}<small>m</small></div></div>
     </div>
 
