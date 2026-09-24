@@ -2975,17 +2975,6 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-twin" ${activeTab!=="twin"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Sept paramètres réunis pour comprendre comment la progression de l'un influence les autres, et guider la planification et la création des séances. Force, VMA et seuils sont saisis à la main depuis des tests de terrain (voir l'onglet « Tests de terrain » pour les ajouter/modifier) ; Montée, Descente et Volume sont calculés automatiquement depuis les séances Strava.</div>
-
-      <div class="ls-stat-grid" style="margin-bottom:14px;">
-        <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${twin.forceMax? twin.forceMax.value.toFixed(0) : "—"}<small> N${twin.forceMax? " · "+fmtDateFr(twin.forceMax.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${twin.vma? twin.vma.value.toFixed(1) : "—"}<small> km/h${twin.vma? " · "+fmtDateFr(twin.vma.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Seuil 1 (aérobie)</div><div class="ls-stat-value">${twin.seuil1? twin.seuil1.value.toFixed(1) : "—"}<small> km/h${twin.seuil1? " · "+fmtDateFr(twin.seuil1.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value">${twin.seuil2? twin.seuil2.value.toFixed(1) : "—"}<small> km/h${twin.seuil2? " · "+fmtDateFr(twin.seuil2.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value">${twin.vam3? twin.vam3.value.toFixed(0) : "—"}<small> m/h${twin.vam3? " · "+fmtDateFr(twin.vam3.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">VAM 9'</div><div class="ls-stat-value">${twin.vam9? twin.vam9.value.toFixed(0) : "—"}<small> m/h${twin.vam9? " · "+fmtDateFr(twin.vam9.date):""}</small></div></div>
-        <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(twin)!=null? vam3To9Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
-      </div>
       <h3 style="margin:0 0 6px;">Montée — VAM par zone de FC × pente</h3>
       <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse ascensionnelle moyenne (m/h), moyenne des ${MATRIX_WINDOW_WEEKS} dernières semaines, calculée depuis les séances Strava.</div>
       ${vamProfileHeatmapHtml(twin.vamClimbProfile, [3,4,5], "--cat-2")}
