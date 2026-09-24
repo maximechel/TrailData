@@ -337,12 +337,6 @@
       <div class="ls-athlete-list" id="athlete-list"></div>
       <div class="ls-side-divider"></div>
       <div class="ls-side-actions">
-        <label class="ls-btn small" for="input-csv" style="justify-content:center;">Importer un CSV de séances</label>
-        <input class="ls-hidden" type="file" id="input-csv" accept=".csv,text/csv">
-        <button class="ls-btn small" id="btn-download-template" type="button">Télécharger le modèle CSV</button>
-      </div>
-      <div class="ls-side-divider"></div>
-      <div class="ls-side-actions">
         <button class="ls-btn small ghost" id="btn-vam-backfill" type="button" title="Recalcule la VAM montée/descente des séances Strava déjà synchronisées avec le filtre anti-arrêt (fix du 17/09) — maintenance ponctuelle, à ne lancer qu'une fois.">Rattrapage VAM (montée/descente)</button>
         <div class="ls-athlete-sub" id="vam-backfill-status" style="text-align:center;"></div>
         <button class="ls-btn small ghost" id="btn-terrain-backfill" type="button" title="Recalcule le facteur terrain (rapport environnemental) de toutes les séances Strava déjà synchronisées avec le nouveau calcul Minetti pondéré par distance (18/09) — maintenance ponctuelle, à ne lancer qu'une fois.">Rattrapage terrain (Minetti)</button>
@@ -629,7 +623,7 @@ function periodBarHtml(suffix, note){
             <input type="date" id="period-end-${suffix}" value="${chartPeriod.end}" min="${chartPeriod.start}">
           </div>
           <button class="ls-btn small ghost" type="button" id="btn-period-reset-${suffix}">Réinitialiser (6 mois)</button>
-          <div class="ls-period-note">${note}</div>
+          ${note ? `<div class="ls-period-note">${note}</div>` : ""}
         </div>`;
 }
 
@@ -2816,7 +2810,7 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
         <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
-        ${periodBarHtml("load", `Période partagée par plusieurs graphiques du dashboard, répartis entre les onglets Volume & Charge, État de forme et Athlète — modifiable depuis n'importe lequel d'entre eux. Sert aussi de comparaison pour l'efficacité physiologique et le profil terrain (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date de la période).`)}
+        ${periodBarHtml("load")}
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card">
@@ -5309,56 +5303,6 @@ async function exportPDF(){
   }
 }
 
-const CSV_TEMPLATE = "date,type,duration,distance,dPlus,dMinus,z0,z1,z2,z3,z4,rpe\n2026-01-15,Course à pied,55,10.2,120,110,10,30,10,4,1,5\n";
-
-function downloadCsvTemplate(){
-  const blob = new Blob([CSV_TEMPLATE], {type:"text/csv"});
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "loadscope-modele-import.csv";
-  a.click();
-}
-
-function parseCSV(text){
-  const lines = text.trim().split(/\r?\n/);
-  const header = lines[0].split(",").map(h=>h.trim());
-  return lines.slice(1).filter(l=>l.trim()).map(line=>{
-    const cells = line.split(",");
-    const row = {};
-    header.forEach((h,i)=> row[h] = cells[i] !== undefined ? cells[i].trim() : "");
-    return row;
-  });
-}
-
-function importCSV(file, athleteId){
-  const reader = new FileReader();
-  reader.onload = async () => {
-    let rows;
-    try{ rows = parseCSV(reader.result); }
-    catch(e){ alert("Import CSV impossible : vérifiez le format (voir le modèle à télécharger)."); return; }
-    const toImport = rows.filter(r=>r.date);
-    let count = 0, failed = 0;
-    for(const r of toImport){
-      const session = {
-        athleteId,
-        date: r.date, type: r.type || "Autre",
-        duration: +r.duration||0, distance: +r.distance||0,
-        dPlus: +r.dPlus||0, dMinus: +r.dMinus||0,
-        zones: [0,1,2,3,4].map(i=>+r["z"+i]||0),
-        rpe: r.rpe? +r.rpe : null, note:""
-      };
-      try{ await apiSaveSession(session); count++; }
-      catch(err){
-        failed++;
-        if(err.unauthorized){ showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
-      }
-    }
-    await refreshData();
-    alert(count + " séance(s) importée(s)." + (failed? " " + failed + " échec(s).":""));
-  };
-  reader.readAsText(file);
-}
-
 /* ---------------------------- boot & coach-key gate ---------------------------- */
 
 function renderAll(){ renderAthleteList(); renderMain(); }
@@ -5450,7 +5394,6 @@ function init(){
   document.getElementById("btn-add-athlete").addEventListener("click", ()=>openAthleteModal(null));
   document.getElementById("btn-export").addEventListener("click", exportJSON);
   document.getElementById("btn-export-pdf").addEventListener("click", exportPDF);
-  document.getElementById("btn-download-template").addEventListener("click", downloadCsvTemplate);
   document.getElementById("btn-vam-backfill").addEventListener("click", ()=>{
     if(vamBackfillRunning){ vamBackfillRunning = false; return; }
     runVamBackfillLoop();
@@ -5474,12 +5417,6 @@ function init(){
       statusEl.textContent = s.totalProcessed + " séance(s) vérifiée(s), " + s.totalUpdated + " mise(s) à jour, " + s.totalErrors + " erreur(s)" + (s.done ? " — terminé ✓" : " — en pause, recliquer pour reprendre");
     }
   })();
-  document.getElementById("input-csv").addEventListener("change", e=>{
-    if(e.target.files[0] && activeAthleteId) importCSV(e.target.files[0], activeAthleteId);
-    else if(!activeAthleteId) alert("Sélectionnez d'abord un athlète.");
-    e.target.value="";
-  });
-
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", ()=>{ if(currentThemeMode()==="system") renderActiveTabCharts(); });
 
   handleStravaRedirectParam();
