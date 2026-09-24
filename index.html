@@ -1714,6 +1714,21 @@ function monthlyKmByCategory(sessions, startISO, endISO){
   });
   return byMonth;
 }
+// Comme monthlyKmByCategory, mais en minutes de durée plutôt qu'en
+// kilomètres — sert à afficher les heures à côté des km dans l'infobulle du
+// graphique "Volume mensuel" (demande du coach du 2026-09-24).
+function monthlyMinutesByCategory(sessions, startISO, endISO){
+  const byMonth = {};
+  sessions.forEach(s => {
+    if(s.date < startISO || s.date > endISO) return;
+    const d = new Date(s.date+"T00:00:00");
+    const key = d.getFullYear()+"-"+d.getMonth();
+    if(!byMonth[key]) byMonth[key] = {};
+    const cat = volumeCategoryOf(s.type);
+    byMonth[key][cat] = (byMonth[key][cat]||0) + (s.duration||0);
+  });
+  return byMonth;
+}
 // Comme weeklyElevationByCategory, mais par mois calendaire — sert au
 // graphique Dénivelé hebdomadaire, même bascule mensuelle.
 function monthlyElevationByCategory(sessions, startISO, endISO){
@@ -2581,6 +2596,7 @@ function renderMain(){
   // 2026-09-23).
   const periodExactAligned = periodAlignsToMonths(chartPeriod.start, chartPeriod.end);
   const periodExactKm = sessions.reduce((sum,s)=> (s.date>=chartPeriod.start && s.date<=chartPeriod.end) ? sum+(s.distance||0) : sum, 0);
+  const periodExactMinutes = sessions.reduce((sum,s)=> (s.date>=chartPeriod.start && s.date<=chartPeriod.end) ? sum+(s.duration||0) : sum, 0);
   const periodExactElev = sessions.reduce((acc,s)=>{
     if(s.date<chartPeriod.start || s.date>chartPeriod.end) return acc;
     const cat = volumeCategoryOf(s.type);
@@ -2589,7 +2605,7 @@ function renderMain(){
     return acc;
   }, {dPlus:0, dMinus:0});
   const periodSharedNote = "Période partagée avec les autres graphiques de cet onglet.";
-  const periodExactNoteVolume = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">${periodExactKm.toFixed(1)} km</b>`;
+  const periodExactNoteVolume = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">${periodExactKm.toFixed(1)} km</b><br>${fmtHoursMinutes(periodExactMinutes)}`;
   const periodExactNoteElevation = periodExactAligned ? periodSharedNote : `Période exacte sélectionnée : <b style="color:var(--text-primary)">D+ ${Math.round(periodExactElev.dPlus)} m · D- ${Math.round(periodExactElev.dMinus)} m</b>`;
   const color = athleteColor(athlete);
   ensureEnvChartPeriod();
@@ -4383,6 +4399,7 @@ function renderVolumeChargeChartsInner(athlete){
   // un segment de couleur par catégorie ; la légende (cliquable) permet de
   // masquer une catégorie, et le survol détaille chaque segment.
   const volByMonth = monthlyKmByCategory(sessions, periodStartStr, periodEndStr);
+  const volMinutesByMonth = monthlyMinutesByCategory(sessions, periodStartStr, periodEndStr);
   charts.volume = new Chart(document.getElementById("chart-volume"), {
     type:"bar",
     data:{ labels: moLabels, datasets: VOLUME_CATEGORIES.map(c=>({
@@ -4394,7 +4411,12 @@ function renderVolumeChargeChartsInner(athlete){
       plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Space Grotesk", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
         tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
           borderColor: cssVar("--border"), borderWidth:1, padding:10, titleFont:{family:"Space Grotesk", weight:700}, bodyFont:{family:"IBM Plex Mono"},
-          callbacks:{ label: ctx => ` ${ctx.dataset.label} : ${ctx.formattedValue} km` } } },
+          callbacks:{ label: ctx => {
+            const mo = months[ctx.dataIndex];
+            const cat = VOLUME_CATEGORIES[ctx.datasetIndex].key;
+            const mins = (volMinutesByMonth[mo.year+"-"+mo.month]||{})[cat] || 0;
+            return ` ${ctx.dataset.label} : ${ctx.formattedValue} km / ${fmtHoursMinutes(mins)}`;
+          } } } },
       scales:{ x:{ stacked:true, grid:{display:false} },
         y:{ stacked:true, grid:{color:cssVar("--grid")}, ticks:{color:cssVar("--text-muted")}, title:{display:true, text:"Kilomètres (km)", color:cssVar("--text-muted"), font:{size:10}} } }
     })
