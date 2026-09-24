@@ -59,7 +59,7 @@
   /* ---------- header ---------- */
   .ls-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 4px 20px;flex-wrap:wrap;}
   .ls-brand{display:flex;align-items:center;gap:14px;}
-  .ls-logo{height:52px;width:auto;display:block;}
+  .ls-logo{height:62px;width:auto;display:block;}
   .ls-brand h1{font-size:22px;font-weight:800;letter-spacing:-0.02em;margin:0;}
   .ls-brand span{color:var(--text-muted);font-size:13px;}
   .ls-header-actions{display:flex;align-items:center;gap:8px;}
@@ -3486,7 +3486,6 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
   const bmr = profileComplete ? bmrAverage(athlete.sex, athlete.weightKg, athlete.heightCm, bmrAge) : null;
 
   return `
-    <div class="ls-chart-sub" style="margin-bottom:14px;">Journal alimentaire simplifié saisi par l'athlète depuis son espace (méthode de l'assiette : entrée/plat/dessert pour déjeuner et dîner, structure allégée pour petit-déjeuner et collations), comparé à une estimation indicative de la dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis. Calories par aliment basées sur la table CIQUAL (Anses), pour des portions standards.</div>
     ${profileWarning}
     <div class="ls-stat-grid" style="margin-bottom:18px;">
       <div class="ls-stat"><div class="ls-stat-label">Métabolisme de base</div><div class="ls-stat-value">${bmr!=null? bmr : "—"}${bmr!=null?"<small>kcal/j</small>":""}</div></div>
@@ -3529,6 +3528,7 @@ function renderNutritionTabHtml(athlete, sessions, nutritionEntries){
         </table>
       </div>
     </div>`}
+    <div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-top:16px;">Journal alimentaire simplifié saisi par l'athlète depuis son espace (méthode de l'assiette : entrée/plat/dessert pour déjeuner et dîner, structure allégée pour petit-déjeuner et collations), comparé à une estimation indicative de la dépense calorique du jour (métabolisme de base moyenné sur 3 formules + activité quotidienne + calories de séance par FC les jours d'entraînement importé). Comparaison indicative, pas un comptage calorique précis. Calories par aliment basées sur la table CIQUAL (Anses), pour des portions standards.</div>
   `;
 }
 
