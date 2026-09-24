@@ -2726,6 +2726,7 @@ function renderMain(){
 
     <div class="ls-tabbar pdf-hide">
       <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
+      <button class="ls-tab-btn ${activeTab==="tests"?"active":""}" data-tab="tests" type="button">Tests de terrain</button>
       <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume &amp; Charge</button>
       <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance &amp; contexte environnemental</button>
@@ -2801,6 +2802,23 @@ function renderMain(){
         <div class="ls-chart-wrap" id="terrain-chart-wrap"><canvas id="chart-terrain"></canvas></div>
       </div>
     </div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-tests" ${activeTab!=="tests"?"hidden":""}>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Tests de terrain périodiques (Force, VMA, Seuils, VAM 3'/9') -- saisis ici, ils alimentent le radar « Profil coureur » (onglet Athlète) et le jumeau numérique (onglet Jumeau numérique). Regroupe les tests par session (voir champ Session du formulaire) pour comparer deux prises de mesure dans le temps sur le radar.</div>
+      <div class="ls-table-head" style="margin-bottom:10px;">
+        <h3>Tests de terrain</h3>
+        <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
+      </div>
+      ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
+        <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
+        <div class="ls-table-scroll">
+          <table class="ls-log">
+            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th>Session</th><th></th></tr></thead>
+            <tbody>${athleteTests.map(athleteTestRowHtml).join("")}</tbody>
+          </table>
+        </div>
+      </div>`}
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-volume-charge" ${activeTab!=="volume-charge"?"hidden":""}>
@@ -2965,12 +2983,8 @@ function renderMain(){
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-twin" ${activeTab!=="twin"?"hidden":""}>
-      <div class="ls-chart-sub" style="margin-bottom:14px;">Sept paramètres réunis pour comprendre comment la progression de l'un influence les autres, et guider la planification et la création des séances. Force, VMA et seuils sont saisis à la main depuis des tests de terrain ; Montée, Descente et Volume sont calculés automatiquement depuis les séances Strava.</div>
+      <div class="ls-chart-sub" style="margin-bottom:14px;">Sept paramètres réunis pour comprendre comment la progression de l'un influence les autres, et guider la planification et la création des séances. Force, VMA et seuils sont saisis à la main depuis des tests de terrain (voir l'onglet « Tests de terrain » pour les ajouter/modifier) ; Montée, Descente et Volume sont calculés automatiquement depuis les séances Strava.</div>
 
-      <div class="ls-table-head" style="margin-bottom:10px;">
-        <h3>Tests de terrain</h3>
-        <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
-      </div>
       <div class="ls-stat-grid" style="margin-bottom:14px;">
         <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${twin.forceMax? twin.forceMax.value.toFixed(0) : "—"}<small> N${twin.forceMax? " · "+fmtDateFr(twin.forceMax.date):""}</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">VMA</div><div class="ls-stat-value">${twin.vma? twin.vma.value.toFixed(1) : "—"}<small> km/h${twin.vma? " · "+fmtDateFr(twin.vma.date):""}</small></div></div>
@@ -2980,16 +2994,6 @@ function renderMain(){
         <div class="ls-stat"><div class="ls-stat-label">VAM 9'</div><div class="ls-stat-value">${twin.vam9? twin.vam9.value.toFixed(0) : "—"}<small> m/h${twin.vam9? " · "+fmtDateFr(twin.vam9.date):""}</small></div></div>
         <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(twin)!=null? vam3To9Ratio(twin).toFixed(0) : "—"}<small>%</small></div></div>
       </div>
-      ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
-        <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
-        <div class="ls-table-scroll">
-          <table class="ls-log">
-            <thead><tr><th>Date</th><th>Test</th><th>Valeur</th><th>Session</th><th></th></tr></thead>
-            <tbody>${athleteTests.map(athleteTestRowHtml).join("")}</tbody>
-          </table>
-        </div>
-      </div>`}
-
       <h3 style="margin:0 0 6px;">Montée — VAM par zone de FC × pente</h3>
       <div class="ls-chart-sub" style="margin-bottom:8px;">Vitesse ascensionnelle moyenne (m/h), moyenne des ${MATRIX_WINDOW_WEEKS} dernières semaines, calculée depuis les séances Strava.</div>
       ${vamProfileHeatmapHtml(twin.vamClimbProfile, [3,4,5], "--cat-2")}
