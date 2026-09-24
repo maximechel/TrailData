@@ -329,8 +329,7 @@ function volumeCategoryOf(type){
 }
 const ZONE_LABELS = ["Z1 · Échauffement","Z2 · Endurance fondamentale","Z3 · Tempo","Z4 · Seuil 2","Z5 · VO2max"];
 const GRADE_BUCKET_LABELS = ["Descente forte (>12%)","Descente modérée (4-12%)","Plat / roulant (±4%)","Montée modérée (4-10%)","Montée soutenue (10-18%)","Montée forte (>18%)"];
-const MATRIX_BRANCHES = ["Endurance","Montée","Descente","Vitesse","Résilience","Physiologie"];
-const MATRIX_WINDOW_WEEKS = 6;
+const MATRIX_WINDOW_WEEKS = 6; // fenêtre par défaut de comparaison de périodes (Profil terrain, etc.)
 const PACE_ZONE_VARS = ["--z1","--z2","--z3","--z4","--z5","--z6","--z7"];
 
 const TECHNICITY_LEVELS = [
@@ -438,11 +437,16 @@ let nutritionEntries = [];
 let athleteTests = []; // tests de terrain saisis par le coach (lecture seule côté athlète — voir onglet Athlète)
 let santeDraft = null;
 let santeSaving = false;
-let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, matrix: null, envTrend: null, nutritionCompare: null };
+let charts = { load: null, formFatigue: null, tsb: null, acwr: null, volume: null, elevation: null, zones: null, zonesTotal: null, pace: null, physio: null, terrain: null, twinRadar: null, envTrend: null, nutritionCompare: null };
 let chartPeriod = null;
 let zonesTotalActivityFilter = "all";
 let terrainCompareA = null;
 let terrainCompareB = null;
+// Sélection des deux sessions de tests comparées sur le radar "Profil
+// coureur" (voir SIM_PARAMS plus bas) -- un seul athlète ici (portail
+// personnel), mais on garde la même forme keyed-by-id que côté coach pour
+// réutiliser ensureRadarSessionSelection telle quelle.
+let radarSessionSelection = {};
 let activeTab = "athlete";
 let nutritionSelectedDate = null; // "YYYY-MM-DD" — jour affiché/édité dans l'onglet Nutrition ; par défaut aujourd'hui (voir renderNutritionTabHtml).
 let envChartPeriod = null; // { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } — période affichée sur le graphe et les encarts de l'onglet Analyse de séance & contexte environnemental, indépendante de chartPeriod ; par défaut le dernier mois pour rester lisible sur un historique profond.
@@ -1077,6 +1081,9 @@ function sessionFromApi(s){
   return { id:s.id, athleteId:s.athlete_id, date:s.date, type:s.type, duration:s.duration,
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
     paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
+    // Utilisé par le radar "Profil coureur" (axe Descente, voir SIM_PARAMS) --
+    // pas de vamClimbProfile ici, cet axe "Montée" n'existe pas dans SIM_PARAMS.
+    vamDescentProfile: Array.isArray(s.vam_descent_profile)? s.vam_descent_profile : null,
     gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
     gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
     gapPeak30s: s.gap_peak_30s!=null ? Number(s.gap_peak_30s) : null,
@@ -1117,7 +1124,8 @@ function athleteTestFromApi(t){
     valueDroite: t.value_droite!=null ? Number(t.value_droite) : null,
     valueGauche: t.value_gauche!=null ? Number(t.value_gauche) : null,
     value: t.value!=null ? Number(t.value) : null,
-    note: t.note || "" };
+    note: t.note || "",
+    sessionLabel: t.session_label || "" };
 }
 
 /* ---------------------------- tests de terrain (lecture seule) ---------------------------- */
@@ -1810,29 +1818,6 @@ function monthlyElevationByCategory(sessionsArr, startISO, endISO){
   });
   return byMonth;
 }
-function gapZoneAverage(sessionsArr, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  const sums = [0,0,0,0,0], counts = [0,0,0,0,0];
-  sessionsArr.forEach(s=>{
-    if(!Array.isArray(s.gapByHrZone)) return;
-    const d = new Date(s.date+"T00:00:00");
-    if(isNaN(d) || d < start || d > endDate) return;
-    s.gapByHrZone.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
-  });
-  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
-}
-function peakGapAverage(sessionsArr, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  let sum = 0, count = 0;
-  sessionsArr.forEach(s=>{
-    if(s.gapPeak30s == null) return;
-    const d = new Date(s.date+"T00:00:00");
-    if(isNaN(d) || d < start || d > endDate) return;
-    sum += s.gapPeak30s; count++;
-  });
-  return count > 0 ? Math.round((sum/count)*10)/10 : null;
-}
-
 /* ---------------------------- Rapport environnemental ---------------------------- */
 
 function envSeverity(f){
@@ -1969,10 +1954,6 @@ function mixHexColors(hexA, hexB, t){
   const mix = a.map((v,i)=> Math.round(v + (b[i]-v)*t));
   return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
 }
-function gapGradeAverage(sessionsArr, endDate, weeks){
-  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  return gapGradeAverageInRange(sessionsArr, start, endDate);
-}
 function gapGradeAverageInRange(sessionsArr, startDate, endDate){
   const sums = [0,0,0,0,0,0], counts = [0,0,0,0,0,0];
   sessionsArr.forEach(s=>{
@@ -1985,70 +1966,149 @@ function gapGradeAverageInRange(sessionsArr, startDate, endDate){
   return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
 }
 
-/* ---------------------------- Runner Matrix ---------------------------- */
-
-function seriesValueAt(dates, arr, endDate){
-  const endStr = fmtDate(endDate);
-  let idx = -1;
-  for(let i=0;i<dates.length;i++){ if(dates[i] <= endStr) idx = i; else break; }
-  return idx >= 0 ? arr[idx] : null;
+/* ---------------------------- Radar "Profil coureur" (comparaison de sessions de tests) ---------------------------- */
+//
+// Remplace l'ancien Runner Matrix (6 branches déduites du GAP/ACWR, comparées
+// entre deux dates) par le même radar que le tableau de bord coach : 8
+// paramètres (Force/VMA/Seuils/VAM issus des tests de terrain, Volume/
+// Descente dérivés des séances Strava), comparés entre deux sessions de
+// tests choisies par le coach (voir athlete_tests.session_label plus haut,
+// athleteTestFromApi). Lecture seule ici : l'athlète peut changer les deux
+// sessions comparées mais ne peut pas ajouter/modifier de test.
+const SIM_PARAMS = [
+  { key:"force", label:"Force max membre inférieur", category:"physio" },
+  { key:"vma", label:"VMA", category:"physio" },
+  { key:"seuil1", label:"Seuil 1 (aérobie)", category:"physio" },
+  { key:"seuil2", label:"Seuil 2 (anaérobie)", category:"physio" },
+  { key:"vam3", label:"VAM 3' (test de côte)", category:"physio" },
+  { key:"vam9", label:"VAM 9' (test de côte)", category:"physio" },
+  { key:"volume", label:"Volume hebdo", category:"charge" },
+  { key:"descente", label:"Descente (VAM moy.)", category:"perf" },
+];
+const SIM_SNAPSHOT_WINDOW_WEEKS = 8;   // fenêtre glissante pour les instantanés Volume/Descente
+const SIM_SNAPSHOT_STEP_WEEKS = 2;     // pas entre deux instantanés successifs
+// Types de séance retenus pour le Volume -- côté coach c'est un réglage
+// (twinVolumeIncludeRun/Bike, par défaut CAP seule) ; pas de case à cocher
+// ici, on reprend simplement ce réglage par défaut (course à pied + trail).
+function isTwinVolumeSession(s){
+  return s.type === "Course à pied" || s.type === "Trail";
 }
-function avgIgnoreNull(arr){
-  const v = arr.filter(x=>x!=null);
-  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
-}
-function resilienceRatioAt(dates, acwr, endDate, weeks){
+function vamProfileAverage(sessionsArr, endDate, weeks, field, cellCount){
   const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
-  let total = 0, safe = 0;
-  dates.forEach((dStr, i) => {
-    const d = new Date(dStr+"T00:00:00");
-    if(d < start || d > endDate) return;
-    const v = acwr[i];
-    if(v == null) return;
-    total++;
-    if(v >= 0.8 && v < 1.5) safe++;
+  const sums = new Array(cellCount).fill(0), counts = new Array(cellCount).fill(0);
+  sessionsArr.forEach(s=>{
+    const profile = s[field];
+    if(!Array.isArray(profile)) return;
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    profile.forEach((v,i)=>{ if(v!=null){ sums[i]+=v; counts[i]++; } });
   });
-  return total > 0 ? Math.round((safe/total)*1000)/10 : null;
+  return sums.map((sum,i)=> counts[i]>0 ? Math.round((sum/counts[i])*10)/10 : null);
+}
+function simAggregateVamProfile(profile){
+  if(!Array.isArray(profile)) return null;
+  const vals = profile.filter(v=>v!=null);
+  return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+}
+function simParamSeriesFromTests(testsArr, testType, extractValue){
+  return testsArr.filter(t=>t.testType===testType)
+    .map(t=>({ date:new Date(t.date+"T00:00:00"), value:extractValue(t) }))
+    .filter(p=> p.value!=null && !isNaN(p.date))
+    .sort((a,b)=>a.date-b.date);
+}
+function simVolumeSnapshotKm(sessionsArr, endDate, weeks){
+  const start = new Date(endDate); start.setDate(start.getDate() - weeks*7);
+  let km = 0, count = 0;
+  sessionsArr.forEach(s=>{
+    const d = new Date(s.date+"T00:00:00");
+    if(isNaN(d) || d < start || d > endDate) return;
+    km += s.distance || 0; count++;
+  });
+  return count>0 ? km/weeks : null;
+}
+function simParamSeries(sessionsArr, testsArr, key){
+  if(key==="force") return simParamSeriesFromTests(testsArr, "force_membre_inf", t=> (t.valueDroite!=null && t.valueGauche!=null) ? t.valueDroite+t.valueGauche : null);
+  if(key==="vma") return simParamSeriesFromTests(testsArr, "vma", t=>t.value);
+  if(key==="seuil1") return simParamSeriesFromTests(testsArr, "seuil1", t=>t.value);
+  if(key==="seuil2") return simParamSeriesFromTests(testsArr, "seuil2", t=>t.value);
+  if(key==="vam3") return simParamSeriesFromTests(testsArr, "vam3", t=>t.value);
+  if(key==="vam9") return simParamSeriesFromTests(testsArr, "vam9", t=>t.value);
+  const stravaSessions = sessionsArr.filter(s=>s.source==="strava");
+  const dates = stravaSessions.map(s=>new Date(s.date+"T00:00:00")).filter(d=>!isNaN(d));
+  if(!dates.length) return [];
+  const rangeStart = new Date(Math.min.apply(null, dates)); rangeStart.setDate(rangeStart.getDate() + SIM_SNAPSHOT_WINDOW_WEEKS*7);
+  const rangeEnd = new Date(Math.max.apply(null, dates));
+  if(rangeStart > rangeEnd) return [];
+  const out = [];
+  let d = new Date(rangeStart);
+  while(d <= rangeEnd){
+    let value = null;
+    if(key==="volume") value = simVolumeSnapshotKm(sessionsArr.filter(isTwinVolumeSession), d, SIM_SNAPSHOT_WINDOW_WEEKS);
+    else if(key==="descente") value = simAggregateVamProfile(vamProfileAverage(stravaSessions, d, SIM_SNAPSHOT_WINDOW_WEEKS, "vamDescentProfile", 10));
+    if(value!=null) out.push({ date:new Date(d), value });
+    d.setDate(d.getDate() + SIM_SNAPSHOT_STEP_WEEKS*7);
+  }
+  return out;
+}
+function simFormatValue(key, value){
+  if(value==null || !isFinite(value)) return "—";
+  if(key==="force") return value.toFixed(0)+" N";
+  if(key==="vma" || key==="seuil1" || key==="seuil2") return value.toFixed(1)+" km/h";
+  if(key==="volume") return value.toFixed(1)+" km/sem.";
+  if(key==="vam3" || key==="vam9" || key==="descente") return value.toFixed(0)+" m/h";
+  return String(value);
+}
+function twinRadarScoreFromSeries(series, currentValue){
+  if(currentValue == null || series.length < 2) return null;
+  const vals = series.map(p=>p.value);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  if(max - min < 1e-9) return 5;
+  return Math.round(Math.max(0, Math.min(10, (currentValue-min)/(max-min)*10)));
+}
+function athleteTestSessions(testsArr){
+  const latestDateOf = {};
+  testsArr.forEach(t=>{
+    if(!t.sessionLabel) return;
+    if(!latestDateOf[t.sessionLabel] || t.date > latestDateOf[t.sessionLabel]) latestDateOf[t.sessionLabel] = t.date;
+  });
+  return Object.keys(latestDateOf).sort((a,b)=> latestDateOf[b].localeCompare(latestDateOf[a]));
+}
+function sessionLatestTestDate(testsArr, sessionLabel){
+  let latest = null;
+  testsArr.forEach(t=>{ if(t.sessionLabel===sessionLabel && (!latest || t.date>latest)) latest = t.date; });
+  return latest;
+}
+function sessionParamValue(testsArr, sessionLabel, key, series){
+  if(!sessionLabel) return null;
+  if(key==="volume" || key==="descente"){
+    const refDate = sessionLatestTestDate(testsArr, sessionLabel);
+    if(!refDate || !series.length) return null;
+    const ref = new Date(refDate+"T00:00:00");
+    let best = null, bestDiff = Infinity;
+    series.forEach(p=>{ const diff = Math.abs(p.date-ref); if(diff < bestDiff){ bestDiff = diff; best = p; } });
+    return best ? best.value : null;
+  }
+  const testType = key==="force" ? "force_membre_inf" : key;
+  let match = null;
+  testsArr.forEach(t=>{
+    if(t.sessionLabel===sessionLabel && t.testType===testType && (!match || t.date>match.date)) match = t;
+  });
+  if(!match) return null;
+  if(key==="force") return (match.valueDroite!=null && match.valueGauche!=null) ? match.valueDroite+match.valueGauche : null;
+  return match.value;
+}
+function ensureRadarSessionSelection(athleteId, sessionLabels){
+  let sel = radarSessionSelection[athleteId];
+  if(!sel) sel = radarSessionSelection[athleteId] = { a:null, b:null };
+  if(!sel.b || !sessionLabels.includes(sel.b)) sel.b = sessionLabels[0] || null;
+  if(!sel.a || !sessionLabels.includes(sel.a)) sel.a = sessionLabels[1] || sessionLabels[0] || null;
+  return sel;
 }
 function periodWeeksBetween(startDate, endDate){
   return Math.max(1, Math.round((endDate - startDate) / (7*86400000)));
 }
 function comparisonWindowWeeksFor(startDate, endDate){
   return Math.max(1, Math.min(MATRIX_WINDOW_WEEKS, Math.floor(periodWeeksBetween(startDate, endDate)/2)));
-}
-function matrixRawValuesAt(sessionsArr, dates, chronic, acwr, endDate, windowWeeks){
-  windowWeeks = windowWeeks || MATRIX_WINDOW_WEEKS;
-  const gapZ = gapZoneAverage(sessionsArr, endDate, windowWeeks);
-  const gapG = gapGradeAverage(sessionsArr, endDate, windowWeeks);
-  return [
-    seriesValueAt(dates, chronic, endDate),
-    avgIgnoreNull([gapG[3], gapG[4], gapG[5]]),
-    avgIgnoreNull([gapG[0], gapG[1]]),
-    peakGapAverage(sessionsArr, endDate, windowWeeks),
-    resilienceRatioAt(dates, acwr, endDate, windowWeeks*2),
-    avgIgnoreNull(gapZ),
-  ];
-}
-function buildMatrixHistories(sessionsArr, dates, chronic, acwr, windowWeeks){
-  if(!sessionsArr.length) return MATRIX_BRANCHES.map(()=>[]);
-  const firstDate = new Date(sessionsArr.map(s=>s.date).sort()[0]+"T00:00:00");
-  const today = new Date();
-  const histories = MATRIX_BRANCHES.map(()=>[]);
-  for(let d = new Date(firstDate); d <= today; d.setDate(d.getDate()+7)){
-    const values = matrixRawValuesAt(sessionsArr, dates, chronic, acwr, new Date(d), windowWeeks);
-    values.forEach((v,i)=>{ if(v!=null) histories[i].push(v); });
-  }
-  return histories;
-}
-function scoreFromHistory(history, value){
-  if(value == null || history.length < 6) return null;
-  const min = Math.min(...history), max = Math.max(...history);
-  if(max - min < 1e-9) return 50;
-  return Math.round(Math.max(0, Math.min(100, (value-min)/(max-min)*100)));
-}
-function matrixScoresAt(sessionsArr, dates, chronic, acwr, endDate, histories, windowWeeks){
-  const raw = matrixRawValuesAt(sessionsArr, dates, chronic, acwr, endDate, windowWeeks);
-  return raw.map((v,i)=> scoreFromHistory(histories[i], v));
 }
 function sum7(sessionsArr){
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6);
@@ -2227,6 +2287,12 @@ function renderMain(){
   ensureSanteDraft();
   ensureNutritionPeriod();
   const testsSummary = athleteTestsSummaryFor(athlete.id);
+  // Sessions de tests disponibles pour le radar "Profil coureur" (voir plus
+  // bas) -- calculées ici pour être utilisables à la fois dans le markup des
+  // deux sélecteurs et dans les listeners attachés plus bas.
+  const athleteTestsForRadar = athleteTests.filter(t=>t.athleteId===athlete.id);
+  const radarSessions = athleteTestSessions(athleteTestsForRadar);
+  const radarSel = ensureRadarSessionSelection(athlete.id, radarSessions);
 
   main.innerHTML = `
     <div class="ls-athlete-header">
@@ -2270,10 +2336,20 @@ function renderMain(){
     <div class="ls-charts">
       <div class="ls-chart-card full">
         <h3>Profil coureur</h3>
-        <div class="ls-chart-sub">6 branches notées 0-100 par rapport à ton propre historique — pas un barème absolu. Comparaison entre le ${fmtDateFr(chartPeriod.start)} et le ${fmtDateFr(chartPeriod.end)}. Montée et Descente corrigées de la technicité du terrain.</div>
-        ${periodBarHtml("matrix", `Période de comparaison (moyenne sur ~${cmpWindowWeeks} semaine${cmpWindowWeeks>1?"s":""} autour de chaque date) — partagée avec les autres graphiques temporels du portail (onglets Athlète, Volume & Charge, État de forme) : la modifier ici la change partout ailleurs.`)}
-        <div class="ls-chart-wrap radar" id="matrix-chart-wrap"><canvas id="chart-matrix"></canvas></div>
-        <div class="ls-matrix-note" id="matrix-note"></div>
+        <div class="ls-chart-sub">8 paramètres notés de 0 à 10 par rapport à ton propre historique (0 = ton plus bas niveau, 10 = ton plus haut) — pas un barème absolu. Comparaison entre deux sessions de tests réalisées par ton coach : Force/VMA/Seuils/VAM viennent du test exact de chaque session, Volume/Descente de l'instantané Strava le plus proche de sa date.</div>
+        ${radarSessions.length ? `<div class="ls-period-bar" style="margin-bottom:12px;">
+          <div class="ls-field">
+            <label>Session A (référence)</label>
+            <select id="radar-session-a">${radarSessions.map(l=>`<option value="${escapeHtml(l)}" ${l===radarSel.a?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select>
+          </div>
+          <div class="ls-period-arrow">→</div>
+          <div class="ls-field">
+            <label>Session B (comparée)</label>
+            <select id="radar-session-b">${radarSessions.map(l=>`<option value="${escapeHtml(l)}" ${l===radarSel.b?"selected":""}>${escapeHtml(l)}</option>`).join("")}</select>
+          </div>
+        </div>` : ""}
+        <div class="ls-chart-wrap radar" id="twin-radar-chart-wrap"><canvas id="chart-twin-radar"></canvas></div>
+        <div class="ls-matrix-note" id="twin-radar-note"></div>
       </div>
       <div class="ls-chart-card full">
         <h3>Efficacité physiologique</h3>
@@ -2502,7 +2578,7 @@ function renderMain(){
   // l'une déclenche un renderMain() qui remet toutes les autres à jour aussi
   // -- y compris celles des deux autres onglets (Athlète / Volume & Charge /
   // État de forme se partagent ce même état).
-  ["matrix","load","formfatigue","tsb","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
+  ["load","formfatigue","tsb","acwr","volume","elevation","zones","pace","physio"].forEach(suffix=>{
     const startEl = document.getElementById("period-start-"+suffix);
     const endEl = document.getElementById("period-end-"+suffix);
     const resetBtn = document.getElementById("btn-period-reset-"+suffix);
@@ -2548,6 +2624,16 @@ function renderMain(){
   if(terrainBEnd) terrainBEnd.addEventListener("change", e=>{
     const v = e.target.value; if(!v) return;
     terrainCompareB = { start: v < terrainCompareB.start ? v : terrainCompareB.start, end: v };
+    renderMain();
+  });
+  const radarSessionASel = document.getElementById("radar-session-a");
+  const radarSessionBSel = document.getElementById("radar-session-b");
+  if(radarSessionASel) radarSessionASel.addEventListener("change", e=>{
+    const sel = radarSessionSelection[athlete.id]; if(sel) sel.a = e.target.value;
+    renderMain();
+  });
+  if(radarSessionBSel) radarSessionBSel.addEventListener("change", e=>{
+    const sel = radarSessionSelection[athlete.id]; if(sel) sel.b = e.target.value;
     renderMain();
   });
   const envPeriodStart = document.getElementById("env-period-start");
@@ -2801,38 +2887,56 @@ function renderChartsInner(athleteObj){
 
 /* ---------------------------- graphiques : onglet Athlète ---------------------------- */
 function renderAthleteTabCharts(athleteObj, cd){
-  const { sess, dates, chronic, acwr, color, periodStart, periodEnd, periodStartStr, newLabel, oldLabel } = cd;
+  const { sess, color, periodStart, periodEnd } = cd;
 
-  const matrixWrap = document.getElementById("matrix-chart-wrap");
-  const matrixNote = document.getElementById("matrix-note");
-  const cmpWindowWeeks = comparisonWindowWeeksFor(periodStart, periodEnd);
-  const histories = buildMatrixHistories(sess, dates, chronic, acwr, cmpWindowWeeks);
-  const scoresNow = matrixScoresAt(sess, dates, chronic, acwr, periodEnd, histories, cmpWindowWeeks);
-  const scoresPast = matrixScoresAt(sess, dates, chronic, acwr, periodStart, histories, cmpWindowWeeks);
-  const hasAnyScore = scoresNow.some(v=>v!=null);
-  if(hasAnyScore && matrixWrap){
-    const missing = MATRIX_BRANCHES.filter((_,i)=>scoresNow[i]==null);
-    matrixNote.textContent = missing.length
-      ? `Historique encore insuffisant pour : ${missing.join(", ")} — ces branches s'affichent à 0 en attendant plus de séances Strava.`
+  const twinRadarWrap = document.getElementById("twin-radar-chart-wrap");
+  const twinRadarNote = document.getElementById("twin-radar-note");
+  const athleteTestsForRadar = athleteTests.filter(t=>t.athleteId===athleteObj.id);
+  const radarSessions = athleteTestSessions(athleteTestsForRadar);
+  const radarSel = ensureRadarSessionSelection(athleteObj.id, radarSessions);
+  const twinRadarSeries = SIM_PARAMS.map(p=> simParamSeries(sess, athleteTestsForRadar, p.key));
+  const radarValueA = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.a, p.key, twinRadarSeries[i]));
+  const radarValueB = SIM_PARAMS.map((p,i)=> sessionParamValue(athleteTestsForRadar, radarSel.b, p.key, twinRadarSeries[i]));
+  const radarScoresA = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueA[i]));
+  const radarScoresB = twinRadarSeries.map((s,i)=> twinRadarScoreFromSeries(s, radarValueB[i]));
+  const hasAnyTwinScore = radarScoresA.some(v=>v!=null) || radarScoresB.some(v=>v!=null);
+  if(!radarSessions.length){
+    if(twinRadarWrap) twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucun test avec une session renseignée pour le moment — ton coach doit d\'abord ajouter des tests de terrain groupés par session.</div>';
+    if(twinRadarNote) twinRadarNote.textContent = "";
+  } else if(hasAnyTwinScore && twinRadarWrap){
+    const missingA = SIM_PARAMS.filter((p,i)=>radarScoresA[i]==null).map(p=>p.label);
+    const missingB = SIM_PARAMS.filter((p,i)=>radarScoresB[i]==null).map(p=>p.label);
+    const noteParts = [];
+    if(missingA.length) noteParts.push(`${radarSel.a} : historique insuffisant pour ${missingA.join(", ")}`);
+    if(missingB.length && radarSel.b!==radarSel.a) noteParts.push(`${radarSel.b} : historique insuffisant pour ${missingB.join(", ")}`);
+    twinRadarNote.textContent = noteParts.length
+      ? `${noteParts.join(" — ")} — ces axes s'affichent à 0 en attendant plus de données.`
       : "";
-    charts.matrix = new Chart(document.getElementById("chart-matrix"), {
+    const mutedColor = cssVar("--text-muted");
+    charts.twinRadar = new Chart(document.getElementById("chart-twin-radar"), {
       type:"radar",
-      data:{ labels: MATRIX_BRANCHES, datasets:[
-        { label: oldLabel, data: scoresPast.map(v=>v??0), borderColor: cssVar("--text-muted"), backgroundColor: cssVar("--text-muted")+"22", borderWidth:2, borderDash:[4,3], pointRadius:2, pointBackgroundColor: cssVar("--text-muted") },
-        { label: newLabel, data: scoresNow.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
+      data:{ labels: SIM_PARAMS.map(p=>p.label), datasets:[
+        { label: radarSel.a || "Session A", data: radarScoresA.map(v=>v??0), borderColor: mutedColor, backgroundColor: mutedColor+"22", borderWidth:2, borderDash:[5,4], pointRadius:3, pointBackgroundColor: mutedColor },
+        { label: radarSel.b || "Session B", data: radarScoresB.map(v=>v??0), borderColor: color, backgroundColor: color+"33", borderWidth:2, pointRadius:3, pointBackgroundColor: color }
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{ labels:{ color: cssVar("--text-muted"), font:{family:"Space Grotesk", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
           tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
-            borderColor: cssVar("--border"), borderWidth:1, padding:10 } },
-        scales:{ r:{ min:0, max:100, ticks:{ display:false, stepSize:25 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
+            borderColor: cssVar("--border"), borderWidth:1, padding:10,
+            callbacks:{ label: ctx => {
+              const key = SIM_PARAMS[ctx.dataIndex].key;
+              const val = ctx.datasetIndex===0 ? radarValueA[ctx.dataIndex] : radarValueB[ctx.dataIndex];
+              const score = ctx.datasetIndex===0 ? radarScoresA[ctx.dataIndex] : radarScoresB[ctx.dataIndex];
+              return ` ${ctx.dataset.label} — ${simFormatValue(key, val)} · ${score??0}/10`;
+            } } } },
+        scales:{ r:{ min:0, max:10, ticks:{ display:false, stepSize:2 }, grid:{ color: cssVar("--grid") }, angleLines:{ color: cssVar("--grid") },
           pointLabels:{ color: cssVar("--text-secondary"), font:{family:"Space Grotesk", size:11.5, weight:600} } } }
       }
     });
-  } else if(matrixWrap){
-    matrixWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite un historique de séances (idéalement importées depuis Strava).</div>';
-    if(matrixNote) matrixNote.textContent = "";
+  } else if(twinRadarWrap){
+    twinRadarWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune donnée pour le moment — nécessite au moins deux tests de terrain ou séances Strava par paramètre pour calculer un score.</div>';
+    if(twinRadarNote) twinRadarNote.textContent = "";
   }
 
   const physioWrap = document.getElementById("physio-chart-wrap");
