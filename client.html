@@ -2220,7 +2220,7 @@ function periodBarHtml(suffix, note){
             <input type="date" id="period-end-${suffix}" value="${chartPeriod.end}" min="${chartPeriod.start}">
           </div>
           <button class="ls-btn small ghost" type="button" id="btn-period-reset-${suffix}">Réinitialiser (6 mois)</button>
-          <div class="ls-period-note">${note}</div>
+          ${note ? `<div class="ls-period-note">${note}</div>` : ""}
         </div>`;
 }
 
@@ -2398,7 +2398,7 @@ function renderMain(){
       <div class="ls-chart-card full">
         <h3>Charge d'entraînement</h3>
         <div class="ls-chart-sub">Charge quotidienne (TRIMP pondéré par la technicité du terrain), charge aiguë (7j) et chronique (28j) — du ${fmtDateFr(chartPeriod.start)} au ${fmtDateFr(chartPeriod.end)}</div>
-        ${periodBarHtml("load", "Période partagée avec les autres graphiques temporels du portail.")}
+        ${periodBarHtml("load")}
         <div class="ls-chart-wrap tall"><canvas id="chart-load"></canvas></div>
       </div>
       <div class="ls-chart-card">
