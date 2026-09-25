@@ -2799,9 +2799,9 @@ function renderMain(){
       <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance &amp; contexte environnemental</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
-      <button class="ls-tab-btn ${activeTab==="journal"?"active":""}" data-tab="journal" type="button">Journal de séance</button>
       <button class="ls-tab-btn ${activeTab==="tests"?"active":""}" data-tab="tests" type="button">Tests de terrain</button>
       <button class="ls-tab-btn ${activeTab==="twin"?"active":""}" data-tab="twin" type="button">Jumeau numérique</button>
+      <button class="ls-tab-btn ${activeTab==="journal"?"active":""}" data-tab="journal" type="button">Journal de séance</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-athlete" ${activeTab!=="athlete"?"hidden":""}>
@@ -3034,20 +3034,6 @@ function renderMain(){
       ${nutritionView==="athlete" ? renderNutritionAthleteLiveHtml(athlete, sessions, nutritionEntriesForAthlete) : renderNutritionTabHtml(athlete, sessions, nutritionEntriesForAthlete)}
     </div>
 
-    <div class="ls-tab-panel" id="tab-panel-journal" ${activeTab!=="journal"?"hidden":""}>
-    <div class="ls-table-card pdf-hide">
-      <div class="ls-table-head">
-        <h3>Journal des séances (${sessions.length})</h3>
-      </div>
-      <div class="ls-table-scroll">
-        <table class="ls-log">
-          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th title="TRIMP pondéré par la technicité du terrain">Charge</th><th>RPE</th><th>Source</th><th></th></tr></thead>
-          <tbody>${sessions.map(rowHtml).join("")}</tbody>
-        </table>
-      </div>
-    </div>
-    </div>
-
     <div class="ls-tab-panel" id="tab-panel-tests" ${activeTab!=="tests"?"hidden":""}>
       <div class="ls-chart-sub" style="margin-bottom:14px;">Tests de terrain périodiques (Force, VMA, Seuils, VAM 3'/9') -- saisis ici, ils alimentent le radar « Profil coureur » (onglet Athlète) et le jumeau numérique (onglet Jumeau numérique). Regroupe les tests par session (voir champ Session du formulaire) pour comparer deux prises de mesure dans le temps sur le radar.</div>
       ${athleteTestObjectivesPanelHtml(athlete)}
@@ -3113,6 +3099,20 @@ function renderMain(){
         </div>
       </div>
       <div id="sim-results"></div>
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-journal" ${activeTab!=="journal"?"hidden":""}>
+    <div class="ls-table-card pdf-hide">
+      <div class="ls-table-head">
+        <h3>Journal des séances (${sessions.length})</h3>
+      </div>
+      <div class="ls-table-scroll">
+        <table class="ls-log">
+          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th title="TRIMP pondéré par la technicité du terrain">Charge</th><th>RPE</th><th>Source</th><th></th></tr></thead>
+          <tbody>${sessions.map(rowHtml).join("")}</tbody>
+        </table>
+      </div>
+    </div>
     </div>
 
   `;
