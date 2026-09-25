@@ -2998,7 +2998,7 @@ function renderAthleteTabCharts(athleteObj, cd){
   const physioMonths = monthsBetween(periodStart, periodEnd);
   const physioMonthData = physioMonths.map(m=>{
     const monthSessions = sess.filter(s=>{
-      if(s.date < periodStartStr || s.date > cd.periodEndStr) return false;
+      if(s.date < cd.periodStartStr || s.date > cd.periodEndStr) return false;
       const d = new Date(s.date+"T00:00:00");
       return d.getFullYear() === m.year && d.getMonth() === m.month;
     });
