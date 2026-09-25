@@ -112,12 +112,13 @@
   .ls-izone-glabel.second{margin-top:8px;}
   .ls-izone-grow{display:grid;margin-bottom:2px;}
   .ls-izone-grow>span{text-align:center;font-family:var(--font-mono);font-size:10.5px;color:var(--text-secondary);white-space:nowrap;}
-  .ls-izone-bar{display:grid;height:44px;border-radius:10px;margin:2px 0;}
-  .ls-izone-bar>div{position:relative;display:flex;align-items:center;justify-content:center;}
+  .ls-izone-bar{display:grid;height:58px;border-radius:10px;margin:2px 0;}
+  .ls-izone-bar>div{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 3px;overflow:hidden;}
   .ls-izone-bar>div:not(:last-child)::after{content:"";position:absolute;right:0;top:0;bottom:0;width:2px;background:var(--surface);}
   .ls-izone-bar>div:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px;}
   .ls-izone-bar>div:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px;}
-  .ls-izone-num{font-family:var(--font-mono);font-size:12px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);}
+  .ls-izone-num{font-family:var(--font-mono);font-size:11.5px;font-weight:700;line-height:1;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);}
+  .ls-izone-name{font-size:7.8px;font-weight:600;line-height:1.15;color:rgba(255,255,255,.95);text-shadow:0 1px 2px rgba(0,0,0,.35);text-align:center;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
   @media (max-width:640px){
     .ls-modal.wide{max-width:96vw;}
     table.ls-intensity{table-layout:auto;}
@@ -414,7 +415,7 @@ function intensityZonesVisualHtml(athleteObj){
   }).join("");
 
   const bar = zones.map((z,i)=>
-    `<div style="background:${cssVar(PACE_ZONE_VARS[i])}" title="${escapeHtml(z.name)}"><span class="ls-izone-num">${i+1}</span></div>`
+    `<div style="background:${cssVar(PACE_ZONE_VARS[i])}" title="${escapeHtml(z.name)}"><span class="ls-izone-num">${i+1}</span><span class="ls-izone-name">${escapeHtml(z.name)}</span></div>`
   ).join("");
 
   const allureRow = zones.map((z,i)=>{
