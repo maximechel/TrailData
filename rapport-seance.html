@@ -144,6 +144,10 @@
   @media (max-width:480px){
     .rs-compare{flex-direction:column;}
     .rs-compare-arrow{transform:rotate(90deg);}
+    /* Sur petit écran, le logo et le titre serrés côte à côte compriment le
+       texte dans une colonne trop étroite (repéré en testant le rendu
+       mobile de la page, 25/09) -- on les empile à la place. */
+    .rs-header{flex-direction:column;align-items:flex-start;gap:10px;}
   }
 </style>
 </head>
