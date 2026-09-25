@@ -132,9 +132,8 @@
   .ls-athlete-title .ls-athlete-sub{font-size:12.5px;margin-top:2px;}
 
   .ls-stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
-  .ls-stat-col-2{grid-column:2;}
-  .ls-stat-col-4{grid-column:4;}
-  @media (max-width: 1100px){ .ls-stat-grid{grid-template-columns:repeat(3,1fr);} .ls-stat-col-2, .ls-stat-col-4{grid-column:auto;} }
+  .ls-stat-pair-center{grid-column:3;display:flex;justify-content:center;gap:12px;}
+  @media (max-width: 1100px){ .ls-stat-grid{grid-template-columns:repeat(3,1fr);} .ls-stat-pair-center{grid-column:auto;} }
   @media (max-width: 620px){ .ls-stat-grid{grid-template-columns:repeat(2,1fr);} }
   .ls-stat-grid.ls-env-stat-grid{grid-template-columns:repeat(3,1fr);}
   @media (max-width: 620px){ .ls-stat-grid.ls-env-stat-grid{grid-template-columns:repeat(2,1fr);} }
@@ -2371,8 +2370,10 @@ function renderMain(){
       <div class="ls-stat"><div class="ls-stat-label">Seuil 2 (anaérobie)</div><div class="ls-stat-value" style="color:${cssVar(PACE_ZONE_VARS[3])}">${testsSummary.seuil2? testsSummary.seuil2.value.toFixed(1) : "—"}<small> km/h${testsSummary.seuil2? " · "+fmtDateFr(testsSummary.seuil2.date):""}</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">VAM 3'</div><div class="ls-stat-value" style="color:${cssVar(PACE_ZONE_VARS[4])}">${testsSummary.vam3? testsSummary.vam3.value.toFixed(0) : "—"}<small> m/h${testsSummary.vam3? " · "+fmtDateFr(testsSummary.vam3.date):""}</small></div></div>
       <div class="ls-stat"><div class="ls-stat-label">VAM 9'</div><div class="ls-stat-value" style="color:${cssVar(PACE_ZONE_VARS[3])}">${testsSummary.vam9? testsSummary.vam9.value.toFixed(0) : "—"}<small> m/h${testsSummary.vam9? " · "+fmtDateFr(testsSummary.vam9.date):""}</small></div></div>
-      <div class="ls-stat ls-stat-col-2"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${testsSummary.forceMax? testsSummary.forceMax.value.toFixed(0) : "—"}<small> N${testsSummary.forceMax? " · "+fmtDateFr(testsSummary.forceMax.date):""}</small></div></div>
-      <div class="ls-stat ls-stat-col-4"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(testsSummary)!=null? vam3To9Ratio(testsSummary).toFixed(0) : "—"}<small>%</small></div></div>
+      <div class="ls-stat-pair-center">
+        <div class="ls-stat"><div class="ls-stat-label">Force max membre inférieur</div><div class="ls-stat-value">${testsSummary.forceMax? testsSummary.forceMax.value.toFixed(0) : "—"}<small> N${testsSummary.forceMax? " · "+fmtDateFr(testsSummary.forceMax.date):""}</small></div></div>
+        <div class="ls-stat"><div class="ls-stat-label">Indice VAM3'/VAM9'</div><div class="ls-stat-value">${vam3To9Ratio(testsSummary)!=null? vam3To9Ratio(testsSummary).toFixed(0) : "—"}<small>%</small></div></div>
+      </div>
     </div>
 
     <div class="ls-chart-card ls-intensity-card">
