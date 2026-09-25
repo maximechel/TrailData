@@ -233,7 +233,6 @@
   .ls-sante-card.compact .ls-sante-row-label{font-size:12.5px;}
   .ls-sante-card.compact .ls-sante-row-desc{font-size:10.5px;margin-bottom:7px;}
   .ls-sante-card.compact .ls-sante-scale-btn{width:29px;height:29px;font-size:11.5px;}
-  .ls-sante-card.compact .ls-sante-scale-caption{font-size:9.5px;}
   .ls-sante-card.compact .ls-sante-toggle-btn{padding:6px 12px;font-size:11.5px;}
   .ls-sante-card.compact .ls-sante-sev-pill{padding:6px 10px;font-size:11px;}
   .ls-sante-sev-label{font-size:12.5px;font-weight:700;margin-bottom:8px;}
@@ -246,7 +245,6 @@
   .ls-sante-scale-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);
     font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;}
   .ls-sante-scale-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
-  .ls-sante-scale-caption{display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-muted);margin-top:6px;}
   .ls-sante-toggle-group{display:inline-flex;background:var(--surface-2);border-radius:10px;padding:3px;gap:2px;}
   .ls-sante-toggle-btn{font-family:var(--font-ui);font-size:12.5px;font-weight:700;border:none;background:transparent;color:var(--text-muted);padding:8px 18px;border-radius:8px;cursor:pointer;}
   .ls-sante-toggle-btn.active{background:var(--surface);color:var(--text-primary);box-shadow:0 1px 2px rgba(11,11,11,.08);}
@@ -1244,7 +1242,7 @@ function renderSanteBodySvg(view, zones, marks){
   }).join("");
   return `<svg width="140" height="293" viewBox="0 0 220 460">${SANTE_BODY_SVG_STATIC}${circles}</svg>`;
 }
-function santeHooperRowHtml(item, label, desc, captionBad, captionGood){
+function santeHooperRowHtml(item, label, desc){
   const current = santeDraft.hooper[item];
   const btns = [1,2,3,4,5,6,7].map(n=>
     `<button type="button" class="ls-sante-scale-btn ${current===n?"active":""}" data-hooper-item="${item}" data-hooper-value="${n}">${n}</button>`
@@ -1254,7 +1252,6 @@ function santeHooperRowHtml(item, label, desc, captionBad, captionGood){
       <div class="ls-sante-row-label">${label}</div>
       <div class="ls-sante-row-desc">${desc}</div>
       <div class="ls-sante-scale">${btns}</div>
-      <div class="ls-sante-scale-caption"><span>${captionBad}</span><span>${captionGood}</span></div>
     </div>`;
 }
 function renderSanteTab(){
@@ -1277,10 +1274,10 @@ function renderSanteTab(){
     <div class="ls-sante-card compact">
       <h3>Indice de Hooper</h3>
       <div class="ls-sante-hint">Pour chaque item, 1 = très mauvais, 7 = très bien.</div>
-      ${santeHooperRowHtml("sommeil","Sommeil","Qualité de votre sommeil cette semaine","Très mauvais","Très bien")}
-      ${santeHooperRowHtml("fatigue","Fatigue","Niveau de fatigue ressenti","Très élevée","Très faible")}
-      ${santeHooperRowHtml("stress","Stress","Niveau de stress ressenti","Très élevé","Très faible")}
-      ${santeHooperRowHtml("douleur","Douleur","Courbatures / douleurs musculaires générales","Très intense","Aucune")}
+      ${santeHooperRowHtml("sommeil","Sommeil","Qualité de votre sommeil cette semaine")}
+      ${santeHooperRowHtml("fatigue","Fatigue","Niveau de fatigue ressenti")}
+      ${santeHooperRowHtml("stress","Stress","Niveau de stress ressenti")}
+      ${santeHooperRowHtml("douleur","Douleur","Courbatures / douleurs musculaires générales")}
     </div>
     <div class="ls-sante-card compact">
       <h3>Gêne ou blessure localisée</h3>
