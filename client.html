@@ -2358,10 +2358,10 @@ function renderMain(){
     <div class="ls-tabbar">
       <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
       <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume & Charge</button>
-      <button class="ls-tab-btn ${activeTab==="journal"?"active":""}" data-tab="journal" type="button">Journal de séance</button>
       <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance & contexte environnemental</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
+      <button class="ls-tab-btn ${activeTab==="journal"?"active":""}" data-tab="journal" type="button">Journal de séance</button>
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-athlete" ${activeTab!=="athlete"?"hidden":""}>
@@ -2490,20 +2490,6 @@ function renderMain(){
     </div>
     </div>
 
-    <div class="ls-tab-panel" id="tab-panel-journal" ${activeTab!=="journal"?"hidden":""}>
-    <div class="ls-table-card">
-      <div class="ls-table-head">
-        <h3>Journal des séances (${sess.length})</h3>
-      </div>
-      <div class="ls-table-scroll">
-        <table class="ls-log">
-          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th title="TRIMP pondéré par la technicité du terrain">Charge</th><th>RPE</th><th>Source</th><th>Action</th></tr></thead>
-          <tbody>${sess.map(rowHtml).join("")}</tbody>
-        </table>
-      </div>
-    </div>
-    </div>
-
     <div class="ls-tab-panel" id="tab-panel-etat-forme" ${activeTab!=="etat-forme"?"hidden":""}>
     <div class="ls-stat-grid">
       <div class="ls-stat"><div class="ls-stat-label">Forme / Fatigue (CTL / ATL)</div><div class="ls-stat-value"><span style="color:${cssVar("--text-primary")}">${ctlNow!=null? ctlNow.toFixed(0):"—"}</span><small> / </small><span style="color:${cssVar("--serious")}">${atlNow!=null? atlNow.toFixed(0):"—"}</span><small> u.a.</small></div></div>
@@ -2605,6 +2591,20 @@ function renderMain(){
         <button type="button" class="ls-btn small ${nutritionView==="periode"?"primary":"ghost"}" data-nutrition-view="periode">Suivi sur une période</button>
       </div>
       ${nutritionView==="periode" ? renderNutritionTrendTabHtml() : renderNutritionTabHtml()}
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-journal" ${activeTab!=="journal"?"hidden":""}>
+    <div class="ls-table-card">
+      <div class="ls-table-head">
+        <h3>Journal des séances (${sess.length})</h3>
+      </div>
+      <div class="ls-table-scroll">
+        <table class="ls-log">
+          <thead><tr><th>Date</th><th>Type</th><th>Durée</th><th>Distance</th><th>D+</th><th>D-</th><th title="TRIMP pondéré par la technicité du terrain">Charge</th><th>RPE</th><th>Source</th><th>Action</th></tr></thead>
+          <tbody>${sess.map(rowHtml).join("")}</tbody>
+        </table>
+      </div>
+    </div>
     </div>
   `;
 
