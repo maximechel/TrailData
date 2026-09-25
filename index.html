@@ -2794,6 +2794,7 @@ function renderMain(){
     <div class="ls-tabbar pdf-hide">
       <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
       <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume &amp; Charge</button>
+      <button class="ls-tab-btn ${activeTab==="journal"?"active":""}" data-tab="journal" type="button">Journal de séance</button>
       <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance &amp; contexte environnemental</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
@@ -2924,6 +2925,9 @@ function renderMain(){
       </div>
     </div>
 
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-journal" ${activeTab!=="journal"?"hidden":""}>
     <div class="ls-table-card pdf-hide">
       <div class="ls-table-head">
         <h3>Journal des séances (${sessions.length})</h3>
