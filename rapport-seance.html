@@ -35,17 +35,17 @@
   .rs-header{display:flex;align-items:center;gap:14px;padding:6px 2px 22px;}
   .rs-header img{height:52px;width:auto;}
   .rs-header h1{font-size:19px;margin:0;line-height:1.25;}
-  .rs-header p{margin:2px 0 0;color:var(--text-muted);font-size:13px;}
+  .rs-header p{margin:2px 0 0;color:var(--text-muted);font-size:13px;text-align:justify;}
 
   /* ---------- cartes / panneaux ---------- */
   .rs-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:18px;}
   .rs-card h2{font-size:16px;margin:0 0 6px;}
-  .rs-card .rs-sub{color:var(--text-muted);font-size:13px;margin:0 0 16px;line-height:1.5;}
+  .rs-card .rs-sub{color:var(--text-muted);font-size:13px;margin:0 0 16px;line-height:1.5;text-align:justify;}
   /* Bloc "Comment lire ce chiffre" (carte durée neutre) -- même police que
      .rs-sub ci-dessus pour que le texte reste cohérent sous le titre de la
      carte ; le sous-titre "Comment lire ce chiffre" reste en gras (<strong>),
      demande de Maxime du 25/09. */
-  .rs-card .rs-explainer{color:var(--text-muted);font-size:13px;line-height:1.5;}
+  .rs-card .rs-explainer{color:var(--text-muted);font-size:13px;line-height:1.5;text-align:justify;}
 
   /* ---------- formulaires ---------- */
   .rs-field{margin-bottom:14px;}
@@ -54,7 +54,7 @@
     width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);
     background:var(--surface-2);color:var(--text-primary);font-family:var(--font-ui);font-size:14px;
   }
-  .rs-field .rs-hint{font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.45;}
+  .rs-hint{font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.45;text-align:justify;}
   .rs-row{display:flex;gap:12px;flex-wrap:wrap;}
   .rs-row > .rs-field{flex:1;min-width:150px;}
 
@@ -132,9 +132,9 @@
   }
   .rs-cta-links a.primary{background:var(--accent);color:#fff;border-color:transparent;}
 
-  .rs-footer-note{text-align:center;color:var(--text-muted);font-size:11.5px;margin-top:18px;line-height:1.6;}
+  .rs-footer-note{text-align:justify;color:var(--text-muted);font-size:11.5px;margin-top:18px;line-height:1.6;}
 
-  .rs-error{background:rgba(208,59,59,0.1);border:1px solid var(--critical);color:var(--text-primary);border-radius:10px;padding:12px 14px;font-size:13px;margin-top:12px;}
+  .rs-error{background:rgba(208,59,59,0.1);border:1px solid var(--critical);color:var(--text-primary);border-radius:10px;padding:12px 14px;font-size:13px;margin-top:12px;text-align:justify;}
   .rs-loading{display:flex;align-items:center;gap:10px;color:var(--text-muted);font-size:13.5px;padding:8px 2px;}
   .rs-spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:rsspin .7s linear infinite;}
   @keyframes rsspin{to{transform:rotate(360deg);}}
@@ -288,7 +288,7 @@
       <div class="rs-card" id="rs-rpe-card" hidden>
         <h2>Ton ressenti</h2>
         <p class="rs-sub">RPE <strong id="rs-rpe-score"></strong>/10 <span class="rs-badge" id="rs-rpe-badge"></span></p>
-        <p id="rs-rpe-narrative"></p>
+        <p id="rs-rpe-narrative" class="rs-explainer"></p>
       </div>
 
       <div class="rs-card">
