@@ -50,9 +50,14 @@
   /* ---------- formulaires ---------- */
   .rs-field{margin-bottom:14px;}
   .rs-field label{display:block;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.02em;margin-bottom:5px;}
+  /* font-size >=16px obligatoire ici : en dessous, Safari iOS zoome
+     automatiquement toute la page au focus d'un champ de saisie et ne
+     dézoome pas correctement ensuite -- c'est ce qui obligeait à
+     redimensionner la fenêtre à la main à chaque champ texte (signalé par
+     Maxime le 25/09). */
   .rs-field input, .rs-field select{
     width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);
-    background:var(--surface-2);color:var(--text-primary);font-family:var(--font-ui);font-size:14px;
+    background:var(--surface-2);color:var(--text-primary);font-family:var(--font-ui);font-size:16px;
   }
   .rs-hint{font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.45;text-align:justify;}
   .rs-row{display:flex;gap:12px;flex-wrap:wrap;}
