@@ -1183,16 +1183,53 @@ function drawPdfFooter(pdf, logoImg, pageNum, totalPages){
 // Mesure, dans le DOM en cours, chaque enfant direct de #rs-report-capture
 // (une carte = un bloc insécable) pour ne jamais couper une carte — et donc
 // jamais un graphique — au milieu lors de la pagination.
-function measurePdfBreakUnits(container){
+function measurePdfBreakUnits(container, capacityPx){
   const top0 = container.getBoundingClientRect().top;
-  const units = [];
+  let units = [];
   Array.from(container.children).forEach(el=>{
     if(el.offsetParent === null) return;
-    const r = el.getBoundingClientRect();
-    if(r.height <= 0) return;
-    units.push({ top: r.top - top0, bottom: r.bottom - top0 });
+    units = units.concat(measurePdfBreakUnitRecursive(el, top0, capacityPx));
   });
   return units;
+}
+
+// Subdivise récursivement un élément tant qu'il dépasse la capacité
+// d'une page : d'abord en descendant dans ses enfants (paragraphes,
+// lignes de tableau, etc.), puis, si un élément terminal (sans enfant)
+// est encore trop haut, en le découpant ligne de texte par ligne de
+// texte (via les rects de sélection du texte) -- pour ne jamais laisser
+// paginateCanvas trancher au pixel près en plein milieu d'une ligne.
+function measurePdfBreakUnitRecursive(el, top0, capacityPx){
+  const r = el.getBoundingClientRect();
+  if(r.height <= 0) return [];
+  if(r.height <= capacityPx){
+    return [{ top: r.top - top0, bottom: r.bottom - top0 }];
+  }
+  const childEls = Array.from(el.children).filter(c => c.offsetParent !== null);
+  if(childEls.length > 0){
+    let units = [];
+    childEls.forEach(c => { units = units.concat(measurePdfBreakUnitRecursive(c, top0, capacityPx)); });
+    if(units.length > 0) return units;
+  }
+  const lines = measurePdfTextLineRects(el, top0);
+  if(lines.length > 1) return lines;
+  return [{ top: r.top - top0, bottom: r.bottom - top0 }];
+}
+
+function measurePdfTextLineRects(el, top0){
+  const rects = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  let node;
+  while((node = walker.nextNode())){
+    if(!node.textContent || !node.textContent.trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    Array.from(range.getClientRects()).forEach(rc=>{
+      if(rc.height > 0) rects.push({ top: rc.top - top0, bottom: rc.bottom - top0 });
+    });
+  }
+  rects.sort((a,b)=>a.top-b.top);
+  return rects;
 }
 
 // Découpe la hauteur totale du canvas en pages, sans jamais couper à
@@ -1245,15 +1282,21 @@ $("rs-btn-pdf").addEventListener("click", async ()=>{
     const [iconImg, logoImg] = await Promise.all([loadImage(LOGO_ICON_URL), loadImage(LOGO_FULL_URL)]);
 
     const el = $("rs-report-capture");
-    const breakRows = measurePdfBreakUnits(el); // mesuré avant capture, mêmes coordonnées CSS px que le DOM affiché
-    const canvas = await window.html2canvas(el, { scale: PDF_CAPTURE_SCALE, backgroundColor:"#ffffff", useCORS:true });
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ unit:"mm", format:"a4" });
-
     const contentTop = PDF_HEADER_H + 6;
     const contentBottom = PDF_PAGE_H - PDF_FOOTER_H - 4;
     const contentW = PDF_PAGE_W - PDF_MARGIN_X * 2;
     const contentH = contentBottom - contentTop;
+    // Capacité d'une page en px CSS (avant capture) : html2canvas clone le DOM
+    // à l'identique en px CSS et ne fait que le rasteriser à une résolution
+    // plus fine (PDF_CAPTURE_SCALE), donc ce ratio reste valable une fois
+    // multiplié par ce facteur d'échelle.
+    const elCssWidth = el.getBoundingClientRect().width;
+    const pageCapacityCssPx = contentH * (elCssWidth / contentW);
+    const breakRows = measurePdfBreakUnits(el, pageCapacityCssPx); // mesuré avant capture, mêmes coordonnées CSS px que le DOM affiché
+    const canvas = await window.html2canvas(el, { scale: PDF_CAPTURE_SCALE, backgroundColor:"#ffffff", useCORS:true });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit:"mm", format:"a4" });
+
     const pxPerMm = canvas.width / contentW;
     const pageCapacityPx = contentH * pxPerMm;
 
