@@ -730,9 +730,17 @@ function hrZoneIndexFor(hr, bounds){
 }
 
 async function computeEnvironment(records, first, last, profile, durationMin){
-  if(first.lat==null || first.lon==null) throw new Error("Ce fichier .fit ne contient pas de position GPS — impossible de calculer l'impact météo/altitude.");
-  const dateStr = new Date(first.t).toISOString().slice(0,10);
-  const hourly = await fetchWeatherHourly(first.lat, first.lon, dateStr);
+  // Le tout premier enregistrement du fichier n'a pas toujours de position
+  // GPS : au départ (nuit, sous couvert forestier, fond de vallée...), le
+  // capteur GPS met parfois plusieurs secondes voire quelques minutes à
+  // obtenir un point, alors que la montre enregistre déjà le HR/timestamp
+  // dès la première trame. On cherche donc le premier point du flux qui a
+  // réellement une position, plutôt que de se fier uniquement à records[0]
+  // qui peut être un faux négatif sur une séance pourtant bien géolocalisée.
+  const gpsFirst = records.find(r => r.lat!=null && r.lon!=null);
+  if(!gpsFirst) throw new Error("Ce fichier .fit ne contient pas de position GPS — impossible de calculer l'impact météo/altitude.");
+  const dateStr = new Date(gpsFirst.t).toISOString().slice(0,10);
+  const hourly = await fetchWeatherHourly(gpsFirst.lat, gpsFirst.lon, dateStr);
 
   let altW=0, altSum=0, tempW=0, tempSum=0, rhSum=0, windW=0, windSum=0;
   for(let i=1;i<records.length;i++){
