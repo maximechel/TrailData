@@ -4847,7 +4847,7 @@ function openSessionModal(athleteId, sessionId){
           </div>
           <div class="ls-zone-check" id="zone-check"></div>
         </div>
-        <div class="ls-field">
+        <div class="ls-field" id="field-technicity">
           <label>Terrain</label>
           <div class="ls-modal-sub" style="margin:-2px 0 8px;">Corrige le GAP par tranche de pente (Profil terrain) et le facteur terrain du rapport environnemental — un terrain technique ralentit à effort égal, en plus de la pente elle-même (déjà prise en compte séparément).</div>
           <select name="technicity">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${(existing? existing.technicity:"roulant")===t.value?"selected":""}>${t.label}</option>`).join("")}</select>
@@ -4876,6 +4876,16 @@ function openSessionModal(athleteId, sessionId){
   form.duration.addEventListener("input", checkZones);
   [0,1,2,3,4].forEach(i=> form["z"+i].addEventListener("input", checkZones));
   checkZones();
+
+  // Terrain non pertinent en musculation (pas de pente/GPS à corriger) --
+  // masqué pour ce type de séance, cf. échange du 25/09. Se met à jour si
+  // le coach change le type dans le formulaire.
+  const technicityField = document.getElementById("field-technicity");
+  const toggleTechnicityField = () => {
+    if(technicityField) technicityField.style.display = form.type.value === "Musculation" ? "none" : "";
+  };
+  form.type.addEventListener("change", toggleTechnicityField);
+  toggleTechnicityField();
 
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });

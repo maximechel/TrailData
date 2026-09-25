@@ -1904,7 +1904,7 @@ function envRowHtml(s){
     <td>${envFmtPct(s.envHeatFactor)}</td>
     <td>${envFmtPct(s.envAltitudeFactor)}</td>
     <td>${envFmtPct(s.envWindFactor)}</td>
-    <td>${technicitySelectHtml(s)}</td>
+    <td>${s.type==="Musculation" ? "—" : technicitySelectHtml(s)}</td>
     <td>${envFmtPct(envTerrainFactor(s))}</td>
     <td><span class="ls-status-pill" style="background:var(${statusVar(sev.key)});color:${statusInk(sev.key)}">${envFmtPct(combined)}</span></td>
   </tr>`;
@@ -3271,10 +3271,10 @@ function openSessionEditModal(sessionId){
         <label>RPE (0-10)</label>
         <input type="number" min="0" max="10" id="session-edit-rpe" value="${s.rpe!=null? s.rpe:""}">
       </div>
-      <div class="ls-field">
+      ${s.type!=="Musculation" ? `<div class="ls-field">
         <label>Terrain</label>
         <select id="session-edit-technicity">${TECHNICITY_LEVELS.map(t=>`<option value="${t.value}" ${s.technicity===t.value?"selected":""}>${t.label}</option>`).join("")}</select>
-      </div>
+      </div>` : ""}
       <div class="ls-modal-actions">
         <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
         <button type="button" class="ls-btn primary" id="btn-session-edit-save">Enregistrer</button>
@@ -3289,17 +3289,21 @@ function openSessionEditModal(sessionId){
 async function saveSessionEdit(sessionId){
   const rpeRaw = document.getElementById("session-edit-rpe").value;
   const rpe = rpeRaw === "" ? null : Math.max(0, Math.min(10, +rpeRaw));
-  const technicity = document.getElementById("session-edit-technicity").value;
+  const technicityEl = document.getElementById("session-edit-technicity");
+  const technicity = technicityEl ? technicityEl.value : undefined;
   const saveBtn = document.getElementById("btn-session-edit-save");
   if(saveBtn) saveBtn.disabled = true;
-  const { error } = await sb.from("sessions").update({ rpe, technicity }).eq("id", sessionId);
+  // Terrain masqué (et donc non modifié) en musculation -- voir champ
+  // conditionnel plus haut dans openSessionEditModal.
+  const updatePayload = technicity!==undefined ? { rpe, technicity } : { rpe };
+  const { error } = await sb.from("sessions").update(updatePayload).eq("id", sessionId);
   if(error){
     showToast("Erreur lors de l'enregistrement : " + error.message, "--critical");
     if(saveBtn) saveBtn.disabled = false;
     return;
   }
   const s2 = sessions.find(x=>x.id===sessionId);
-  if(s2){ s2.rpe = rpe; s2.technicity = technicity; }
+  if(s2){ s2.rpe = rpe; if(technicity!==undefined) s2.technicity = technicity; }
   closeModal();
   showToast("Séance mise à jour.", "--good");
   renderMain();
