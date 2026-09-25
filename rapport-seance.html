@@ -1110,8 +1110,14 @@ function renderReport(r){
    Export PDF — même principe que l'outil coach (html2canvas + jsPDF) :
    en-tête (pictogramme + titre) et pied de page (logo complet +
    coordonnées + numéro de page) dessinés en vrai texte vectoriel sur
-   chaque page, et pagination "par blocs" qui ne coupe jamais une carte
-   (ex. le graphique des zones FC) au milieu entre deux pages.
+   chaque page, et pagination "par blocs" qui privilégie de ne jamais
+   couper une carte (ex. le graphique des zones FC) au milieu entre deux
+   pages -- sauf si la carte est à elle seule plus haute qu'une page
+   entière (fréquent sur mobile, où le contenu se réenroule dans une
+   colonne plus étroite donc plus haute) : dans ce cas elle est répartie
+   sur autant de pages que nécessaire, mais RIEN n'est jamais tronqué ou
+   perdu (fix du 25/09, signalé par Maxime : du texte disparaissait au
+   saut de page sur le PDF généré depuis un téléphone).
    ============================================================ */
 let scriptLoadPromises = {};
 function loadScript(src){
@@ -1190,23 +1196,41 @@ function measurePdfBreakUnits(container){
 }
 
 // Découpe la hauteur totale du canvas en pages, sans jamais couper à
-// l'intérieur d'un bloc mesuré par measurePdfBreakUnits (sauf, en tout
-// dernier recours, un bloc à lui seul plus haut qu'une page entière).
+// l'intérieur d'un bloc mesuré par measurePdfBreakUnits quand il tient
+// dans une page. Un bloc à lui seul plus haut qu'une page entière (une
+// carte trop grande pour une page, typiquement sur mobile) est réparti
+// sur plusieurs pages pleines successives au lieu d'être tronqué -- son
+// reliquat est ensuite regroupé normalement avec les blocs suivants sur
+// la page qui l'accueille, comme n'importe quel autre bloc.
 function paginateCanvas(canvasHeightPx, rowsPx, pageCapacityPx){
   const pages = [];
   let pageStart = 0, i = 0;
   while(i < rowsPx.length){
-    let pageEnd = pageStart, usedAny = false;
-    while(i < rowsPx.length){
-      const row = rowsPx[i];
-      const fits = (row.bottom - pageStart) <= pageCapacityPx;
-      if(!fits && usedAny) break;
-      pageEnd = Math.min(row.bottom, pageStart + pageCapacityPx);
-      usedAny = true; i++;
-      if(!fits) break; // bloc plus haut qu'une page : on le tronque, cas limite
+    const row = rowsPx[i];
+    if(row.bottom - pageStart <= pageCapacityPx){
+      // Ce bloc tient dans la page en cours : on tente d'y empiler aussi
+      // les blocs suivants tant qu'ils tiennent encore.
+      let pageEnd = row.bottom;
+      i++;
+      while(i < rowsPx.length && rowsPx[i].bottom - pageStart <= pageCapacityPx){
+        pageEnd = rowsPx[i].bottom; i++;
+      }
+      pages.push({ start: pageStart, end: pageEnd });
+      pageStart = pageEnd;
+    }else{
+      // Bloc plus grand que la capacité d'une page entière : on le
+      // découpe en pages pleines successives, sans rien perdre. Le
+      // reliquat (qui tient désormais dans une page) reste dans
+      // `pageStart` et sera regroupé au tour suivant comme un bloc normal.
+      let blockStart = pageStart;
+      while(row.bottom - blockStart > pageCapacityPx){
+        const pageEnd = blockStart + pageCapacityPx;
+        pages.push({ start: blockStart, end: pageEnd });
+        blockStart = pageEnd;
+      }
+      pageStart = blockStart;
+      i++;
     }
-    pages.push({ start: pageStart, end: Math.min(pageEnd, canvasHeightPx) });
-    pageStart = pageEnd;
   }
   if(pageStart < canvasHeightPx - 1) pages.push({ start: pageStart, end: canvasHeightPx });
   return pages;
