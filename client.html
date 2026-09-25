@@ -133,6 +133,7 @@
 
   .ls-stat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
   .ls-stat-pair-center{grid-column:3;display:flex;justify-content:center;gap:12px;}
+  .ls-stat-pair-center > .ls-stat{flex:0 0 100%;}
   @media (max-width: 1100px){ .ls-stat-grid{grid-template-columns:repeat(3,1fr);} .ls-stat-pair-center{grid-column:auto;} }
   @media (max-width: 620px){ .ls-stat-grid{grid-template-columns:repeat(2,1fr);} }
   .ls-stat-grid.ls-env-stat-grid{grid-template-columns:repeat(3,1fr);}
