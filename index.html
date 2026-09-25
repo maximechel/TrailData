@@ -290,19 +290,16 @@
   table.ls-intensity.compact th{padding:4px 8px;font-size:9.5px;}
   table.ls-intensity.compact td{padding:4px 8px;font-size:11.5px;}
   .ls-intensity-card{margin-bottom:18px;}
-  .ls-izone-bar{display:flex;height:40px;border-radius:10px;overflow:hidden;}
-  .ls-izone-labels{display:flex;margin:6px 0 16px;}
-  .ls-izone-labels span{text-align:center;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);}
-  .ls-izone-list{display:flex;flex-direction:column;}
-  .ls-izone-row{display:flex;align-items:center;gap:12px;padding:7px 2px;}
-  .ls-izone-row.ls-izone-head{padding-bottom:6px;}
-  .ls-izone-dot{width:10px;height:10px;border-radius:3px;flex:none;}
-  .ls-izone-name{flex:1;font-size:13px;font-weight:600;color:var(--text-primary);}
-  .ls-izone-head .ls-izone-name{font-weight:700;}
-  .ls-izone-val{font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);text-align:right;white-space:nowrap;}
-  .ls-izone-col-allure{width:112px;flex:none;}
-  .ls-izone-col-fc{width:84px;flex:none;}
-  .ls-izone-head .ls-izone-val{font-family:var(--font-ui);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);}
+  .ls-izone-glabel{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);font-weight:700;margin-bottom:3px;}
+  .ls-izone-glabel.second{margin-top:8px;}
+  .ls-izone-grow{display:grid;margin-bottom:2px;}
+  .ls-izone-grow>span{text-align:center;font-family:var(--font-mono);font-size:10.5px;color:var(--text-secondary);white-space:nowrap;}
+  .ls-izone-bar{display:grid;height:44px;border-radius:10px;margin:2px 0;}
+  .ls-izone-bar>div{position:relative;display:flex;align-items:center;justify-content:center;}
+  .ls-izone-bar>div:not(:last-child)::after{content:"";position:absolute;right:0;top:0;bottom:0;width:2px;background:var(--surface);}
+  .ls-izone-bar>div:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px;}
+  .ls-izone-bar>div:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px;}
+  .ls-izone-num{font-family:var(--font-mono);font-size:12px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.35);}
   @media (max-width:640px){
     .ls-modal.wide{max-width:96vw;}
     table.ls-intensity{table-layout:auto;}
@@ -455,49 +452,42 @@ function paceZoneLabel(athlete, i){
   return (zones[i] && zones[i].name) || defaultIntensityZones()[i].name;
 }
 
-// Visualisation de la table d'intensité (barre segmentée + liste compacte),
-// remplace l'ancien tableau à 3 colonnes -- proposition validée par Maxime
-// le 2026-09-23 (voir l'artefact de proposition visuelle : barre + liste avec
-// entêtes "Zone d'allure"/"Zone FC", couleurs Z1-Z7 d'origine conservées pour
-// rester cohérent avec les graphiques de zones de séance). Barre proportionnelle
-// aux plages d'allure quand les 7 zones sont entièrement renseignées, sinon
-// segments à largeur égale (les données ne permettent alors aucun calcul fiable).
+// Visualisation de la table d'intensité (FC au-dessus, frise avec les
+// numéros de zone à l'intérieur, allure en dessous) -- remplace la version
+// barre + liste à noms de zone, proposition validée par Maxime le 25/09 :
+// numéros dans la frise, allure/FC hors de la frise pour ne plus jamais être
+// écrasés par une zone étroite (typiquement Z6/Z7, efforts anaérobies à
+// plage d'allure fine). Le nom de la zone reste consultable au survol
+// (title) de son segment. Barre proportionnelle aux plages d'allure quand
+// les 7 zones sont entièrement renseignées, sinon segments à largeur égale.
 function intensityZonesVisualHtml(athleteObj){
   const zones = intensityZonesOf(athleteObj);
   const allComplete = zones.every(z => z.kmh_min!=null && z.kmh_max!=null && z.kmh_max > z.kmh_min);
   const widths = allComplete ? zones.map(z => z.kmh_max - z.kmh_min) : zones.map(()=>1);
   const total = widths.reduce((a,b)=>a+b, 0) || 1;
   const pct = widths.map(w => (w/total*100).toFixed(2));
+  const cols = pct.map(p=>`${p}%`).join(" ");
+
+  const fcRow = zones.map((z,i)=>{
+    const fcTxt = i>=5 ? "—" : ((z.hr_min!=null || z.hr_max!=null) ? `${z.hr_min!=null?z.hr_min:"?"}–${z.hr_max!=null?z.hr_max:"?"}` : "—");
+    return `<span>${fcTxt}</span>`;
+  }).join("");
 
   const bar = zones.map((z,i)=>
-    `<div style="flex:0 0 ${pct[i]}%;background:${cssVar(PACE_ZONE_VARS[i])};${i<6?`border-right:2px solid ${cssVar("--surface")};`:""}"></div>`
+    `<div style="background:${cssVar(PACE_ZONE_VARS[i])}" title="${escapeHtml(z.name)}"><span class="ls-izone-num">${i+1}</span></div>`
   ).join("");
 
-  const labels = zones.map((z,i)=> `<span style="flex:0 0 ${pct[i]}%;">Z${i+1}</span>`).join("");
-
-  const rows = zones.map((z,i)=>{
-    const allureTxt = (z.kmh_min!=null || z.kmh_max!=null) ? `${z.kmh_min!=null?z.kmh_min:"?"}–${z.kmh_max!=null?z.kmh_max:"?"} km/h` : "—";
-    const fcTxt = i>=5 ? "—" : ((z.hr_min!=null || z.hr_max!=null) ? `${z.hr_min!=null?z.hr_min:"?"}–${z.hr_max!=null?z.hr_max:"?"}` : "—");
-    return `<div class="ls-izone-row">
-      <span class="ls-izone-dot" style="background:${cssVar(PACE_ZONE_VARS[i])}"></span>
-      <span class="ls-izone-name">${escapeHtml(z.name)}</span>
-      <span class="ls-izone-val ls-izone-col-allure">${allureTxt}</span>
-      <span class="ls-izone-val ls-izone-col-fc">${fcTxt}</span>
-    </div>`;
+  const allureRow = zones.map((z,i)=>{
+    const allureTxt = (z.kmh_min!=null || z.kmh_max!=null) ? `${z.kmh_min!=null?z.kmh_min:"?"}–${z.kmh_max!=null?z.kmh_max:"?"}` : "—";
+    return `<span>${allureTxt}</span>`;
   }).join("");
 
   return `
-    <div class="ls-izone-bar">${bar}</div>
-    <div class="ls-izone-labels">${labels}</div>
-    <div class="ls-izone-list">
-      <div class="ls-izone-row ls-izone-head">
-        <span class="ls-izone-dot" style="background:transparent"></span>
-        <span class="ls-izone-name"></span>
-        <span class="ls-izone-val ls-izone-col-allure">Zone d'allure</span>
-        <span class="ls-izone-val ls-izone-col-fc">Zone FC</span>
-      </div>
-      ${rows}
-    </div>`;
+    <div class="ls-izone-glabel">FC (bpm)</div>
+    <div class="ls-izone-grow" style="grid-template-columns:${cols};">${fcRow}</div>
+    <div class="ls-izone-bar" style="grid-template-columns:${cols};">${bar}</div>
+    <div class="ls-izone-glabel second">Allure (km/h)</div>
+    <div class="ls-izone-grow" style="grid-template-columns:${cols};">${allureRow}</div>`;
 }
 
 
