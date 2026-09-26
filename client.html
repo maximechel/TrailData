@@ -168,6 +168,13 @@
     .ls-period-bar .ls-field{width:auto;min-width:0;}
     .ls-period-bar .ls-field label{font-size:9px;}
     .ls-period-bar .ls-field input, .ls-period-bar .ls-field select{padding:5px 3px;min-width:0;width:100%;box-sizing:border-box;}
+    /* Safari iOS applique son propre habillage interne au champ date natif
+       (icône, marges) qui ne respecte pas toujours fidèlement la largeur
+       CSS assignée, ce qui peut le faire déborder ou paraître décentré
+       dans sa colonne de grille. appearance:none laisse Safari garder le
+       comportement natif du champ (tap = ouverture du sélecteur de date)
+       mais lui fait redessiner sa boîte en respectant notre CSS. */
+    .ls-period-bar .ls-field input[type="date"]{-webkit-appearance:none;appearance:none;}
     .ls-period-bar .ls-period-arrow{display:none;}
     .ls-period-bar > .ls-btn{grid-column:1 / -1;width:100%;justify-content:center;}
     .ls-period-note{grid-column:1 / -1;}
