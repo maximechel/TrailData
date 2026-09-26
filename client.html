@@ -93,7 +93,7 @@
     max-height:88vh;overflow-y:auto;padding:22px;}
   .ls-modal.wide{max-width:920px;}
   .ls-modal h3{margin:0 0 4px;font-size:16px;font-weight:800;}
-  .ls-modal .ls-modal-sub{font-size:12px;color:var(--text-muted);margin-bottom:16px;}
+  .ls-modal .ls-modal-sub{font-size:12px;color:var(--text-muted);margin-bottom:16px;text-align:justify;}
   .ls-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
 
   /* ---------- intensity table (lecture seule, espace athlète) ---------- */
@@ -104,7 +104,7 @@
   table.ls-intensity td{padding:8px 8px;border-bottom:1px solid var(--border);}
   table.ls-intensity .ls-intensity-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;flex:none;}
   table.ls-intensity .ls-intensity-name{display:flex;align-items:center;}
-  .ls-intensity-note{font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;}
+  .ls-intensity-note{font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;text-align:justify;}
   table.ls-intensity.compact th{padding:4px 8px;font-size:9.5px;}
   table.ls-intensity.compact td{padding:4px 8px;font-size:11.5px;}
   .ls-intensity-card{margin-bottom:18px;}
@@ -144,14 +144,22 @@
 
   .ls-insight{display:flex;gap:10px;align-items:flex-start;border-radius:12px;padding:12px 14px;margin-bottom:18px;
     border-left:4px solid var(--accent);background:var(--surface);border-top:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
-  .ls-insight p{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary);}
+  .ls-insight p{margin:0;font-size:13px;line-height:1.5;color:var(--text-secondary);text-align:justify;}
 
   .ls-period-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;border-radius:12px;padding:12px 14px;margin-bottom:18px;
     background:var(--surface);border:1px solid var(--border);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
   .ls-period-bar .ls-field{margin:0;width:150px;}
   .ls-period-bar .ls-field label{font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.02em;}
   .ls-period-bar .ls-period-arrow{color:var(--text-muted);font-size:14px;padding-bottom:9px;}
-  .ls-period-note{flex:1 1 240px;font-size:11.5px;color:var(--text-muted);line-height:1.5;padding-bottom:2px;}
+  .ls-period-note{flex:1 1 240px;font-size:11.5px;color:var(--text-muted);line-height:1.5;padding-bottom:2px;text-align:justify;}
+  @media (max-width:640px){
+    .ls-period-bar{display:grid;grid-template-columns:1fr 1fr;align-items:start;gap:10px 10px;padding:12px;}
+    .ls-period-bar .ls-field{width:auto;min-width:0;}
+    .ls-period-bar .ls-field input, .ls-period-bar .ls-field select{padding:7px 8px;}
+    .ls-period-bar .ls-period-arrow{display:none;}
+    .ls-period-bar > .ls-btn{grid-column:1 / -1;width:100%;justify-content:center;}
+    .ls-period-note{grid-column:1 / -1;}
+  }
   .ls-period-arrow{color:var(--text-muted);font-size:14px;padding-bottom:9px;}
 
   .ls-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;}
@@ -159,7 +167,7 @@
   .ls-chart-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px 8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}
   .ls-chart-card.full{grid-column:1 / -1;}
   .ls-chart-card h3{font-size:13px;font-weight:700;margin:0 0 2px;}
-  .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;}
+  .ls-chart-card .ls-chart-sub{font-size:11.5px;color:var(--text-muted);margin-bottom:8px;text-align:justify;}
   .ls-chart-wrap{position:relative;height:220px;}
   .ls-chart-wrap.tall{height:260px;}
   .ls-ff-badges{display:flex;gap:14px;margin:2px 0 10px;}
@@ -171,7 +179,7 @@
   .ls-subchart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
   @media (max-width: 760px){ .ls-subchart-grid{grid-template-columns:1fr;} }
   .ls-subchart-label{font-size:11.5px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;}
-  .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:center;}
+  .ls-matrix-note{font-size:11px;color:var(--text-muted);margin-top:8px;line-height:1.5;text-align:justify;}
 
   .ls-table-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}
   .ls-table-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;}
@@ -204,7 +212,7 @@
     border:1px solid var(--border);background:var(--bg);color:var(--text-primary);}
   .ls-field input:focus, .ls-field select:focus{outline:2px solid var(--accent);outline-offset:1px;}
 
-  .ls-footer{margin-top:28px;text-align:center;font-size:11.5px;color:var(--text-muted);}
+  .ls-footer{margin-top:28px;text-align:justify;font-size:11.5px;color:var(--text-muted);}
   [hidden]{display:none!important;}
 
   .ls-toast{display:flex;align-items:flex-start;gap:10px;border-radius:12px;padding:11px 14px;margin-bottom:16px;
@@ -218,8 +226,8 @@
 
   .ls-login-card{max-width:420px;margin:60px auto;}
   .ls-login-card h2{margin-top:0;font-size:18px;}
-  .ls-login-card p{font-size:13px;color:var(--text-secondary);line-height:1.5;}
-  .ls-login-status{margin-top:10px;font-size:12.5px;line-height:1.5;}
+  .ls-login-card p{font-size:13px;color:var(--text-secondary);line-height:1.5;text-align:justify;}
+  .ls-login-status{margin-top:10px;font-size:12.5px;line-height:1.5;text-align:justify;}
   .ls-login-status.error{color:var(--critical);}
   .ls-login-status.ok{color:var(--good);}
 
@@ -237,11 +245,11 @@
   .ls-sante-card.compact .ls-sante-toggle-btn{padding:6px 12px;font-size:11.5px;}
   .ls-sante-card.compact .ls-sante-sev-pill{padding:6px 10px;font-size:11px;}
   .ls-sante-sev-label{font-size:12.5px;font-weight:700;margin-bottom:8px;}
-  .ls-sante-hint{font-size:11.5px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;}
+  .ls-sante-hint{font-size:11.5px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;text-align:justify;}
   .ls-sante-row{padding:14px 0;border-top:1px solid var(--border);}
   .ls-sante-row:first-of-type{border-top:none;padding-top:2px;}
   .ls-sante-row-label{font-size:13.5px;font-weight:700;margin-bottom:2px;}
-  .ls-sante-row-desc{font-size:11.5px;color:var(--text-muted);font-weight:500;margin-bottom:10px;}
+  .ls-sante-row-desc{font-size:11.5px;color:var(--text-muted);font-weight:500;margin-bottom:10px;text-align:justify;}
   .ls-sante-scale{display:flex;gap:6px;flex-wrap:wrap;}
   .ls-sante-scale-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);
     font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;}
@@ -253,7 +261,7 @@
     padding:8px 14px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;}
   .ls-sante-sev-pill.active{border-color:var(--accent);color:var(--text-primary);}
   .ls-sante-sev-dot{width:9px;height:9px;border-radius:50%;flex:none;}
-  .ls-sante-zone-hint{font-size:11px;color:var(--text-muted);margin-top:10px;text-align:center;}
+  .ls-sante-zone-hint{font-size:11px;color:var(--text-muted);margin-top:10px;text-align:justify;}
   .ls-sante-bodies{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;}
   .ls-sante-body-label{font-size:11px;font-weight:700;color:var(--text-muted);}
   .ls-sante-note{width:100%;font-family:var(--font-ui);font-size:13px;border:1px solid var(--border);border-radius:10px;
@@ -261,7 +269,7 @@
   .ls-sante-submit{width:100%;font-family:var(--font-ui);font-size:14px;font-weight:800;border:none;border-radius:11px;
     background:var(--accent);color:#fff;padding:14px;cursor:pointer;}
   .ls-sante-submit[disabled]{opacity:.6;cursor:default;}
-  .ls-sante-status{font-size:12px;color:var(--text-muted);margin-bottom:14px;}
+  .ls-sante-status{font-size:12px;color:var(--text-muted);margin-bottom:14px;text-align:justify;}
   .ls-sante-status.ok{color:var(--good);}
 </style>
 </head>
