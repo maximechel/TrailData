@@ -2814,6 +2814,7 @@ const zoneDonutLeaderLabelsPlugin = {
   id: "zoneDonutLeaderLabels",
   afterDraw(chart){
     if(chart.config.type !== "doughnut") return;
+    if(chart.width < 480) return; // pas assez de place pour les étiquettes externes sans les couper
     const meta = chart.getDatasetMeta(0);
     if(!meta || !meta.data.length) return;
     const values = chart.data.datasets[0].data;
@@ -3172,12 +3173,21 @@ function renderVolumeChargeTabCharts(athleteObj, cd){
     zonesTotalSessions.forEach(s=> s.zones.forEach((m,i)=> zonesTotalMinutes[i]+=(m||0)));
     const zonesTotalSum = zonesTotalMinutes.reduce((a,b)=>a+b,0);
     if(zonesTotalSum > 0){
+      const zonesTotalNarrow = zonesTotalWrap.clientWidth < 480;
       charts.zonesTotal = new Chart(document.getElementById("chart-zones-total"), {
         type:"doughnut",
         data:{ labels: ZONE_LABELS, datasets:[{ data: zonesTotalMinutes, backgroundColor: zoneColors, borderColor: cssVar("--surface"), borderWidth:2 }] },
         options:{
           responsive:true, maintainAspectRatio:false, cutout:"62%",
-          layout:{ padding:{ top:18, bottom:34, left:100, right:100 } },
+          // Sur mobile, la place réservée à gauche/droite pour les étiquettes
+          // externes ("Zone N (X %)") grignotait aussi la largeur dispo pour
+          // la légende (Chart.js calcule les deux dans la même zone une fois
+          // le padding retiré), ce qui coupait les libellés les plus longs
+          // ("Endurance fondamentale") et le texte des étiquettes externes
+          // elles-mêmes sur un canvas trop étroit. En dessous de 480px on
+          // réduit le padding au minimum et on masque les étiquettes
+          // externes (l'info reste dispo via la légende et l'infobulle).
+          layout:{ padding: zonesTotalNarrow ? { top:14, bottom:26, left:8, right:8 } : { top:18, bottom:34, left:100, right:100 } },
           plugins:{
             legend:{ position:"top", labels:{ color: cssVar("--text-muted"), font:{family:"Space Grotesk", size:11}, boxWidth:10, boxHeight:10, usePointStyle:true } },
             tooltip:{ backgroundColor: cssVar("--surface"), titleColor: cssVar("--text-primary"), bodyColor: cssVar("--text-secondary"),
@@ -3186,7 +3196,7 @@ function renderVolumeChargeTabCharts(athleteObj, cd){
             centerText:{ text: fmtHoursMinutes(zonesTotalSum) }
           }
         },
-        plugins:[zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin, zoneDonutLegendGapPlugin]
+        plugins: zonesTotalNarrow ? [zoneDonutCenterTextPlugin, zoneDonutLegendGapPlugin] : [zoneDonutCenterTextPlugin, zoneDonutLeaderLabelsPlugin, zoneDonutLegendGapPlugin]
       });
     } else {
       zonesTotalWrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12.5px;">Aucune séance avec zones de FC renseignées pour cette activité.</div>';
