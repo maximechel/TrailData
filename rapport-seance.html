@@ -12,7 +12,7 @@
 <style>
   :root{
     color-scheme: light;
-    --bg:#ffffff; --surface:#ffffff; --surface-2:#f3f2ee;
+    --bg:#faf7f2; --surface:#ffffff; --surface-2:#f3f2ee;
     --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
     --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
     --accent:#2a78d6; --accent-ink:#ffffff;
@@ -31,7 +31,20 @@
     }
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text-primary);font-family:var(--font-ui);}
+  body{margin:0;background:var(--bg);color:var(--text-primary);font-family:var(--font-ui);position:relative;}
+  /* Fond décoratif (dégradé bleu/rouge) -- identique à celui de l'appli principale (index.html/client.html),
+     demande de Maxime pour harmoniser l'identité visuelle sur l'outil grand public. */
+  body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background-image:
+      radial-gradient(880px 700px at 90% -10%, rgba(230,61,79,0.24), transparent 68%),
+      radial-gradient(820px 680px at -8% 10%, rgba(26,42,116,0.22), transparent 66%),
+      radial-gradient(520px 420px at 55% 100%, rgba(244,162,97,0.10), transparent 55%),
+      radial-gradient(circle at 1px 1px, rgba(26,42,116,0.12) 1px, transparent 0);
+    background-size:auto,auto,auto,26px 26px;
+    background-repeat:no-repeat,no-repeat,no-repeat,repeat;
+    background-attachment:fixed;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) body::before{display:none;} }
   .wrap{max-width:760px;margin:0 auto;padding:24px 18px 64px;}
   a{color:var(--accent);}
 
