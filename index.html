@@ -597,7 +597,9 @@ let terrainCompareB = null;
 let radarSessionSelection = {};
 // Onglet actif du panneau principal : "athlete" (profil/tests de terrain),
 // "volume-charge" (charge et volume d'entraînement), "etat-forme" (ACWR,
-// forme/fatigue, Hooper, blessures), "env" (rapport environnemental —
+// forme/fatigue, Hooper, blessures), "rapport-athlete" (anticipation
+// fatigue/blessure : axes mécanique, physiologique, gestion de forme vs
+// compétition — ajouté le 2026-09-28), "env" (rapport environnemental —
 // chaleur/altitude/vent), "twin" (jumeau numérique) ou "nutrition". Partagé
 // entre athlètes (pas remis à zéro au changement d'athlète).
 let activeTab = "athlete";
@@ -1249,6 +1251,7 @@ function sessionFromApi(s){
     distance: Number(s.distance), dPlus:s.d_plus, dMinus:s.d_minus, zones:s.zones,
     paceZones: Array.isArray(s.pace_zones)? s.pace_zones : null,
     gapByHrZone: Array.isArray(s.gap_by_hr_zone)? s.gap_by_hr_zone : null,
+    hrDeficitAlerts: Array.isArray(s.hr_deficit_alerts) ? s.hr_deficit_alerts : null,
     gapByGrade: Array.isArray(s.gap_by_grade)? s.gap_by_grade : null,
     gapPeak30s: s.gap_peak_30s!=null ? Number(s.gap_peak_30s) : null,
     envTempC: s.env_temp_c!=null ? Number(s.env_temp_c) : null,
@@ -2820,6 +2823,7 @@ function renderMain(){
       <button class="ls-tab-btn ${activeTab==="athlete"?"active":""}" data-tab="athlete" type="button">Athlète</button>
       <button class="ls-tab-btn ${activeTab==="volume-charge"?"active":""}" data-tab="volume-charge" type="button">Volume &amp; Charge</button>
       <button class="ls-tab-btn ${activeTab==="etat-forme"?"active":""}" data-tab="etat-forme" type="button">État de forme</button>
+      <button class="ls-tab-btn ${activeTab==="rapport-athlete"?"active":""}" data-tab="rapport-athlete" type="button">Rapport athlète</button>
       <button class="ls-tab-btn ${activeTab==="env"?"active":""}" data-tab="env" type="button">Analyse de séance</button>
       <button class="ls-tab-btn ${activeTab==="nutrition"?"active":""}" data-tab="nutrition" type="button">Nutrition</button>
       <button class="ls-tab-btn ${activeTab==="tests"?"active":""}" data-tab="tests" type="button">Tests de terrain</button>
@@ -3005,6 +3009,10 @@ function renderMain(){
     </div>
 
     ${renderSanteTabHtml(athlete, sessions)}
+    </div>
+
+    <div class="ls-tab-panel" id="tab-panel-rapport-athlete" ${activeTab!=="rapport-athlete"?"hidden":""}>
+    ${renderRapportAthleteHtml(athlete, sessions)}
     </div>
 
     <div class="ls-tab-panel" id="tab-panel-env" ${activeTab!=="env"?"hidden":""}>
@@ -3681,6 +3689,67 @@ function renderSanteTabHtml(athlete, sessions){
     </div>
     <div style="margin-top:20px;">${correlationCard}</div>
   `;
+}
+
+// Onglet "Rapport athlète" (anticipation fatigue/blessure — axes mécanique,
+// physiologique, gestion de forme vs compétition — ajouté le 2026-09-28).
+// Axe physiologique : liste les alertes de déficit cardiaque détectées côté
+// serveur (colonne hr_deficit_alerts, calculée dans strava-webhook et
+// strava-import-history) — bloc d'au moins 5 minutes sur terrain plat où
+// l'allure atteint une zone de seuil (Seuil 2 ou VO2max) sans que la FC
+// moyenne n'atteigne la zone associée, signe possible d'une fatigue du
+// système nerveux central plutôt qu'un simple manque de forme. Calculé
+// uniquement sur les séances traitées à partir du 2026-09-27 : pas de
+// rattrapage rétroactif sur l'historique déjà en base (décision du coach,
+// pour ne pas reconsommer de quota Strava après l'incident du 2026-09-27).
+// Axes mécanique et gestion de forme vs compétition : à venir, en attente de
+// la formalisation des règles de seuils avec le coach.
+function renderRapportAthleteHtml(athlete, sessions){
+  const fmtMin = (secs)=> Math.round(secs/60) + " min";
+
+  const physioSessions = sessions
+    .filter(s=>Array.isArray(s.hrDeficitAlerts) && s.hrDeficitAlerts.length)
+    .slice()
+    .sort((a,b)=> a.date < b.date ? 1 : -1);
+
+  const physioRows = physioSessions.flatMap(s=>
+    s.hrDeficitAlerts.map(al=>`
+      <tr>
+        <td>${fmtDateFr(s.date)}</td>
+        <td>${escapeHtml(s.type)}</td>
+        <td><span class="ls-status-pill" style="background:var(--warning);color:${statusInk("warning")}">${escapeHtml(al.zone_name || ("Zone "+al.zone))}</span></td>
+        <td>FC restée en <b>${escapeHtml(al.hr_zone_reached_name || "zone inférieure")}</b> (moy. ${al.avg_hr} bpm)</td>
+        <td>${fmtMin(al.duration_s)}${al.in_zone_s!=null ? ` <span style="color:var(--text-muted);">(dont ${fmtMin(al.in_zone_s)} en zone)</span>` : ""}</td>
+      </tr>`).join("")
+  ).join("");
+
+  const physioCard = `
+    <div class="ls-chart-card full">
+      <h3>Axe physiologique — réponse cardiaque insuffisante</h3>
+      <div class="ls-chart-sub">Détecte les blocs d'au moins 5 minutes sur terrain plat (-4 % à +4 %, allure brute — pas la GAP) où l'athlète tient l'allure d'une zone de seuil (Seuil 2 ou VO2max) sans que la fréquence cardiaque moyenne n'atteigne la zone associée — signe possible d'une fatigue du système nerveux central. Calculé uniquement sur les séances traitées à partir du 27/09/2026 (pas de recalcul rétroactif sur l'historique).</div>
+      ${physioRows
+        ? `<table class="ls-log" style="width:100%;">
+            <thead><tr><th>Date</th><th>Séance</th><th>Zone d'allure visée</th><th>Constat</th><th>Durée du bloc</th></tr></thead>
+            <tbody>${physioRows}</tbody>
+          </table>`
+        : `<div class="ls-empty">Aucune alerte détectée pour le moment (séances traitées depuis le 27/09/2026).</div>`}
+    </div>`;
+
+  const mecaniqueCard = `
+    <div class="ls-chart-card full">
+      <h3>Axe mécanique</h3>
+      <div class="ls-chart-sub">Rendement de propulsion selon le terrain (allure ajustée à la pente par tranche, profils VAM montée/descente croisés avec la FC) — règles de seuils en cours de définition avec le coach.</div>
+      <div class="ls-empty">À venir.</div>
+    </div>`;
+
+  const formeCompetCard = `
+    <div class="ls-chart-card full">
+      <h3>Gestion de forme vs compétition</h3>
+      <div class="ls-chart-sub">Croisement de l'état de forme (TSB/ACWR) avec le calendrier de compétition de l'athlète.</div>
+      <div class="ls-empty">À venir.</div>
+    </div>`;
+
+  return `<div class="ls-charts">${physioCard}${mecaniqueCard}${formeCompetCard}</div>`;
 }
 
 // Onglet Nutrition (lecture seule côté coach — seul l'athlète saisit, voir
@@ -4504,6 +4573,10 @@ function renderActiveTabCharts(){
     renderEtatFormeTrainingCharts(athlete);
     const athleteSessions = state.sessions.filter(s=>s.athleteId===athlete.id);
     renderSanteCharts(athlete, athleteSessions);
+  } else if(activeTab === "rapport-athlete"){
+    // Pas de graphique Chart.js dans cet onglet (listes/cartes uniquement) —
+    // on vide juste les instances de l'onglet précédent.
+    destroyCharts();
   } else if(activeTab === "env"){
     destroyCharts();
     const envSessions = state.sessions.filter(s=>s.athleteId===athlete.id && s.source==="strava");
