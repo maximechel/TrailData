@@ -538,6 +538,15 @@ const SANTE_SEVERITY_OPTIONS = [
   { key: "inquiet", label: "Moyen", varName: "--serious" },
   { key: "tres", label: "Beaucoup", varName: "--critical" },
 ];
+// Distinction demandée par le coach le 2026-09-28 : une blessure traumatique
+// (choc, entorse) n'a pas de lien avec la charge d'entraînement, contrairement
+// à une blessure musculaire/tendineuse -- ce champ permet de ne croiser que
+// ces dernières avec le temps passé en zones d'allure hautes et le volume de
+// course (axe mécanique, onglet Rapport athlète côté coach).
+const SANTE_INJURY_TYPE_OPTIONS = [
+  { key: "traumatique", label: "Traumatique (choc/entorse)" },
+  { key: "musculo_tendineuse", label: "Musculaire / tendineuse" },
+];
 const SANTE_BODY_SVG_STATIC = `
   <line x1="92" y1="184" x2="85" y2="290" stroke="var(--axis)" stroke-width="33" stroke-linecap="round"></line>
   <line x1="128" y1="184" x2="135" y2="290" stroke="var(--axis)" stroke-width="33" stroke-linecap="round"></line>
@@ -1145,7 +1154,8 @@ function hooperFromApi(h){
 }
 function injuryFromApi(r){
   return { id:r.id, athleteId:r.athlete_id, weekStart:r.week_start, view:r.view,
-    zoneId:r.zone_id, zoneLabel:r.zone_label, severity:r.severity, note:r.note||"", reportedAt:r.reported_at };
+    zoneId:r.zone_id, zoneLabel:r.zone_label, severity:r.severity, injuryType:r.injury_type||null,
+    note:r.note||"", reportedAt:r.reported_at };
 }
 function nutritionEntryFromApi(n){
   return { id:n.id, athleteId:n.athlete_id, date:n.date, mealType:n.meal_type,
@@ -1219,8 +1229,9 @@ function buildSanteDraft(week){
   const existingInjuries = injuryReports.filter(r=>r.weekStart===week);
   const markedFront = {}, markedBack = {};
   existingInjuries.forEach(r=>{
-    if(r.view === "face") markedFront[r.zoneId] = r.severity;
-    else markedBack[r.zoneId] = r.severity;
+    const mark = { severity: r.severity, injuryType: r.injuryType || "traumatique" };
+    if(r.view === "face") markedFront[r.zoneId] = mark;
+    else markedBack[r.zoneId] = mark;
   });
   return {
     week,
@@ -1232,6 +1243,7 @@ function buildSanteDraft(week){
     },
     hasPain: existingInjuries.length > 0,
     severity: existingInjuries.length ? existingInjuries[0].severity : "peu",
+    injuryType: existingInjuries.length ? (existingInjuries[0].injuryType || "traumatique") : "traumatique",
     markedFront, markedBack,
     note: existingInjuries.length ? (existingInjuries[0].note||"") : "",
     alreadySubmitted: !!existingHooper,
@@ -1257,16 +1269,23 @@ function setSanteSeverity(key){
   santeDraft.severity = key;
   renderMain();
 }
+function setSanteInjuryType(key){
+  if(!santeDraft) return;
+  santeDraft.injuryType = key;
+  renderMain();
+}
 function toggleSanteZone(view, zoneId){
   if(!santeDraft) return;
   const bucket = view === "face" ? santeDraft.markedFront : santeDraft.markedBack;
-  if(bucket[zoneId] === santeDraft.severity){ delete bucket[zoneId]; }
-  else { bucket[zoneId] = santeDraft.severity; }
+  const current = bucket[zoneId];
+  if(current && current.severity === santeDraft.severity && current.injuryType === santeDraft.injuryType){ delete bucket[zoneId]; }
+  else { bucket[zoneId] = { severity: santeDraft.severity, injuryType: santeDraft.injuryType }; }
   renderMain();
 }
 function renderSanteBodySvg(view, zones, marks){
   const circles = zones.map(z=>{
-    const sev = marks[z.id];
+    const mark = marks[z.id];
+    const sev = mark ? mark.severity : null;
     const fill = sev ? `var(${santeSeverityVar(sev)})` : "var(--surface)";
     const fillOpacity = sev ? "0.9" : "0.5";
     const stroke = sev ? "#ffffff" : "var(--axis)";
@@ -1298,6 +1317,8 @@ function renderSanteTab(){
     `<button type="button" class="ls-sante-sev-pill ${santeDraft.severity===o.key?"active":""}" data-severity="${o.key}">
       <span class="ls-sante-sev-dot" style="background:var(${o.varName});"></span>${o.label}
     </button>`).join("");
+  const injuryTypePills = SANTE_INJURY_TYPE_OPTIONS.map(o=>
+    `<button type="button" class="ls-sante-sev-pill ${santeDraft.injuryType===o.key?"active":""}" data-injury-type="${o.key}">${o.label}</button>`).join("");
   return `
     <div class="ls-sante-card">
       <h3>Questionnaire santé — semaine du ${fmtDateFr(week)} au ${fmtDateFr(fmtDate(weekEnd))}</h3>
@@ -1323,6 +1344,8 @@ function renderSanteTab(){
       <div style="margin-top:14px;">
         <div class="ls-sante-sev-label">Inquiétude</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">${severityPills}</div>
+        <div class="ls-sante-sev-label" style="margin-top:12px;">Type de blessure</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">${injuryTypePills}</div>
         <div style="font-size:12.5px;font-weight:700;margin:14px 0 6px;">Touchez les zones concernées</div>
         <div class="ls-sante-bodies">
           <div style="text-align:center;">
@@ -1549,6 +1572,8 @@ function bindSanteEvents(main){
     setSanteHasPain(b.getAttribute("data-pain")==="yes")));
   main.querySelectorAll("[data-severity]").forEach(b=> b.addEventListener("click", ()=>
     setSanteSeverity(b.getAttribute("data-severity"))));
+  main.querySelectorAll("[data-injury-type]").forEach(b=> b.addEventListener("click", ()=>
+    setSanteInjuryType(b.getAttribute("data-injury-type"))));
   main.querySelectorAll("[data-zone-id]").forEach(c=> c.addEventListener("click", ()=>
     toggleSanteZone(c.getAttribute("data-zone-view"), c.getAttribute("data-zone-id"))));
   const noteEl = document.getElementById("sante-note");
@@ -1577,13 +1602,13 @@ async function submitSanteQuestionnaire(){
   let savedInjuries = [];
   if(santeDraft.hasPain){
     const rows = [];
-    Object.entries(santeDraft.markedFront).forEach(([zoneId, sev])=>{
+    Object.entries(santeDraft.markedFront).forEach(([zoneId, mark])=>{
       const z = SANTE_FRONT_ZONES.find(f=>f.id===zoneId); if(!z) return;
-      rows.push({ athlete_id: athlete.id, week_start: week, view:"face", zone_id: zoneId, zone_label: z.label, severity: sev, note: santeDraft.note || null });
+      rows.push({ athlete_id: athlete.id, week_start: week, view:"face", zone_id: zoneId, zone_label: z.label, severity: mark.severity, injury_type: mark.injuryType || null, note: santeDraft.note || null });
     });
-    Object.entries(santeDraft.markedBack).forEach(([zoneId, sev])=>{
+    Object.entries(santeDraft.markedBack).forEach(([zoneId, mark])=>{
       const z = SANTE_BACK_ZONES.find(f=>f.id===zoneId); if(!z) return;
-      rows.push({ athlete_id: athlete.id, week_start: week, view:"dos", zone_id: zoneId, zone_label: z.label, severity: sev, note: santeDraft.note || null });
+      rows.push({ athlete_id: athlete.id, week_start: week, view:"dos", zone_id: zoneId, zone_label: z.label, severity: mark.severity, injury_type: mark.injuryType || null, note: santeDraft.note || null });
     });
     if(rows.length){
       const { data, error: iErr } = await sb.from("injury_reports").insert(rows).select();
