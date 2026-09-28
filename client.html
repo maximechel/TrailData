@@ -1220,7 +1220,11 @@ function athleteTestsSummaryFor(athleteId){
 
 /* ---------------------------- onglet Santé : état du brouillon et rendu ---------------------------- */
 
-function currentWeekStartISO(){ return isoMonday(fmtDate(new Date())); }
+// Une entrée par JOUR depuis le 2026-09-28 (décision du coach) --
+// auparavant une entrée par semaine (toujours calée sur le lundi via
+// isoMonday). Le nom de la fonction/colonne (week_start) est conservé pour
+// limiter la casse, mais stocke maintenant la date exacte du jour.
+function currentWeekStartISO(){ return fmtDate(new Date()); }
 function santeSeverityVar(key){ const o = SANTE_SEVERITY_OPTIONS.find(s=>s.key===key); return o ? o.varName : "--warning"; }
 function santeSeverityLabel(key){ const o = SANTE_SEVERITY_OPTIONS.find(s=>s.key===key); return o ? o.label : key; }
 
@@ -1309,10 +1313,9 @@ function santeHooperRowHtml(item, label, desc){
 function renderSanteTab(){
   if(!santeDraft) return "";
   const week = santeDraft.week;
-  const weekEnd = new Date(week+"T00:00:00"); weekEnd.setDate(weekEnd.getDate()+6);
   const statusHtml = santeDraft.alreadySubmitted
-    ? `<div class="ls-sante-status ok">Déjà envoyé pour cette semaine — modifiable jusqu'à dimanche.</div>`
-    : `<div class="ls-sante-status">Pas encore envoyé pour cette semaine.</div>`;
+    ? `<div class="ls-sante-status ok">Déjà envoyé pour aujourd'hui — modifiable jusqu'à minuit.</div>`
+    : `<div class="ls-sante-status">Pas encore envoyé pour aujourd'hui.</div>`;
   const severityPills = SANTE_SEVERITY_OPTIONS.map(o=>
     `<button type="button" class="ls-sante-sev-pill ${santeDraft.severity===o.key?"active":""}" data-severity="${o.key}">
       <span class="ls-sante-sev-dot" style="background:var(${o.varName});"></span>${o.label}
@@ -1321,17 +1324,17 @@ function renderSanteTab(){
     `<button type="button" class="ls-sante-sev-pill ${santeDraft.injuryType===o.key?"active":""}" data-injury-type="${o.key}">${o.label}</button>`).join("");
   return `
     <div class="ls-sante-card">
-      <h3>Questionnaire santé — semaine du ${fmtDateFr(week)} au ${fmtDateFr(fmtDate(weekEnd))}</h3>
+      <h3>Questionnaire santé — ${fmtDateFr(week)}</h3>
       ${statusHtml}
     </div>
     <div class="ls-sante-cols">
     <div class="ls-sante-card compact">
       <h3>Indice de Hooper</h3>
       <div class="ls-sante-hint">Pour chaque item, 1 = très mauvais, 7 = très bien.</div>
-      ${santeHooperRowHtml("sommeil","Sommeil","Qualité de votre sommeil cette semaine")}
-      ${santeHooperRowHtml("fatigue","Fatigue","Niveau de fatigue ressenti")}
-      ${santeHooperRowHtml("stress","Stress","Niveau de stress ressenti")}
-      ${santeHooperRowHtml("douleur","Douleur","Courbatures / douleurs musculaires générales")}
+      ${santeHooperRowHtml("sommeil","Sommeil","Qualité de votre sommeil cette nuit")}
+      ${santeHooperRowHtml("fatigue","Fatigue","Niveau de fatigue ressenti aujourd'hui")}
+      ${santeHooperRowHtml("stress","Stress","Niveau de stress ressenti aujourd'hui")}
+      ${santeHooperRowHtml("douleur","Douleur","Courbatures / douleurs musculaires générales aujourd'hui")}
     </div>
     <div class="ls-sante-card compact">
       <h3>Gêne ou blessure localisée</h3>
@@ -1594,7 +1597,7 @@ async function submitSanteQuestionnaire(){
     .upsert(hooperRow, { onConflict: "athlete_id,week_start" }).select().single();
   if(hErr){ santeSaving=false; showToast("Erreur d'enregistrement : "+hErr.message, "--critical"); renderMain(); return; }
 
-  // Une nouvelle soumission remplace les gênes de la semaine : on supprime les
+  // Une nouvelle soumission remplace les gênes du jour : on supprime les
   // anciennes lignes puis on réinsère l'état courant (vide si "Non" est sélectionné).
   const { error: delErr } = await sb.from("injury_reports").delete().eq("athlete_id", athlete.id).eq("week_start", week);
   if(delErr){ santeSaving=false; showToast("Erreur d'enregistrement : "+delErr.message, "--critical"); renderMain(); return; }

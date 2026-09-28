@@ -3701,10 +3701,10 @@ function renderSanteTabHtml(athlete, sessions){
         ${santeHistoryView==="last"
           ? `<div style="margin-top:14px;padding:12px 14px;background:var(--surface-2);border-radius:10px;font-size:12.5px;line-height:1.6;">
               ${injuries.latestItems.map(r=>`<div><strong>${escapeHtml(r.zoneLabel)}</strong> (${r.view==="face"?"face":"dos"}) — <span class="ls-status-pill" style="background:var(${santeSeverityVar(r.severity)});color:${statusInk(r.severity==="peu"?"warning":r.severity==="inquiet"?"serious":"critical")}">${santeSeverityLabel(r.severity)}</span> · ${santeInjuryTypeLabel(r.injuryType)}</div>`).join("")}
-              <div style="color:var(--text-muted);margin-top:6px;">Semaine du ${fmtDateFr(injuries.latestWeek)}${injuries.latestItems[0].note? ` — "${escapeHtml(injuries.latestItems[0].note)}"` : ""}</div>
+              <div style="color:var(--text-muted);margin-top:6px;">Le ${fmtDateFr(injuries.latestWeek)}${injuries.latestItems[0].note? ` — "${escapeHtml(injuries.latestItems[0].note)}"` : ""}</div>
             </div>`
           : `<table class="ls-log" style="margin-top:10px;width:100%;">
-              <thead><tr><th>Semaine</th><th>Zone</th><th>Niveau</th><th>Type</th></tr></thead>
+              <thead><tr><th>Date</th><th>Zone</th><th>Niveau</th><th>Type</th></tr></thead>
               <tbody>${historyRows}</tbody>
             </table>`}
       </div>` : `<div class="ls-sante-hint" style="margin-top:14px;margin-bottom:0;">Aucune gêne signalée pour le moment.</div>`}
@@ -3713,13 +3713,13 @@ function renderSanteTabHtml(athlete, sessions){
   const correlationCard = `
     <div class="ls-sante-card">
       <h3>Corrélation Hooper / blessures × charge (ACWR) et performance</h3>
-      <div class="ls-sante-hint">Graphique dédié — non superposé au graphique de charge existant. Ligne bleue = ACWR (charge aiguë / charge chronique), barres oranges = indice de vigilance Hooper hebdomadaire (0 = idéal, 24 = vigilance maximale), points colorés = gêne signalée cette semaine-là.</div>
+      <div class="ls-sante-hint">Graphique dédié — non superposé au graphique de charge existant. Ligne bleue = ACWR (charge aiguë / charge chronique), barres oranges = indice de vigilance Hooper quotidienne (0 = idéal, 24 = vigilance maximale), points colorés = gêne signalée ce jour-là. Questionnaire remplissable tous les jours depuis le 27/09/2026 : un point par jour rempli (auparavant hebdomadaire).</div>
       ${hooper.list.length
         ? `<div class="ls-chart-wrap" style="height:320px;"><canvas id="chart-sante-correlation"></canvas></div>
            <div class="ls-sante-legend-row">
              <div class="ls-sante-legend-item"><span class="ls-sante-legend-swatch" style="background:var(--cat-1);"></span>ACWR</div>
              <div class="ls-sante-legend-item"><span class="ls-sante-legend-swatch" style="background:var(--cat-2);opacity:.5;height:8px;border-radius:2px;"></span>Vigilance Hooper</div>
-             <div class="ls-sante-legend-item"><span class="ls-sante-legend-dot" style="background:var(--critical);"></span>Gêne signalée cette semaine</div>
+             <div class="ls-sante-legend-item"><span class="ls-sante-legend-dot" style="background:var(--critical);"></span>Gêne signalée ce jour-là</div>
            </div>`
         : `<div class="ls-empty">Pas encore de questionnaire pour calculer la corrélation.</div>`}
     </div>`;
@@ -4270,10 +4270,16 @@ function renderRapportAthleteCharts(athlete, sessions){
 
   const { dates, acwr } = runVolumeAcwrSeries(sessions);
   const injuries = injuryStatsFor(athlete.id).all.filter(r=>r.injuryType === "musculo_tendineuse");
+  // Ce graphique reste bucketé par SEMAINE (weeklyAggregates) alors que les
+  // signalements de blessure sont désormais quotidiens depuis le 2026-09-28
+  // (r.weekStart contient la date exacte du jour, pas forcément un lundi) --
+  // on regroupe donc chaque signalement sur le lundi de sa semaine avant de
+  // le faire correspondre aux buckets hebdomadaires ci-dessous.
   const injuryByWeek = {};
   injuries.forEach(r=>{
-    const cur = injuryByWeek[r.weekStart];
-    if(!cur || SANTE_SEVERITY_RANK[r.severity] > SANTE_SEVERITY_RANK[cur]) injuryByWeek[r.weekStart] = r.severity;
+    const wk = isoMonday(r.weekStart);
+    const cur = injuryByWeek[wk];
+    if(!cur || SANTE_SEVERITY_RANK[r.severity] > SANTE_SEVERITY_RANK[cur]) injuryByWeek[wk] = r.severity;
   });
 
   const labels = weeks.map(w=>fmtDayMonth(w.week));
