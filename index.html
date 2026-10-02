@@ -106,6 +106,14 @@
   .ls-side-divider{height:1px;background:var(--border);margin:14px 0;}
   .ls-side-actions{display:flex;flex-direction:column;gap:6px;}
 
+  /* ---------- import test VAM (.fit) ---------- */
+  .ls-dropzone{border:2px dashed var(--border);border-radius:14px;padding:22px 16px;text-align:center;cursor:pointer;
+    color:var(--text-muted);font-size:12.5px;transition:border-color .15s, background .15s;}
+  .ls-dropzone.drag{border-color:var(--accent);background:var(--surface-2);}
+  .ls-dropzone strong{color:var(--text-primary);}
+  .ls-dropzone input{display:none;}
+  .ls-vam-result-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;}
+
   /* ---------- main ---------- */
   .ls-empty{padding:60px 20px;text-align:center;color:var(--text-muted);}
   .ls-athlete-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
@@ -386,6 +394,7 @@
 <div id="modal-root"></div>
 
 <script src="chart.umd.min.js"></script>
+<script src="fit-parser.min.js"></script>
 <script>
 "use strict";
 /* =========================================================================
@@ -3071,7 +3080,10 @@ function renderMain(){
       ${athleteTestObjectivesPanelHtml(athlete)}
       <div class="ls-table-head" style="margin-bottom:10px;">
         <h3>Tests de terrain</h3>
-        <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
+        <div style="display:flex;gap:8px;">
+          <button class="ls-btn small ghost pdf-hide" id="btn-import-vam-test" type="button">Importer un test VAM (.fit)</button>
+          <button class="ls-btn small ghost pdf-hide" id="btn-add-athlete-test" type="button">+ Test</button>
+        </div>
       </div>
       ${athleteTests.length === 0 ? '<div class="ls-panel pdf-hide"><div class="ls-empty">Aucun test enregistré pour le moment.</div></div>' : `<div class="ls-table-card pdf-hide" style="margin-bottom:22px;">
         <div class="ls-table-head"><h3>Historique des tests (${athleteTests.length})</h3></div>
@@ -3294,6 +3306,8 @@ function renderMain(){
   main.querySelectorAll("[data-del-test]").forEach(b=> b.addEventListener("click", ()=> deleteAthleteTest(b.getAttribute("data-del-test"))));
   const addTestBtn = document.getElementById("btn-add-athlete-test");
   if(addTestBtn) addTestBtn.addEventListener("click", ()=> openAthleteTestModal(athlete.id));
+  const importVamBtn = document.getElementById("btn-import-vam-test");
+  if(importVamBtn) importVamBtn.addEventListener("click", ()=> openVamImportModal(athlete.id));
   main.querySelectorAll("[data-save-objective]").forEach(b=> b.addEventListener("click", async ()=>{
     const key = b.getAttribute("data-save-objective"); // clé RADAR_PARAMS (force/vma/seuil1/seuil2/vam3/vam9)
     const testType = key==="force" ? "force_membre_inf" : key; // athlete_tests.test_type / athlete_test_objectives.test_type
@@ -5183,6 +5197,237 @@ async function deleteSession(id){
 }
 
 /* ---------------------------- modal: test de terrain ---------------------------- */
+
+/* ============================================================
+   Parsing du fichier .fit (SDK officiel Garmin, vendorisé en
+   fit-parser.min.js) et calcul VAM 3'/9' -- mêmes fonctions que
+   rapport-seance.html (dupliquées ici pour que chaque outil reste
+   autonome, même convention que strava-webhook/strava-backfill-gap côté
+   Supabase), utilisées pour l'import de test VAM depuis le tableau de
+   bord coach (voir openVamImportModal). Les coordonnées GPS sont stockées
+   en "semicircles" dans le FIT brut ; conversion standard :
+   degrés = semicircles * (180 / 2^31) -- non utilisées ici (seules alt/t
+   servent au calcul VAM) mais conservées pour garder le parseur identique
+   entre les deux outils.
+   ============================================================ */
+function semicirclesToDeg(v){ return v==null ? null : v * (180/2147483648); }
+
+// Safari a un bug connu où File.prototype.arrayBuffer() peut échouer avec
+// "Load failed" (voir bugs WebKit sur Blob.arrayBuffer()). L'API FileReader,
+// plus ancienne, est nettement plus fiable pour lire un fichier local.
+function readFileAsArrayBuffer(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Impossible de lire ce fichier. Réessaie, ou choisis-le à nouveau."));
+    reader.onabort = () => reject(new Error("Lecture du fichier interrompue."));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function parseFitFile(file){
+  if(typeof FitSDK === "undefined"){
+    throw new Error("Le module d'analyse n'a pas pu se charger. Vérifie ta connexion et recharge la page.");
+  }
+  const buf = await readFileAsArrayBuffer(file);
+  const stream = FitSDK.Stream.fromArrayBuffer(buf);
+  if(!FitSDK.Decoder.isFIT(stream)) throw new Error("Ce fichier ne semble pas être un .fit valide.");
+  const decoder = new FitSDK.Decoder(stream);
+  const { messages, errors } = decoder.read();
+  if(!messages.recordMesgs || messages.recordMesgs.length < 2){
+    throw new Error("Ce fichier .fit ne contient pas de flux d'enregistrement exploitable.");
+  }
+  const session = (messages.sessionMesgs && messages.sessionMesgs[0]) || {};
+  const records = messages.recordMesgs
+    .filter(r => r.timestamp)
+    .map(r => ({
+      t: r.timestamp.getTime(),
+      lat: semicirclesToDeg(r.positionLat),
+      lon: semicirclesToDeg(r.positionLong),
+      alt: (r.enhancedAltitude ?? r.altitude ?? null),
+      hr: (r.heartRate ?? null),
+      distance: (r.distance ?? null), // mètres, cumulé
+      speed: (r.enhancedSpeed ?? r.speed ?? null), // m/s
+      grade: (r.grade ?? null), // %, pas toujours présent
+    }))
+    .sort((a,b)=>a.t-b.t);
+
+  return { records, session };
+}
+
+// VAM (m/h) sur la meilleure fenêtre glissante de `windowSeconds` trouvée
+// dans le flux altitude/temps du fichier .fit -- couvre aussi bien un
+// fichier dédié à un seul effort (3' ou 9' pile, auquel cas la meilleure
+// fenêtre est quasi tout le fichier) qu'un effort continu plus long dont on
+// extrait la meilleure sous-fenêtre de chaque durée (protocole VAM 3'/9' du
+// coach, voir échange du 2026-09-22 cité plus haut avec ATHLETE_TEST_TYPES_META).
+// Même technique de fenêtre glissante que peakGapWindow (strava-webhook/
+// strava-backfill-gap) : on coupe la fenêtre à chaque trou d'enregistrement
+// (pause, perte GPS/baro) au lieu de l'étirer dessus, et on tolère une
+// fenêtre légèrement plus courte que la cible (échantillonnage non-1Hz)
+// plutôt que d'exiger une durée exacte. Retourne null si le fichier est trop
+// court pour atteindre cette durée.
+function vamBestWindow(records, windowSeconds){
+  const pts = records.filter(r => r.alt != null && r.t != null);
+  const n = pts.length;
+  if(n < 2) return null;
+  const dts = new Array(n).fill(0);
+  const gains = new Array(n).fill(0);
+  for(let i=1;i<n;i++){
+    const dt = (pts[i].t - pts[i-1].t) / 1000;
+    if(dt <= 0 || dt > 30){ dts[i] = 0; continue; } // trou : coupe la fenêtre
+    dts[i] = dt;
+    const dAlt = pts[i].alt - pts[i-1].alt;
+    gains[i] = dAlt > 0 ? dAlt : 0;
+  }
+  let left = 1, sumTime = 0, sumGain = 0, best = null;
+  for(let right=1; right<n; right++){
+    if(dts[right] === 0){ left = right+1; sumTime = 0; sumGain = 0; continue; }
+    sumTime += dts[right]; sumGain += gains[right];
+    while(sumTime > windowSeconds && left < right){
+      sumTime -= dts[left]; sumGain -= gains[left]; left++;
+    }
+    if(sumTime >= windowSeconds * 0.95){
+      if(best == null || sumGain > best) best = sumGain;
+    }
+  }
+  if(best == null) return null;
+  return Math.round((best / windowSeconds) * 3600); // D+ (m) / temps (h)
+}
+
+// Modale d'import d'un test VAM depuis un fichier .fit (onglet Tests) --
+// calcule automatiquement la VAM 3' et la VAM 9' (voir vamBestWindow) et
+// pré-remplit le formulaire d'enregistrement ; le coach vérifie/ajuste les
+// valeurs avant de les envoyer dans athlete_tests (comme une saisie
+// manuelle classique), ce qui alimente ensuite le radar « Profil coureur »
+// et le jumeau numérique. Rien n'est envoyé sur un serveur pendant
+// l'analyse : tout est calculé dans le navigateur, même principe que
+// rapport-seance.html. Demande du coach du 2026-10-02.
+function openVamImportModal(athleteId){
+  const sessionLabels = athleteTestSessions((state.athleteTests||[]).filter(t=>t.athleteId===athleteId));
+  const suggestedNewSession = nextSessionLabel(sessionLabels);
+  const root = document.getElementById("modal-root");
+  root.innerHTML = `
+  <div class="ls-modal-overlay" id="modal-overlay">
+    <div class="ls-modal">
+      <h3>Importer un test VAM (.fit)</h3>
+      <div class="ls-modal-sub">Dépose le fichier .fit de l'effort de côte -- la VAM 3' et la VAM 9' sont calculées automatiquement sur les meilleures fenêtres de 3 et 9 minutes trouvées dans le fichier (un seul fichier suffit si l'effort est continu ; sinon importe-les un par un). VAM = D+ (meilleure fenêtre) / temps × 60, en m/h -- même formule que la saisie manuelle. Vérifie les valeurs calculées avant d'enregistrer.</div>
+      <div class="ls-dropzone" id="vam-dropzone">
+        <div id="vam-dropzone-label"><strong>Clique pour choisir un fichier</strong><br>ou dépose-le ici -- .fit uniquement</div>
+        <input type="file" id="vam-file-input" accept=".fit">
+      </div>
+      <div id="vam-parse-status"></div>
+      <div id="vam-result-wrap" hidden>
+        <div class="ls-vam-result-grid">
+          <div class="ls-field"><label>VAM 3' (m/h)</label><input type="number" min="0" step="1" id="vam-value-3"></div>
+          <div class="ls-field"><label>VAM 9' (m/h)</label><input type="number" min="0" step="1" id="vam-value-9"></div>
+        </div>
+        <div class="ls-field-row">
+          <div class="ls-field"><label>Date</label><input type="date" id="vam-date"></div>
+          <div class="ls-field">
+            <label>Session</label>
+            <select id="vam-session-select">
+              ${sessionLabels.map(l=>`<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join("")}
+              <option value="__new__" selected>+ Nouvelle session…</option>
+            </select>
+          </div>
+          <div class="ls-field" id="vam-session-new-wrap">
+            <label>Libellé de la nouvelle session</label>
+            <input type="text" id="vam-session-new" value="${escapeHtml(suggestedNewSession)}">
+          </div>
+        </div>
+        <div id="vam-result-note" class="ls-modal-sub" style="margin-top:4px;"></div>
+      </div>
+      <div class="ls-modal-actions">
+        <button type="button" class="ls-btn ghost" id="modal-cancel">Annuler</button>
+        <button type="button" class="ls-btn primary" id="vam-save-btn" disabled>Enregistrer les tests</button>
+      </div>
+    </div>
+  </div>`;
+
+  const dropzone = document.getElementById("vam-dropzone");
+  const fileInput = document.getElementById("vam-file-input");
+  const statusEl = document.getElementById("vam-parse-status");
+  const resultWrap = document.getElementById("vam-result-wrap");
+  const saveBtn = document.getElementById("vam-save-btn");
+  const sessionSelect = document.getElementById("vam-session-select");
+  const sessionNewWrap = document.getElementById("vam-session-new-wrap");
+  const sessionNewInput = document.getElementById("vam-session-new");
+  const syncSessionField = () => {
+    sessionNewWrap.style.display = sessionSelect.value === "__new__" ? "" : "none";
+  };
+  sessionSelect.addEventListener("change", syncSessionField);
+  syncSessionField();
+
+  dropzone.addEventListener("click", ()=>fileInput.click());
+  ["dragover","dragenter"].forEach(ev=>dropzone.addEventListener(ev, e=>{ e.preventDefault(); dropzone.classList.add("drag"); }));
+  ["dragleave","drop"].forEach(ev=>dropzone.addEventListener(ev, e=>{ e.preventDefault(); dropzone.classList.remove("drag"); }));
+  dropzone.addEventListener("drop", e=>{
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) handleVamFile(f);
+  });
+  fileInput.addEventListener("change", e=>{
+    const f = e.target.files && e.target.files[0];
+    if(f) handleVamFile(f);
+  });
+
+  async function handleVamFile(f){
+    if(!/\.fit$/i.test(f.name)){
+      statusEl.innerHTML = `<div style="color:var(--accent);font-size:12px;">Ce fichier n'est pas un .fit.</div>`;
+      return;
+    }
+    statusEl.innerHTML = `<div class="ls-chart-sub">Lecture du fichier…</div>`;
+    resultWrap.hidden = true;
+    saveBtn.disabled = true;
+    try{
+      const { records } = await parseFitFile(f);
+      const vam3 = vamBestWindow(records, 180);
+      const vam9 = vamBestWindow(records, 540);
+      if(vam3 == null && vam9 == null){
+        statusEl.innerHTML = `<div style="color:var(--accent);font-size:12px;">Impossible de calculer une VAM à partir de ce fichier (pas assez de durée, ou pas de données d'altitude).</div>`;
+        return;
+      }
+      statusEl.innerHTML = "";
+      document.getElementById("vam-value-3").value = vam3 != null ? vam3 : "";
+      document.getElementById("vam-value-9").value = vam9 != null ? vam9 : "";
+      document.getElementById("vam-date").value = fmtDate(new Date(records[0].t));
+      const durMin = Math.round(((records[records.length-1].t - records[0].t)/1000)/60);
+      const notes = [];
+      if(vam3 == null) notes.push("fichier trop court pour la VAM 3' (moins de 3 min)");
+      if(vam9 == null) notes.push("fichier trop court pour la VAM 9' (moins de 9 min)");
+      document.getElementById("vam-result-note").textContent = `Fichier de ${durMin} min analysé.` +
+        (notes.length ? " Attention : " + notes.join(", ") + "." : " Valeurs calculées sur la meilleure fenêtre du fichier -- vérifie-les avant d'enregistrer.");
+      resultWrap.hidden = false;
+      saveBtn.disabled = false;
+    }catch(err){
+      statusEl.innerHTML = `<div style="color:var(--accent);font-size:12px;">${escapeHtml(err && err.message ? err.message : "Impossible de lire ce fichier.")}</div>`;
+    }
+  }
+
+  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  document.getElementById("modal-overlay").addEventListener("click", e=>{ if(e.target.id==="modal-overlay") closeModal(); });
+
+  saveBtn.addEventListener("click", async ()=>{
+    const date = document.getElementById("vam-date").value;
+    if(!date){ alert("Merci de renseigner une date."); return; }
+    const sessionChoice = sessionSelect.value;
+    const sessionLabel = (sessionChoice === "__new__" ? sessionNewInput.value : sessionChoice || "").trim() || null;
+    const v3 = document.getElementById("vam-value-3").value;
+    const v9 = document.getElementById("vam-value-9").value;
+    if(!v3 && !v9){ alert("Au moins une des deux valeurs (VAM 3' ou VAM 9') doit être renseignée."); return; }
+    saveBtn.disabled = true;
+    try{
+      if(v3) await apiSaveAthleteTest({ athleteId, testType:"vam3", date, value:+v3, sessionLabel });
+      if(v9) await apiSaveAthleteTest({ athleteId, testType:"vam9", date, value:+v9, sessionLabel });
+      closeModal();
+      await refreshData();
+    }catch(err){
+      if(err.unauthorized){ closeModal(); showKeyGate("Clé d'accès expirée ou invalide, merci de la ressaisir."); return; }
+      alert("Impossible d'enregistrer les tests : " + err.message);
+      saveBtn.disabled = false;
+    }
+  });
+}
 
 function openAthleteTestModal(athleteId, testId){
   const existing = testId ? (state.athleteTests||[]).find(t=>t.id===testId) : null;
